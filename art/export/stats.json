@@ -1,0 +1,15 @@
+{
+  "duck_triangles": 9968,
+  "duck_vertices": 5058,
+  "beanie_triangles": 1152,
+  "bones_total": 42,
+  "bones_deform": 41,
+  "weights": {
+    "auto_body_kept": 700,
+    "auto_body_empty": 0
+  },
+  "max_influences": 4,
+  "height_m": 1.787,
+  "duck_glb_bytes": 346000,
+  "beanie_glb_bytes": 28108
+}

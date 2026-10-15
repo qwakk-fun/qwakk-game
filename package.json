@@ -1,0 +1,31 @@
+{
+  "name": "qwakk-game",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Qwakk browser battle royale: client, server and shared sim.",
+  "engines": {
+    "node": ">=24"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node --disable-warning=ExperimentalWarning scripts/dev.ts",
+    "dev:lan": "node --disable-warning=ExperimentalWarning scripts/dev.ts --host",
+    "build": "npm run typecheck && npm run build -w @qwakk/client",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.scripts.json",
+    "test": "npm test --workspaces --if-present",
+    "bench": "npm run bench -w @qwakk/server --",
+    "start": "npm start -w @qwakk/server",
+    "e2e": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts",
+    "test:net": "node --disable-warning=ExperimentalWarning e2e/pause-resume.ts"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "playwright": "1.64.1",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
