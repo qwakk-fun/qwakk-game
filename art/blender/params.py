@@ -20,6 +20,9 @@ PALETTE = {
     "beanie": "#1d1d21",       # doomer beanie (from marketing/reel/src/parts.tsx)
     "beanie_cuff": "#34343b",
     "beanie_edge": "#4a4a54",
+    "gun_dark": "#25272e",     # weapons: frames, grips, barrels
+    "gunmetal": "#4c525e",     # weapons: receivers, slides
+    "gun_light": "#7d8494",    # weapons: rails, small hardware
 }
 PALETTE_SIZE = 256
 PALETTE_CELL = 16
@@ -33,8 +36,8 @@ HEAD_RINGS = 18
 # Eyes: big dark ovals like the pupil inside the brand mark's Q ring.
 EYE_YAW_DEG = 27          # how far from the face center each eye sits
 EYE_PITCH_DEG = 9         # how far above the head center
-EYE_RADII = (0.072, 0.024, 0.096)   # width, bulge, height
-EYE_SINK = 0.010          # how deep the eye sits into the head surface
+EYE_RADII = (0.072, 0.022, 0.096)   # width, bulge, height
+EYE_SINK = 0.019          # how deep the eye sits into the head surface (keeps the far eye inside the outline)
 EYE_TOE_IN_DEG = 10       # turn the eyes toward the front a bit so they read from the side too
 SHINE_BIG = (0.024, 0.008, 0.029)
 SHINE_SMALL = (0.011, 0.006, 0.011)
@@ -66,6 +69,11 @@ TUFT_RADII = [0.042, 0.038, 0.032, 0.026, 0.020, 0.013]
 TUFT2_OFFSET = (0.05, 0.035, -0.02)   # small second feather, to the side and behind
 TUFT2_SCALE = 0.62
 
+# Back swirl: a spiral on the back of the head (degrees on the head ball), so the back is not a plain ball.
+BACK_SWIRL_CENTER = (0.0, 12.0)       # yaw from the back, pitch
+BACK_SWIRL_RADIUS = 30.0              # outer radius in degrees
+BACK_SWIRL_TURNS = 1.35
+
 # ---------------------------------------------------------------- body
 # Pear body: profile points (radius, z) from bottom pole to top pole, then scaled per axis.
 BODY_PROFILE = [
@@ -74,7 +82,7 @@ BODY_PROFILE = [
 ]
 BODY_SCALE_XY = (1.0, 0.90)
 BODY_BELLY_PUSH = 0.03                # belly sits a bit forward
-BODY_SEGMENTS = 30
+BODY_SEGMENTS = 28
 BODY_RINGS = 16
 
 # Tail feathers sticking up at the back.
@@ -99,24 +107,26 @@ HAND_END_X = 0.775
 
 UPPER_ARM_R = (0.080, 0.072)          # radius at shoulder, at elbow
 FOREARM_R = (0.070, 0.086)            # radius at elbow, at wrist cuff (wing flares out)
-PALM_HALF = (0.080, 0.046)            # palm half width (Y), half thickness (Z)
+PALM_HALF = (0.090, 0.052)            # palm half width (Y), half thickness (Z)
 
 # Fingers: (name, root offset from wrist (x, y, z), direction (x, y, z), length, half width, half thickness)
 FINGERS = [
-    ("Thumb", (0.035, -0.060, -0.006), (0.55, -0.80, -0.20), 0.105, 0.036, 0.027),
-    ("Index", (0.075, -0.033, 0.000), (1.0, -0.14, -0.02), 0.135, 0.040, 0.026),
-    ("Middle", (0.072, 0.038, 0.000), (1.0, 0.20, -0.02), 0.125, 0.040, 0.026),
+    ("Thumb", (0.035, -0.066, -0.006), (0.55, -0.80, -0.20), 0.110, 0.042, 0.031),
+    ("Index", (0.078, -0.038, 0.000), (1.0, -0.10, -0.02), 0.140, 0.047, 0.031),
+    ("Middle", (0.075, 0.042, 0.000), (1.0, 0.14, -0.02), 0.130, 0.047, 0.031),
 ]
 FINGER_SEGMENTS = 8
-FINGER_RINGS = 7
+FINGER_RINGS = 6
 
 HIP_X = 0.125
 KNEE_Z = 0.355
 ANKLE_Z = 0.085
-THIGH_R = (0.100, 0.080)              # top, above the knee cuff
+THIGH_R = (0.094, 0.078)              # top, above the knee cuff
 CUFF_R = 0.090                        # feather cuff at the bottom of the thigh
 SHIN_R = (0.058, 0.052)
-LEG_SEGMENTS = 18
+LEG_SEGMENTS = 16
+KNEE_FEATHERS = 4                     # feather points hanging off the knee roll
+KNEE_FEATHER_DROP = 0.042
 
 # Webbed feet.
 FOOT_CENTER_Y = -0.065

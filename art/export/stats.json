@@ -1,15 +1,204 @@
 {
-  "duck_triangles": 9968,
-  "duck_vertices": 5058,
+  "duck_triangles": 9856,
+  "duck_vertices": 5004,
   "beanie_triangles": 1152,
-  "bones_total": 42,
-  "bones_deform": 41,
+  "bones_total": 43,
+  "bones_deform": 42,
   "weights": {
-    "auto_body_kept": 700,
+    "auto_body_kept": 592,
     "auto_body_empty": 0
   },
   "max_influences": 4,
   "height_m": 1.787,
-  "duck_glb_bytes": 346000,
-  "beanie_glb_bytes": 28108
+  "duck_glb_bytes": 343120,
+  "beanie_glb_bytes": 28116,
+  "rifle_triangles": 1892,
+  "rifle_glb_bytes": 45764,
+  "pistol_triangles": 1124,
+  "pistol_glb_bytes": 28384,
+  "anims_glb_bytes": 670680,
+  "clips": {
+    "Idle": {
+      "seconds": 3.0,
+      "frames": 90,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0038
+    },
+    "Walk_F": {
+      "seconds": 0.4,
+      "frames": 12,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0325
+    },
+    "Run_F": {
+      "seconds": 0.367,
+      "frames": 11,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0303
+    },
+    "Walk_B": {
+      "seconds": 0.4,
+      "frames": 12,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0367
+    },
+    "Run_B": {
+      "seconds": 0.367,
+      "frames": 11,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0272
+    },
+    "Walk_L": {
+      "seconds": 0.4,
+      "frames": 12,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0355
+    },
+    "Run_L": {
+      "seconds": 0.367,
+      "frames": 11,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0195
+    },
+    "Walk_R": {
+      "seconds": 0.4,
+      "frames": 12,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0577
+    },
+    "Run_R": {
+      "seconds": 0.367,
+      "frames": 11,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0456
+    },
+    "Sprint": {
+      "seconds": 0.333,
+      "frames": 10,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0268
+    },
+    "Crouch_Idle": {
+      "seconds": 2.0,
+      "frames": 60,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0
+    },
+    "Crouch_Walk": {
+      "seconds": 0.467,
+      "frames": 14,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0
+    },
+    "Jump_Start": {
+      "seconds": 0.3,
+      "frames": 9,
+      "loop": false,
+      "layer": "full",
+      "ik_reach_error_m": 0.0021
+    },
+    "Fall_Loop": {
+      "seconds": 0.533,
+      "frames": 16,
+      "loop": true,
+      "layer": "full",
+      "ik_reach_error_m": 0.0
+    },
+    "Land": {
+      "seconds": 0.4,
+      "frames": 12,
+      "loop": false,
+      "layer": "full",
+      "ik_reach_error_m": 0.0003
+    },
+    "Death_A": {
+      "seconds": 1.4,
+      "frames": 42,
+      "loop": false,
+      "layer": "full",
+      "ik_reach_error_m": 0.0
+    },
+    "Death_B": {
+      "seconds": 1.333,
+      "frames": 40,
+      "loop": false,
+      "layer": "full",
+      "ik_reach_error_m": 0.0
+    },
+    "Hit_React": {
+      "seconds": 0.4,
+      "frames": 12,
+      "loop": false,
+      "layer": "full",
+      "ik_reach_error_m": 0.0003
+    },
+    "Rifle_Aim": {
+      "seconds": 2.0,
+      "frames": 60,
+      "loop": true,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0118
+    },
+    "Pistol_Aim": {
+      "seconds": 2.0,
+      "frames": 60,
+      "loop": true,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0
+    },
+    "Rifle_Reload": {
+      "seconds": 1.8,
+      "frames": 54,
+      "loop": false,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0091
+    },
+    "Pistol_Reload": {
+      "seconds": 1.4,
+      "frames": 42,
+      "loop": false,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0
+    },
+    "Rifle_Fire": {
+      "seconds": 0.2,
+      "frames": 6,
+      "loop": false,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0082
+    },
+    "Pistol_Fire": {
+      "seconds": 0.2,
+      "frames": 6,
+      "loop": false,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0
+    },
+    "Equip": {
+      "seconds": 0.6,
+      "frames": 18,
+      "loop": false,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0701
+    },
+    "Quack": {
+      "seconds": 1.0,
+      "frames": 30,
+      "loop": false,
+      "layer": "full",
+      "ik_reach_error_m": 0.0003
+    }
+  }
 }

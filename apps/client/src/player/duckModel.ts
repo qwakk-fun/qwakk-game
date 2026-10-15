@@ -2,17 +2,15 @@
  * Duck visuals. Today: a placeholder built from primitives (yellow body, orange
  * beak, dot eyes) so facing is obvious. Later: the rigged GLB.
  *
- * GLB hook: drop `duck.glb` into `apps/client/public/models/`. On start,
- * `loadDuckGlb()` checks for it; when present every avatar swaps its
- * placeholder for a clone of the GLB (see Avatar.setModel). The GLB is scaled
- * to the player height, its feet are put on y = 0, and it is turned to face -z
- * (the sim's forward at yaw 0; glTF characters usually face +z).
+ * GLB hook: `apps/client/public/models/duck.glb`. On start, `loadDuckGlb()`
+ * checks for it; when present every avatar swaps its placeholder for a clone
+ * of the GLB (see Avatar.setModel). Its feet are put on y = 0 and it is turned
+ * to face -z (the sim's forward at yaw 0; the art faces +z).
  */
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
-import { BODY } from '@qwakk/shared';
-import { outlineMaterial, toonMaterial } from '../render/materials.ts';
+import { outlineMaterial, skinnedOutlineMaterial, toonFrom, toonMaterial } from '../render/materials.ts';
 import { BRAND } from '../render/palette.ts';
 
 export const DUCK_GLB_URL = `${import.meta.env.BASE_URL}models/duck.glb`;
@@ -60,7 +58,7 @@ function duckGeometry(): DuckGeometry {
   return geometry;
 }
 
-/** Primitive duck, about BODY.standHeight tall, feet at y = 0, facing -z. */
+/** Primitive duck, about 1.75 m tall, feet at y = 0, facing -z. */
 export function createPlaceholderDuck(): DuckParts {
   const geo = duckGeometry();
   const yellow = toonMaterial(BRAND.yellow);
@@ -121,15 +119,27 @@ export function loadDuckGlb(): Promise<THREE.Object3D | null> {
       if (!head.ok || type.includes('text/html')) return null;
       const gltf = await new GLTFLoader().loadAsync(DUCK_GLB_URL);
       const model = gltf.scene;
+      // The art is authored in meters at game size (1.62 m to the head top), so
+      // no rescale: the server hitboxes are matched to it. Only put the feet on y = 0.
       const box = new THREE.Box3().setFromObject(model);
-      const height = box.max.y - box.min.y;
-      if (height > 0) model.scale.setScalar(BODY.standHeight / height);
-      box.setFromObject(model);
       model.position.y -= box.min.y;
       model.rotation.y = Math.PI;
+      // The art's toon recipe: two-band toon shading and an inverted-hull outline.
+      const skinned: THREE.SkinnedMesh[] = [];
       model.traverse((o) => {
-        if ((o as THREE.Mesh).isMesh) o.castShadow = true;
+        const mesh = o as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = true;
+        mesh.material = Array.isArray(mesh.material) ? mesh.material.map(toonFrom) : toonFrom(mesh.material);
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) skinned.push(o as THREE.SkinnedMesh);
       });
+      for (const mesh of skinned) {
+        const hull = new THREE.SkinnedMesh(mesh.geometry, skinnedOutlineMaterial());
+        hull.bind(mesh.skeleton, mesh.bindMatrix);
+        hull.castShadow = false;
+        hull.name = `${mesh.name}-outline`;
+        mesh.parent?.add(hull);
+      }
       const wrapper = new THREE.Group();
       wrapper.name = 'duck-glb';
       wrapper.add(model);

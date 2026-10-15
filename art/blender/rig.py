@@ -35,6 +35,8 @@ def bone_specs(finger_parts):
         ("Head", (0, 0, P.HEAD_BONE_Z), (0, 0, P.HEAD_TOP_Z), "Neck", fwd, True),
         ("HeadTop_End", (0, 0, P.HEAD_TOP_Z), (0, 0, P.HEAD_TOP_Z + 0.1), "Head", fwd, False),
         ("Jaw", P.JAW_PIVOT, tuple(Vector(P.JAW_PIVOT) + Vector((0, -P.JAW_LENGTH, 0))), "Head", z, True),
+        # extra (not Mixamo): tail wiggle
+        ("Tail", P.TAIL_ROOT, tuple(Vector(P.TAIL_ROOT) + Vector((0, 0.17, 0.12))), "Hips", z, True),
     ]
     for side, pre in ((1, "Left"), (-1, "Right")):
         sz = P.SHOULDER_Z
@@ -216,7 +218,7 @@ def skin(mesh_obj, rig_obj, ranges, finger_parts, deform_bones, body_mode="auto"
                 elif base == "jaw":
                     w = {"Jaw": 1.0}
                 elif base == "tail":
-                    w = {"Hips": 1.0}
+                    w = {"Tail": 1.0}
                 elif base in ("body", "belly"):
                     w = auto.get(i)
                     if w:

@@ -1,0 +1,304 @@
+/**
+ * Server-side bots. A bot is a brain that writes one input frame per tick;
+ * the room feeds it through exactly the same step, weapon and hit-validation
+ * path as a human's input. Bots get no extra information: they only shoot at
+ * players they can see (line of sight against the world), react with a human
+ * delay, start with aim error that settles over time, and only partly control
+ * recoil.
+ *
+ * Bots run only on the server, so this file may use Math.random and Math.atan2.
+ */
+import {
+  aimOrigin,
+  Button,
+  PLAYER_QUERY_GROUPS,
+  WeaponId,
+  weaponStats,
+  type InputFrame,
+  type MapDef,
+  type PlayerSim,
+  type SimWorld,
+} from '@qwakk/shared';
+
+export interface BotTarget {
+  id: string;
+  x: number;
+  y: number;
+  z: number;
+  alive: boolean;
+}
+
+export const BOT_NAMES = ['Quackers', 'Puddles', 'Waddles', 'Bill', 'Feathers', 'Drake', 'Mallard', 'Ducky', 'Paddle', 'Splash', 'Nugget', 'Dabble'];
+
+const TAU = Math.PI * 2;
+const rand = (a: number, b: number): number => a + Math.random() * (b - a);
+const wrap = (a: number): number => a - TAU * Math.floor((a + Math.PI) / TAU);
+
+/** Skill knobs. Lower reaction and error means a harder bot. */
+const SKILL = {
+  reactionTicks: [10, 18] as const,
+  yawError: 0.13,
+  pitchError: 0.06,
+  errorSettlePerTick: 0.9,
+  turnRatePerTick: 0.22,
+  recoilControl: 0.75,
+  viewRange: 95,
+  fovCos: Math.cos((75 * Math.PI) / 180),
+  hearRange: 9,
+} as const;
+
+export class BotBrain {
+  private readonly frame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
+  private yaw = 0;
+  private pitch = 0;
+  private targetId = '';
+  private reaction = 0;
+  private yawErr = 0;
+  private pitchErr = 0;
+  private aimHead = false;
+  private strafe = 1;
+  private strafeTicks = 0;
+  private burstLeft = 0;
+  private pauseTicks = 0;
+  private lastSeen: { x: number; z: number; ticks: number } | null = null;
+  private goal: { x: number; z: number } | null = null;
+  private stuckCheck = { x: 0, z: 0, ticks: 0 };
+  private jumpCooldown = 0;
+  private holdFire = false;
+  private crouching = false;
+  private readonly map: MapDef;
+  private readonly sim: SimWorld;
+  private readonly tmp = { x: 0, y: 0, z: 0 };
+
+  constructor(sim: SimWorld) {
+    this.sim = sim;
+    this.map = sim.map;
+  }
+
+  /** Reset after a respawn. */
+  respawned(self: PlayerSim): void {
+    this.yaw = self.yaw;
+    this.pitch = 0;
+    this.targetId = '';
+    this.lastSeen = null;
+    this.goal = null;
+    this.burstLeft = 0;
+  }
+
+  /** Told by the room when the bot is hit, so it turns toward the shooter like a player reading the damage indicator. */
+  damagedFrom(x: number, z: number): void {
+    if (!this.targetId) this.lastSeen = { x, z, ticks: 90 };
+  }
+
+  think(self: PlayerSim, others: readonly BotTarget[], tick: number): InputFrame {
+    const f = this.frame;
+    f.mx = 0;
+    f.mz = 0;
+    f.buttons = 0;
+    if (!self.alive) {
+      f.yaw = this.yaw;
+      f.pitch = this.pitch;
+      return f;
+    }
+    if (tick % 3 === 0) this.perceive(self, others);
+    const target = this.targetId ? others.find((o) => o.id === this.targetId && o.alive) : undefined;
+    if (!target) this.targetId = '';
+
+    if (target) this.fight(self, target);
+    else this.roam(self);
+
+    this.weaponChores(self, !!target);
+    if (this.crouching && target) f.buttons |= Button.Crouch;
+    if (this.jumpCooldown > 0) this.jumpCooldown--;
+    f.yaw = wrap(this.yaw);
+    f.pitch = Math.max(-1.3, Math.min(1.4, this.pitch));
+    return f;
+  }
+
+  private eye(self: PlayerSim): { x: number; y: number; z: number } {
+    return aimOrigin(this.sim, self, 1, this.tmp);
+  }
+
+  private visible(self: PlayerSim, o: BotTarget): boolean {
+    const e = { x: self.x, y: self.y + (self.crouch ? 1.0 : 1.55), z: self.z };
+    const dx = o.x - e.x;
+    const dy = o.y + 1.1 - e.y;
+    const dz = o.z - e.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d > SKILL.viewRange || d < 0.01) return false;
+    const fx = -Math.sin(this.yaw);
+    const fz = -Math.cos(this.yaw);
+    const facing = (dx * fx + dz * fz) / Math.max(0.01, Math.hypot(dx, dz));
+    if (facing < SKILL.fovCos && d > SKILL.hearRange) return false;
+    const ray = new this.sim.rapier.Ray(e, { x: dx / d, y: dy / d, z: dz / d });
+    const hit = this.sim.world.castRay(ray, d, true, undefined, PLAYER_QUERY_GROUPS);
+    return !hit || hit.timeOfImpact > d - 0.4;
+  }
+
+  private perceive(self: PlayerSim, others: readonly BotTarget[]): void {
+    let best: BotTarget | null = null;
+    let bestD = Infinity;
+    for (const o of others) {
+      if (!o.alive) continue;
+      const d = Math.hypot(o.x - self.x, o.z - self.z);
+      if (d >= bestD) continue;
+      if (!this.visible(self, o)) continue;
+      best = o;
+      bestD = d;
+    }
+    if (best) {
+      if (best.id !== this.targetId) {
+        // New target: a human-like reaction delay and a fresh aim error.
+        this.targetId = best.id;
+        this.reaction = Math.round(rand(SKILL.reactionTicks[0], SKILL.reactionTicks[1]));
+        this.yawErr = rand(-1, 1) * SKILL.yawError;
+        this.pitchErr = rand(-1, 1) * SKILL.pitchError;
+        this.aimHead = Math.random() < 0.1;
+        this.crouching = bestD > 30 && Math.random() < 0.25;
+      }
+      this.lastSeen = { x: best.x, z: best.z, ticks: 240 };
+    } else if (this.targetId) {
+      this.targetId = '';
+    }
+  }
+
+  private fight(self: PlayerSim, t: BotTarget): void {
+    const f = this.frame;
+    const e = this.eye(self);
+    // Aim at the belly so the spray climbs through the chest, like a decent player.
+    const aimY = t.y + (this.aimHead ? 1.36 : 0.8);
+    const dx = t.x - e.x;
+    const dy = aimY - e.y;
+    const dz = t.z - e.z;
+    const horiz = Math.hypot(dx, dz);
+    const dist = Math.hypot(horiz, dy);
+    const w = weaponStats(self.weapon);
+    const pattern = w.pattern[Math.min(Math.floor(self.spray), w.pattern.length - 1)] ?? [0, 0];
+
+    // Aim error settles toward zero, with a little hand tremor.
+    this.yawErr = this.yawErr * SKILL.errorSettlePerTick + rand(-1, 1) * 0.003;
+    this.pitchErr = this.pitchErr * SKILL.errorSettlePerTick + rand(-1, 1) * 0.002;
+    const wantYaw = Math.atan2(-dx, -dz) + this.yawErr + pattern[1] * SKILL.recoilControl;
+    const wantPitch = Math.atan2(dy, horiz) + this.pitchErr - pattern[0] * SKILL.recoilControl;
+    this.turnToward(wantYaw, wantPitch);
+
+    // Movement: strafe, keep a fighting distance, stand still for long-range bursts.
+    if (--this.strafeTicks <= 0) {
+      this.strafe = Math.random() < 0.5 ? -1 : 1;
+      this.strafeTicks = Math.round(rand(10, 30));
+    }
+    const longRange = dist > 28;
+    const firing = this.burstLeft > 0;
+    if (!(longRange && firing)) f.mx = this.strafe;
+    if (dist > 30) f.mz = 0.6;
+    else if (dist < 7) f.mz = -0.6;
+
+    // Fire once the reaction time is over and the aim is close enough.
+    if (this.reaction > 0) {
+      this.reaction--;
+      return;
+    }
+    const aimOff = Math.hypot(wrap(this.yaw - wantYaw), this.pitch - wantPitch);
+    const tolerance = Math.max(0.025, Math.atan2(0.45, dist));
+    if (this.pauseTicks > 0) {
+      this.pauseTicks--;
+      this.holdFire = false;
+      return;
+    }
+    if (aimOff > tolerance * 2.5 && this.burstLeft === 0) return;
+    if (w.automatic) {
+      if (this.burstLeft === 0) this.burstLeft = Math.round(longRange ? rand(2, 4) : rand(3, 6)) * w.fireTicks;
+      f.buttons |= Button.Fire;
+      if (--this.burstLeft <= 0) this.pauseTicks = Math.round(rand(5, 12));
+    } else {
+      // Semi-auto: press, release, press.
+      this.holdFire = !this.holdFire;
+      if (this.holdFire) f.buttons |= Button.Fire;
+      else this.pauseTicks = Math.round(rand(3, 7));
+    }
+  }
+
+  private roam(self: PlayerSim): void {
+    const f = this.frame;
+    this.burstLeft = 0;
+    this.holdFire = false;
+    if (this.lastSeen && this.lastSeen.ticks-- > 0) this.goal = { x: this.lastSeen.x, z: this.lastSeen.z };
+    else this.lastSeen = null;
+    if (!this.goal || Math.hypot(this.goal.x - self.x, this.goal.z - self.z) < 3) this.pickGoal(self);
+    const g = this.goal as { x: number; z: number };
+    let dir = Math.atan2(-(g.x - self.x), -(g.z - self.z));
+
+    // Steer around obstacles: probe ahead at knee and chest height.
+    const blocked = (a: number, h: number): boolean => this.rayAhead(self, a, h, 2.6);
+    if (blocked(dir, 1.2)) {
+      const alt = [0.7, -0.7, 1.4, -1.4, 2.2, -2.2].map((o) => dir + o).find((a) => !blocked(a, 1.2));
+      dir = alt ?? dir + Math.PI;
+    } else if (blocked(dir, 0.45) && this.jumpCooldown === 0) {
+      f.buttons |= Button.Jump;
+      this.jumpCooldown = 20;
+    }
+    this.turnToward(dir, -0.05);
+    f.mz = 1;
+    if (Math.hypot(g.x - self.x, g.z - self.z) > 15) f.buttons |= Button.Sprint;
+
+    // Stuck: no progress for a second, pick a new goal and hop.
+    if (++this.stuckCheck.ticks >= 30) {
+      const moved = Math.hypot(self.x - this.stuckCheck.x, self.z - this.stuckCheck.z);
+      if (moved < 1) {
+        this.pickGoal(self);
+        if (this.jumpCooldown === 0) {
+          f.buttons |= Button.Jump;
+          this.jumpCooldown = 20;
+        }
+      }
+      this.stuckCheck = { x: self.x, z: self.z, ticks: 0 };
+    }
+  }
+
+  private pickGoal(self: PlayerSim): void {
+    const pts = this.map.arenaSpawns;
+    if (pts.length === 0) {
+      this.goal = { x: rand(-40, 40), z: rand(-40, 40) };
+      return;
+    }
+    // Prefer a point that is not right next to us.
+    for (let i = 0; i < 6; i++) {
+      const p = pts[Math.floor(Math.random() * pts.length)];
+      if (p && Math.hypot(p[0] - self.x, p[2] - self.z) > 15) {
+        this.goal = { x: p[0], z: p[2] };
+        return;
+      }
+    }
+    const p = pts[0] as [number, number, number];
+    this.goal = { x: p[0], z: p[2] };
+  }
+
+  private rayAhead(self: PlayerSim, yaw: number, height: number, dist: number): boolean {
+    const o = { x: self.x, y: self.y + height, z: self.z };
+    const d = { x: -Math.sin(yaw), y: 0, z: -Math.cos(yaw) };
+    const hit = this.sim.world.castRay(new this.sim.rapier.Ray(o, d), dist, true, undefined, PLAYER_QUERY_GROUPS);
+    return hit !== null;
+  }
+
+  private turnToward(yaw: number, pitch: number): void {
+    const dy = wrap(yaw - this.yaw);
+    const step = SKILL.turnRatePerTick;
+    this.yaw += Math.max(-step, Math.min(step, dy));
+    this.pitch += Math.max(-step, Math.min(step, pitch - this.pitch));
+  }
+
+  private weaponChores(self: PlayerSim, fighting: boolean): void {
+    const f = this.frame;
+    const mag = self.weapon === WeaponId.Rifle ? self.mag0 : self.mag1;
+    const res = self.weapon === WeaponId.Rifle ? self.res0 : self.res1;
+    const w = weaponStats(self.weapon);
+    if (self.weapon === WeaponId.Rifle && mag === 0 && res === 0) f.buttons |= Button.Slot2;
+    else if (self.weapon === WeaponId.Pistol && self.res0 + self.mag0 > 0 && !fighting) f.buttons |= Button.Slot1;
+    else if (self.reload === 0 && mag === 0 && res > 0) f.buttons |= Button.Reload;
+    else if (!fighting && self.reload === 0 && mag < w.magSize * 0.4 && res > 0) f.buttons |= Button.Reload;
+    // Slot and reload buttons act on the press edge; release them on alternate ticks.
+    if ((f.buttons & (Button.Reload | Button.Slot1 | Button.Slot2)) && self.prevButtons & (Button.Reload | Button.Slot1 | Button.Slot2)) {
+      f.buttons &= ~(Button.Reload | Button.Slot1 | Button.Slot2);
+    }
+  }
+}

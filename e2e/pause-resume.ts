@@ -44,7 +44,7 @@ async function runScenario(s: Scenario): Promise<{ ok: boolean; line: string }> 
   const stepMs = 1000 / 30;
   const timer = setInterval(() => {
     if (paused) return;
-    yaw += 0.04;
+    yaw += 0.09; // a tight circle (about 2 m) so the duck rarely meets a crate
     if (yaw > Math.PI) yaw -= 2 * Math.PI;
     const d = input.data;
     d.tick = Math.max(0, Math.floor(room.clock.serverNow() / stepMs));
@@ -88,11 +88,16 @@ async function runScenario(s: Scenario): Promise<{ ok: boolean; line: string }> 
   clearInterval(timer);
   clearInterval(sampler);
 
-  // Recovered: from some window within 1 s (2 windows) after resume, every window moves >= 1 m.
+  // Recovered: from some window within 1 s (2 windows) after resume the duck
+  // keeps moving: no two windows in a row under 0.8 m (a single short window
+  // can be a crate in the way), and at least 1.5 m per window on average.
   const after = windows.slice(resumeAt);
   let recoveredAt = -1;
   for (let i = 0; i <= 2 && i < after.length; i++) {
-    if (after.slice(i).every((d) => d >= 1)) {
+    const rest = after.slice(i);
+    const stalled = rest.some((d, k) => d < 0.8 && (rest[k + 1] ?? 1) < 0.8);
+    const avg = rest.reduce((a, b) => a + b, 0) / Math.max(1, rest.length);
+    if (!stalled && avg >= 1.5) {
       recoveredAt = i;
       break;
     }
@@ -107,7 +112,7 @@ async function runScenario(s: Scenario): Promise<{ ok: boolean; line: string }> 
 async function main(): Promise<void> {
   const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], {
     cwd: root,
-    env: { ...process.env, PORT: String(PORT) },
+    env: { ...process.env, PORT: String(PORT), QWAKK_BOTS: '0' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   try {

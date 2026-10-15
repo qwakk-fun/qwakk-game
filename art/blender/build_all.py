@@ -5,7 +5,9 @@ Run from anywhere:
 Options after `--`:
   --no-render     build and export only
   --quick         fewer render samples, for fast iteration
-  --only NAME     render only shots whose name contains NAME (repeatable)
+  --only NAME     render only shots whose name contains NAME (repeatable):
+                  turnaround, face, size, pose, beanie, weapon, hold, anim
+  --no-anim       skip baking and exporting the animation clips (faster mesh iteration)
 """
 
 import json
@@ -21,20 +23,27 @@ sys.path.insert(0, HERE)
 import bpy  # noqa: E402
 from mathutils import Matrix, Vector  # noqa: E402
 
+import bake  # noqa: E402
+import clips  # noqa: E402
 import duck  # noqa: E402
 import geo  # noqa: E402
+import holds  # noqa: E402
 import params as P  # noqa: E402
+import posing  # noqa: E402
 import render  # noqa: E402
 import rig  # noqa: E402
+import weapons  # noqa: E402
 
 ART = os.path.dirname(HERE)
 EXPORT = os.path.join(ART, "export")
 RENDERS = os.path.join(ART, "renders")
-CLIENT_MODEL = os.path.join(os.path.dirname(ART), "apps", "client", "public", "models", "duck.glb")
+CLIENT_MODELS = os.path.join(os.path.dirname(ART), "apps", "client", "public", "models")
+CLIENT_MODEL = os.path.join(CLIENT_MODELS, "duck.glb")
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 NO_RENDER = "--no-render" in argv
 QUICK = "--quick" in argv
+NO_ANIM = "--no-anim" in argv
 ONLY = [argv[i + 1] for i, a in enumerate(argv) if a == "--only" and i + 1 < len(argv)]
 if "--only" in argv and not ONLY:
     sys.exit("usage: --only NAME")
@@ -105,6 +114,13 @@ def report(duck_obj, rig_obj, beanie, deform, stats):
     return info
 
 
+def publish(src, *rel):
+    """Copy an export into apps/client/public/models (only the files the asset contract names)."""
+    dst = os.path.join(CLIENT_MODELS, *rel)
+    os.makedirs(os.path.dirname(dst), exist_ok=True)
+    shutil.copyfile(src, dst)
+
+
 def main():
     palette, duck_obj, rig_obj, beanie, deform, stats = build()
 
@@ -113,17 +129,48 @@ def main():
     export_glb(duck_glb, [rig_obj, duck_obj])
     beanie_glb = os.path.join(EXPORT, "acc_beanie.glb")
     export_glb(beanie_glb, [beanie])
-    os.makedirs(os.path.dirname(CLIENT_MODEL), exist_ok=True)
-    shutil.copyfile(duck_glb, CLIENT_MODEL)
+    publish(duck_glb, "duck.glb")
     info = report(duck_obj, rig_obj, beanie, deform, stats)
     info["duck_glb_bytes"] = os.path.getsize(duck_glb)
     info["beanie_glb_bytes"] = os.path.getsize(beanie_glb)
+
+    # ---- weapons: GLBs with Muzzle/Grip/Support/Eject empties, plus the RightHand attach offsets
+    os.makedirs(os.path.join(EXPORT, "weapons"), exist_ok=True)
+    guns = weapons.build_all(duck_obj.data.materials[0])
+    sk = posing.Skeleton(rig_obj)
+    attach = bake.attach_json(duck_glb, sk, holds)
+    attach_doc = {"space": "RightHand joint local space of duck.glb (glTF axes, meters)", "rifle": attach, "pistol": attach}
+    for kind, (gun, empties) in guns.items():
+        path = os.path.join(EXPORT, "weapons", kind + ".glb")
+        weapons.contract_names(guns, kind)
+        select_only([gun] + empties)
+        bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_extras=False)
+        publish(path, "weapons", kind + ".glb")
+        info[kind + "_triangles"] = geo.triangle_count(gun)
+        info[kind + "_glb_bytes"] = os.path.getsize(path)
+        holds.SUPPORT_POINT[kind] = next(e.location.copy() for e in empties if e["contract_name"] == "Support")
+        gun.hide_render = True
+    attach_path = os.path.join(EXPORT, "weapons", "attach.json")
+    with open(attach_path, "w") as f:
+        json.dump(attach_doc, f, indent=2)
+    publish(attach_path, "weapons", "attach.json")
+
+    # ---- animation clips baked from code, exported as an armature-only GLB
+    ctx = clips.Ctx(sk)
+    if not NO_ANIM:
+        anim_info = bake.bake_all(rig_obj, sk, ctx, clips.registry())
+        anims_glb = os.path.join(EXPORT, "duck_anims.glb")
+        bake.export_anims(anims_glb, rig_obj)
+        upper_clips = {n for n, v in anim_info.items() if v["layer"] == clips.UPPER}
+        bake.prune_anims(anims_glb, upper_clips, set(sk.subtree("Spine")))
+        publish(anims_glb, "duck_anims.glb")
+        info["anims_glb_bytes"] = os.path.getsize(anims_glb)
+        info["clips"] = anim_info
     with open(os.path.join(EXPORT, "stats.json"), "w") as f:
         json.dump(info, f, indent=2)
-    print("STATS", json.dumps(info))
+    print("STATS", json.dumps({k: v for k, v in info.items() if k != "clips"}))
 
     # ---- beanie rides on the Head bone (cosmetic head slot)
-    head_bone = rig_obj.data.bones["Head"]
     world = beanie.matrix_world.copy()
     beanie.parent = rig_obj
     beanie.parent_type = "BONE"
@@ -137,6 +184,8 @@ def main():
     if NO_RENDER:
         return
     shots(palette, duck_obj, rig_obj, beanie)
+    import previews  # noqa: E402  (render-only module)
+    previews.run(wanted, QUICK, RENDERS, rig_obj, sk, ctx, guns, duck_obj)
 
 
 def wanted(name):

@@ -34,7 +34,7 @@ function showStopped(message: string): void {
 async function boot(): Promise<void> {
   const [ctx] = await Promise.all([createRenderer(canvas, config), initPhysics()]);
   status.textContent = config.devtools ? `Joining ${config.server} ...` : 'Joining the island...';
-  const session = await Session.join(config.server, config.name, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss });
+  const session = await Session.join(config.server, config.name, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
   status.textContent = 'Click to play';
 
   const game = new Game(ctx, session, canvas, hudEl);
@@ -50,16 +50,18 @@ async function boot(): Promise<void> {
 
   const controls = game.controlsRef;
   overlay.addEventListener('click', () => {
+    game.sound.unlock();
     if (overlay.dataset.stopped !== '1') controls.requestLock();
   });
   canvas.addEventListener('click', () => {
-    if (!controls.locked) controls.requestLock();
+    game.sound.unlock();
+    if (!controls.locked && !config.spectate) controls.requestLock();
   });
   document.addEventListener('pointerlockchange', () => {
     if (overlay.dataset.stopped === '1') return;
-    overlay.classList.toggle('hidden', document.pointerLockElement === canvas || config.autopilot);
+    overlay.classList.toggle('hidden', document.pointerLockElement === canvas || config.autopilot !== '' || config.spectate);
   });
-  if (config.autopilot) overlay.classList.add('hidden');
+  if (config.autopilot || config.spectate) overlay.classList.add('hidden');
   window.addEventListener('beforeunload', () => session.leave());
 }
 

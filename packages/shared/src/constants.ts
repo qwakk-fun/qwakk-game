@@ -62,6 +62,8 @@ export const NET = {
   patchRateHz: TICK_RATE,
   /** Remote players are drawn this far in the past (ms). */
   interpDelayMs: 100,
+  /** Output spring on remote interpolation (ms); adds about this much display lag. */
+  remoteSmoothMs: 30,
   /** Server side: max buffered inputs per player (Colyseus drops and acks the oldest past this). */
   maxInputBuffer: 10,
   /**
@@ -94,6 +96,31 @@ export const NET = {
 
 export const ROOM = {
   name: 'island',
-  maxClients: 32,
+  /** Human clients per room (deathmatch). The benchmark raises it with QWAKK_MAX_CLIENTS. */
+  maxClients: 8,
   defaultSeed: 1337,
+} as const;
+
+/** Deathmatch rules. */
+export const MATCH = {
+  /** Bots fill the room up to this many players. */
+  players: 8,
+  scoreLimit: 25,
+  roundSeconds: 300,
+  intermissionSeconds: 8,
+} as const;
+
+/** Interest management: how often and how precisely other players are sent. */
+export const INTEREST = {
+  /** Players closer than this are sent every tick; switch to far beyond `farRadius` (hysteresis). */
+  nearRadius: 35,
+  farRadius: 42,
+  /** Far players are sent every this many ticks (30 / 3 = 10 Hz). */
+  farEveryTicks: 3,
+  /** Extra interpolation delay the client uses for far players (ms); lag compensation subtracts it too. */
+  farExtraDelayMs: 50,
+  /** Re-evaluate near and far every this many ticks. */
+  updateEveryTicks: 10,
+  /** Shot effects are not sent to clients farther than this from both ends of the tracer (m). */
+  shotFxRadius: 160,
 } as const;

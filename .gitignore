@@ -1,5 +1,6 @@
 node_modules/
 dist/
+dist-test/
 *.log
 *.cpuprofile
 .DS_Store
@@ -13,3 +14,7 @@ playwright-report/
 *.blend1
 __pycache__/
 *.pyc
+
+# Animation preview videos, regenerate with art/blender/previews.py
+art/renders/anim/*.gif
+art/renders/anim/*.mp4

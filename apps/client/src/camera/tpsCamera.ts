@@ -10,12 +10,12 @@
  *   wall gets in the way and eases back out when the way clears.
  */
 import * as THREE from 'three/webgpu';
-import { eyeHeight, PLAYER_QUERY_GROUPS, type SimWorld } from '@qwakk/shared';
+import { AIM, eyeHeight, PLAYER_QUERY_GROUPS, type SimWorld } from '@qwakk/shared';
 
 export const CAMERA = {
   armLength: 3.1,
-  shoulderX: 0.75,
-  shoulderY: 0.32,
+  shoulderX: AIM.shoulderX,
+  shoulderY: AIM.shoulderY,
   /** Sphere radius used for the arm collision cast. */
   probeRadius: 0.22,
   /** Shoulder swap time constant (s). */
@@ -52,8 +52,33 @@ export class TpsCamera {
     this.shape = new sim.rapier.Ball(CAMERA.probeRadius);
   }
 
+  private kickPitch = 0;
+  private kickYaw = 0;
+  private shakeAmp = 0;
+
   swapShoulder(): void {
     this.side = -this.side;
+  }
+
+  /** Visual recoil: the view jumps up and settles. Aim (and the crosshair line) is unaffected. */
+  kick(pitch: number, yaw: number): void {
+    this.kickPitch = Math.min(this.kickPitch + pitch, 0.08);
+    this.kickYaw += yaw;
+  }
+
+  /** Screen shake (taking damage). */
+  shake(amount: number): void {
+    this.shakeAmp = Math.min(0.25, this.shakeAmp + amount);
+  }
+
+  /** Death camera: pulled back and up from the body, looking at it (or at the killer). */
+  deathView(dt: number, body: THREE.Vector3, lookAt: THREE.Vector3 | null, t: number): void {
+    const a = t * 0.35;
+    this.camera.position.set(body.x + Math.sin(a) * 4.5, body.y + 2.6 + t * 0.4, body.z + Math.cos(a) * 4.5);
+    this.lookTarget.copy(lookAt ?? body);
+    if (!lookAt) this.lookTarget.y += 0.6;
+    this.camera.lookAt(this.lookTarget);
+    void dt;
   }
 
   /** The pivot point the camera orbits (head height), for the shadow follow etc. */
@@ -70,6 +95,9 @@ export class TpsCamera {
 
     this.sideBlend += (this.side - this.sideBlend) * (1 - Math.exp(-dt / CAMERA.swapTau));
 
+    this.kickPitch *= Math.exp(-dt * 11);
+    this.kickYaw *= Math.exp(-dt * 11);
+    this.shakeAmp *= Math.exp(-dt * 9);
     const cp = Math.cos(pitch);
     this.forward.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
     this.right.set(Math.cos(yaw), 0, -Math.sin(yaw));
@@ -90,7 +118,17 @@ export class TpsCamera {
     else this.arm += (armHit - this.arm) * (1 - Math.exp(-dt / CAMERA.armReturnTau));
 
     this.camera.position.copy(this.origin).addScaledVector(this.dir, this.arm);
-    this.lookTarget.copy(this.camera.position).add(this.forward);
+    if (this.shakeAmp > 0.001) {
+      const a = this.shakeAmp;
+      this.camera.position.x += (Math.random() - 0.5) * a;
+      this.camera.position.y += (Math.random() - 0.5) * a;
+      this.camera.position.z += (Math.random() - 0.5) * a;
+    }
+    // The look direction includes the visual kick on top of the aim.
+    const vp = pitch + this.kickPitch;
+    const vy = yaw - this.kickYaw;
+    const vcp = Math.cos(vp);
+    this.lookTarget.set(-Math.sin(vy) * vcp, Math.sin(vp), -Math.cos(vy) * vcp).add(this.camera.position);
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.lookTarget);
 

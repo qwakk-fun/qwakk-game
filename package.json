@@ -20,7 +20,9 @@
     "bench": "npm run bench -w @qwakk/server --",
     "start": "npm start -w @qwakk/server",
     "e2e": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts",
-    "test:net": "node --disable-warning=ExperimentalWarning e2e/pause-resume.ts"
+    "test:net": "node --disable-warning=ExperimentalWarning e2e/pause-resume.ts",
+    "shots": "node --disable-warning=ExperimentalWarning e2e/firefight-shots.ts",
+    "build:test": "npm run build:test -w @qwakk/client"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

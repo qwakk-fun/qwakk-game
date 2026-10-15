@@ -10,3 +10,7 @@ export * from './map.ts';
 export * from './physics.ts';
 export * from './sim.ts';
 export * from './selftest.ts';
+export * from './weapons.ts';
+export * from './combat.ts';
+export * from './hitbox.ts';
+export * from './shot.ts';

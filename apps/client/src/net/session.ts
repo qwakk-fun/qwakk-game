@@ -3,18 +3,32 @@
  * prediction stack.
  *
  * - Local player: `predict.reconciler` (client-side prediction with server
- *   reconciliation). Every input is stepped immediately with the shared sim,
- *   then rewound to the server's state and replayed when an ack arrives. Any
- *   correction is spread over a few frames so it never pops.
- * - Remote players: `predict.attachAll(..., { mode: 'lerp' })`, snapshot
- *   interpolation about 100 ms in the past.
+ *   reconciliation) over the full sim state, weapon included. Every input is
+ *   stepped immediately with the shared sim, so shots, ammo and recoil are
+ *   instant; the server's copy decides and corrections blend in.
+ * - Other players: quantized poses from `poses` (every tick, near) or
+ *   `farPoses` (10 Hz, far). Near players: `Predict` lerp 100 ms behind plus a
+ *   30 ms output spring. Far players: our own buffer (farInterp.ts) 180 ms behind.
  * - Inputs go through `room.input()`: the framework numbers them, the server
- *   sanitizes and acks them.
+ *   sanitizes and acks them. Each input carries the view time (`vt`) the
+ *   server rewinds to when it checks this player's shots.
  */
 import { Callbacks, Client, Predict, type InputHandle, type Reconciler, type Room } from '@colyseus/sdk';
-import { NET, PLAYER_SIM_FIELDS, ROOM, sanitizeInputFields, stepPlayer, type InputFrame, type PlayerSim, type SimWorld } from '@qwakk/shared';
-import { IslandState, PlayerInput, type PlayerState } from '@qwakk/shared/net';
+import {
+  INTEREST,
+  NET,
+  PLAYER_SIM_FIELDS,
+  ROOM,
+  sanitizeInputFields,
+  stepPlayer,
+  type InputFrame,
+  type PlayerSim,
+  type ShotFired,
+  type SimWorld,
+} from '@qwakk/shared';
+import { IslandState, Msg, PlayerInput, type PlayerState, type Pose } from '@qwakk/shared/net';
 import { config } from '../config.ts';
+import { FarInterp } from './farInterp.ts';
 import { NetSim, type NetSimSettings } from './netsim.ts';
 
 export interface PredictionStats {
@@ -26,32 +40,64 @@ export interface PredictionStats {
   sumErrM: number;
 }
 
+/** Server messages, decoded. */
+export interface SessionHandlers {
+  /** Another player's shot: shooter pid, weapon, outcome, muzzle and end points (m). */
+  shots(list: { pid: number; weapon: number; outcome: number; from: [number, number, number]; to: [number, number, number] }[]): void;
+  hitConfirm(victimPid: number, damage: number, head: boolean, killed: boolean): void;
+  damaged(fromX: number, fromZ: number, damage: number): void;
+  kill(killerPid: number, victimPid: number, weapon: number, head: boolean, at: [number, number, number]): void;
+  /** The local sim fired (live step only, never on replay). `state` is the post-step state. */
+  localShot(shot: ShotFired, state: PlayerSim, buttons: number): void;
+}
+
+export interface RemotePose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+  crouch: number;
+  grounded: boolean;
+  far: boolean;
+}
+
+const NEAR_DELAY = NET.interpDelayMs;
+/** Far players are drawn this far behind: the near timeline (incl. its output spring) plus the server's far offset, so lag compensation lines up. */
+const FAR_DELAY = NET.interpDelayMs + config.lerpSmoothMs + INTEREST.farExtraDelayMs;
+
 export class Session {
   readonly room: Room<any, IslandState>;
   readonly predict: Predict<IslandState>;
   readonly input: InputHandle<PlayerInput>;
   readonly netsim: NetSim;
   me: Reconciler<PlayerState, any> | null = null;
+  /** Every player but the local one, keyed by session id. */
   readonly remotes = new Map<string, PlayerState>();
   readonly prediction: PredictionStats = { reconciles: 0, corrected: 0, lastErrM: 0, maxErrM: 0, sumErrM: 0 };
   /** Round trip measured with room.ping every second (includes the fake-network delay). */
   pingMs = 0;
+  private handlers: SessionHandlers | null = null;
   private lastReconcileSeq = 0;
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   /** Scratch frames: one for staging sends, one for the reconciler step. */
   private readonly sendFrame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
   private readonly stepFrame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
+  private readonly poseOut: RemotePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, far: false };
+  private readonly far = new Map<string, FarInterp>();
+  /** Per player: which source was drawn last and the offset that hides a near/far switch. */
+  private readonly blends = new Map<string, { far: boolean; ox: number; oy: number; oz: number; x: number; y: number; z: number; t: number }>();
 
   private constructor(room: Room<any, IslandState>, netsim: NetSim) {
     this.room = room;
     this.netsim = netsim;
-    this.predict = Predict.get(room, { mode: 'lerp', delay: NET.interpDelayMs, tickInterval: 1000 / NET.patchRateHz });
+    this.predict = Predict.get(room, { mode: 'lerp', delay: NEAR_DELAY, tickInterval: 1000 / NET.patchRateHz });
     this.input = room.input({ type: PlayerInput, mode: 'reliable' });
   }
 
-  static async join(endpoint: string, name: string, net: NetSimSettings): Promise<Session> {
+  static async join(endpoint: string, name: string, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
-    const room = await client.joinOrCreate<IslandState>(ROOM.name, { name }, IslandState);
+    const room = await client.joinOrCreate<IslandState>(ROOM.name, { name, spectate }, IslandState);
     const netsim = new NetSim(net);
     netsim.attach(room);
     const session = new Session(room, netsim);
@@ -67,6 +113,11 @@ export class Session {
     return this.room.state.seed;
   }
 
+  /** The local player's public state (score, hp), once it exists. */
+  get mine(): PlayerState | undefined {
+    return this.room.state.players.get(this.room.sessionId);
+  }
+
   /**
    * Resolve once the full state has been decoded. The state object exists (with
    * default values) before that, so checking it would read seed 0 and build the
@@ -76,11 +127,14 @@ export class Session {
     return new Promise((resolve) => this.room.onStateChange.once(() => resolve()));
   }
 
-  /** Start tracking players. Needs the local sim world for prediction. */
-  start(sim: SimWorld, onAdd: (id: string, p: PlayerState, local: boolean) => void, onRemove: (id: string) => void): void {
-    // Remote players: interpolate position, stance and look ~100 ms behind.
-    this.predict.attachAll('players', { mode: 'lerp', fields: ['x', 'y', 'z', 'crouch'], snap: 8, smoothMs: config.lerpSmoothMs });
-    this.predict.attachAll('players', { mode: 'lerp', fields: ['yaw', 'pitch'], angle: true, smoothMs: config.lerpSmoothMs });
+  /** Start tracking players and messages. Needs the local sim world for prediction. */
+  start(sim: SimWorld, handlers: SessionHandlers, onAdd: (id: string, p: PlayerState, local: boolean) => void, onRemove: (id: string) => void): void {
+    this.handlers = handlers;
+    const smooth = config.lerpSmoothMs;
+    const lin = (delay: number, tick: number) => ({ mode: 'lerp' as const, delay, smoothMs: smooth, tickInterval: tick, snap: 8 });
+    const ang = (delay: number, tick: number) => ({ mode: 'lerp' as const, delay, smoothMs: smooth, tickInterval: tick, angle: true });
+    const near = 1000 / NET.patchRateHz;
+    this.predict.attachAll('poses', { x: lin(NEAR_DELAY, near), y: lin(NEAR_DELAY, near), z: lin(NEAR_DELAY, near), crouch: lin(NEAR_DELAY, near), yaw: ang(NEAR_DELAY, near), pitch: ang(NEAR_DELAY, near) });
 
     const ping = () => this.room.ping((ms) => (this.pingMs = ms));
     ping();
@@ -95,8 +149,34 @@ export class Session {
     });
     callbacks.onRemove('players', (_player: PlayerState, id: string) => {
       this.remotes.delete(id);
+      this.blends.delete(id);
       onRemove(id);
     });
+    // Far players (10 Hz): our own interpolation buffer, see farInterp.ts.
+    callbacks.onAdd('farPoses', (pose: Pose, id: string) => {
+      const interp = new FarInterp();
+      this.far.set(id, interp);
+      callbacks.onChange(pose, () => interp.push(this.room.clock.lastServerTime(), pose));
+    });
+    callbacks.onRemove('farPoses', (_pose: Pose, id: string) => {
+      this.far.delete(id);
+    });
+
+    const m = (v: number) => v / 100;
+    this.room.onMessage(Msg.Shots, (list: number[][]) => {
+      handlers.shots(
+        list.map((d) => ({
+          pid: d[0] ?? 0,
+          weapon: d[1] ?? 0,
+          outcome: d[2] ?? 0,
+          from: [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)],
+          to: [m(d[6] ?? 0), m(d[7] ?? 0), m(d[8] ?? 0)],
+        })),
+      );
+    });
+    this.room.onMessage(Msg.HitConfirm, (d: number[]) => handlers.hitConfirm(d[0] ?? 0, d[1] ?? 0, d[2] === 1, d[3] === 1));
+    this.room.onMessage(Msg.Damaged, (d: number[]) => handlers.damaged(m(d[0] ?? 0), m(d[1] ?? 0), d[2] ?? 0));
+    this.room.onMessage(Msg.Kill, (d: number[]) => handlers.kill(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1, [m(d[4] ?? 0), m(d[5] ?? 0), m(d[6] ?? 0)]));
   }
 
   private createReconciler(sim: SimWorld, player: PlayerState): void {
@@ -122,9 +202,18 @@ export class Session {
         frame.yaw = Math.fround(cmd.yaw);
         frame.pitch = Math.fround(cmd.pitch);
         sanitizeInputFields(frame);
-        stepPlayer(sim, state as unknown as PlayerSim, frame, ctx.dt);
+        const s = state as unknown as PlayerSim;
+        const shot = stepPlayer(sim, s, frame, ctx.dt);
+        // Effects only for live steps: a replay re-runs inputs whose shots were already shown.
+        if (shot && !ctx.isReplay) this.handlers?.localShot(shot, s, frame.buttons);
       },
     });
+  }
+
+  /** Server time (ms) at which this client is drawing near players: the rewind target for its shots. */
+  viewTime(): number {
+    const c = this.room.clock;
+    return Math.max(0, Math.round(c.serverNow() - NEAR_DELAY - c.smoothedRtt() / 2 - config.lerpSmoothMs));
   }
 
   /**
@@ -146,6 +235,7 @@ export class Session {
       f.pitch = s.pitch;
       sanitizeInputFields(f);
       d.tick = Math.max(0, Math.floor(this.room.clock.serverNow() / stepMs));
+      d.vt = this.viewTime();
       d.mx = f.mx;
       d.mz = f.mz;
       d.buttons = f.buttons;
@@ -171,9 +261,66 @@ export class Session {
     if (err > p.maxErrM) p.maxErrM = err;
   }
 
-  /** Smoothed render value for any player field (remote: interpolated, local: predicted). */
-  value(player: PlayerState, field: 'x' | 'y' | 'z' | 'yaw' | 'pitch' | 'crouch'): number {
-    return this.predict.value(player, field);
+  /** The drawn pose of another player (near if available, else far), or null. Reused object. */
+  pose(id: string): RemotePose | null {
+    const st = this.room.state;
+    const o = this.poseOut;
+    const near = st.poses.get(id);
+    const farInterp = this.far.get(id);
+    let isFar: boolean;
+    if (near && !(near.x === 0 && near.y === 0 && near.z === 0)) {
+      o.x = this.predict.value(near, 'x');
+      o.y = this.predict.value(near, 'y');
+      o.z = this.predict.value(near, 'z');
+      o.yaw = this.predict.value(near, 'yaw');
+      o.pitch = this.predict.value(near, 'pitch');
+      o.crouch = this.predict.value(near, 'crouch');
+      o.grounded = near.grounded === 1;
+      isFar = false;
+    } else if (farInterp && !farInterp.empty) {
+      const c = this.room.clock;
+      farInterp.sample(c.serverNow() - FAR_DELAY - c.smoothedRtt() / 2, o);
+      o.grounded = st.farPoses.get(id)?.grounded === 1;
+      isFar = true;
+    } else return null;
+    o.far = isFar;
+
+    // A near/far switch changes the timeline (about 130 vs 180 ms behind): ease the jump out.
+    const now = performance.now();
+    let b = this.blends.get(id);
+    if (!b) {
+      b = { far: isFar, ox: 0, oy: 0, oz: 0, x: o.x, y: o.y, z: o.z, t: now };
+      this.blends.set(id, b);
+    }
+    if (b.far !== isFar && Math.hypot(b.x - o.x, b.z - o.z) < 8) {
+      b.ox = b.x - o.x;
+      b.oy = b.y - o.y;
+      b.oz = b.z - o.z;
+    }
+    b.far = isFar;
+    const k = Math.exp(-Math.max(0, now - b.t) / 150);
+    b.ox *= k;
+    b.oy *= k;
+    b.oz *= k;
+    o.x += b.ox;
+    o.y += b.oy;
+    o.z += b.oz;
+    b.x = o.x;
+    b.y = o.y;
+    b.z = o.z;
+    b.t = now;
+    return o;
+  }
+
+  /** Session id for a player's pid. */
+  idOfPid(pid: number): string | null {
+    for (const [id, p] of this.room.state.players) if (p.pid === pid) return id;
+    return null;
+  }
+
+  playerByPid(pid: number): PlayerState | null {
+    for (const p of this.room.state.players.values()) if (p.pid === pid) return p;
+    return null;
   }
 
   leave(): void {
@@ -181,3 +328,4 @@ export class Session {
     void this.room.leave(true);
   }
 }
+

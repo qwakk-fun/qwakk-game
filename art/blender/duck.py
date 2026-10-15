@@ -75,13 +75,13 @@ def build_head(parts):
         # catchlights on the upper side toward the key light (viewer's left)
         w, bulge, h = P.EYE_RADII
         for (u, v), radii in (((0.36 * side, 0.40), P.SHINE_BIG), ((-0.30 * side, -0.36), P.SHINE_SMALL)):
-            depth = bulge * math.sqrt(max(0.0, 1 - u * u - v * v)) - radii[1] * 0.35
+            depth = bulge * math.sqrt(max(0.0, 1 - u * u - v * v)) - radii[1] * 0.15
             local = Vector((u * w, depth, v * h))
             # mirrored, on the inner upper side of each eye, so a shine never pokes past the head silhouette
             s_center = center + Matrix(frame) @ local
             shine = geo.Part("shine")
             shine.outline = 0.0
-            geo.ellipsoid(shine, s_center, radii, frame, 8, 4, "shine")
+            geo.ellipsoid(shine, s_center, radii, frame, 7, 3, "shine")
             parts.append(shine)
 
         bp, bn = head_point(side * P.BLUSH_YAW_DEG, P.BLUSH_PITCH_DEG)
@@ -131,22 +131,38 @@ def build_bill(parts):
 
 
 def build_tuft(parts):
-    def feather(points, radii, cells, name):
-        path = geo.catmull(points, 12)
+    def feather(points, radii, cells, name, samples=12, segments=8, up=(1, 0, 0)):
+        path = geo.catmull(points, samples)
         keys = [(i / (len(radii) - 1), r) for i, r in enumerate(radii)]
-        rr = [geo.interp(keys, i / 11) for i in range(12)]
-        cell_list = [cells[0] if i < 8 else cells[1] for i in range(12)]
+        rr = [geo.interp(keys, i / (samples - 1)) for i in range(samples)]
+        cell_list = [cells[0] if i < samples * 2 // 3 else cells[1] for i in range(samples)]
         part = geo.Part(name)
-        geo.tube(part, path, rr, [r * 0.85 for r in rr], 8, cell_list, up=(1, 0, 0), cap_rings=3)
+        geo.tube(part, path, rr, [r * 0.85 for r in rr], segments, cell_list, up=up, cap_rings=3)
         parts.append(part)
 
     feather(P.TUFT_POINTS, P.TUFT_RADII, ("yellow", "yellow"), "tuft")
+
     root = Vector(P.TUFT_POINTS[0])
     off = Vector(P.TUFT2_OFFSET)
     pts2 = [root + off + (Vector(p) - root) * P.TUFT2_SCALE for p in P.TUFT_POINTS]
-    # lean the small feather outward
-    pts2 = [p + Vector((0.4 * (p.z - pts2[0].z), 0, 0)) for p in pts2]
+    pts2 = [p + Vector((0.4 * (p.z - pts2[0].z), 0, 0)) for p in pts2]   # lean the small feather outward
     feather(pts2, [r * 0.8 for r in P.TUFT_RADII], ("yellow", "yellow_deep"), "tuft")
+
+    # back swirl: a raised deep-yellow spiral on the back of the head, the Q curl seen from behind
+    yaw0, pitch0 = P.BACK_SWIRL_CENTER
+    pts, radii = [], []
+    count = 30
+    for i in range(count):
+        t = i / (count - 1)
+        ang = P.BACK_SWIRL_TURNS * 2 * math.pi * t
+        rad = P.BACK_SWIRL_RADIUS * (1.0 - 0.82 * t)
+        p, n = head_point(180 + yaw0 + rad * math.cos(ang), pitch0 + rad * math.sin(ang))
+        pts.append(p + n * 0.002)
+        radii.append(geo.lerp(0.017, 0.008, t))
+    swirl = geo.Part("tuft")
+    swirl.outline = 0.4
+    geo.tube(swirl, pts, radii, [r * 0.7 for r in radii], 6, "yellow_deep", cap_rings=2)
+    parts.append(swirl)
 
 
 # ------------------------------------------------------------------ body
@@ -162,7 +178,7 @@ def build_body(parts):
     # lighter belly: an ellipsoid that only just breaks the body surface, so its edge is a smooth oval
     belly = geo.Part("belly")
     belly.outline = 0.0
-    geo.ellipsoid(belly, (0, -0.105, 0.69), (0.215, 0.21, 0.225), geo.frame_from_normal((0, -1, 0)), 24, 10, "belly")
+    geo.ellipsoid(belly, (0, -0.105, 0.69), (0.215, 0.21, 0.225), geo.frame_from_normal((0, -1, 0)), 20, 8, "belly")
     parts.append(belly)
 
     # tail: a plump feather that sticks out of the rump and flips up, flanked by two smaller ones
@@ -170,12 +186,12 @@ def build_body(parts):
         root = Vector(P.TAIL_ROOT) + Vector((side, 0, -0.02 * abs(side) / 0.075))
         rot = Matrix.Rotation(math.radians(yaw), 3, "Z")
         local = [Vector((0, 0, 0)), Vector((0, 0.10, 0.02)), Vector((0, 0.18, 0.07)), Vector((0, 0.22, 0.15))]
-        path = geo.catmull([root + rot @ (p * scale) for p in local], 9)
-        ss = [i / 8 for i in range(9)]
+        path = geo.catmull([root + rot @ (p * scale) for p in local], 7)
+        ss = [i / 6 for i in range(7)]
         rx = [geo.interp([(0, 0.075), (0.45, 0.07), (1, 0.014)], s) * scale for s in ss]
         ry = [geo.interp([(0, 0.045), (0.5, 0.034), (1, 0.012)], s) * scale for s in ss]
         tail = geo.Part("tail")
-        geo.tube(tail, path, rx, ry, 8, ["yellow"] * 6 + ["yellow_deep"] * 3, up=rot @ Vector((0, -0.3, 1)), cap_depth=(1.0, 1.2))
+        geo.tube(tail, path, rx, ry, 8, ["yellow"] * 5 + ["yellow_deep"] * 2, up=rot @ Vector((0, -0.3, 1)), cap_depth=(1.0, 1.2))
         parts.append(tail)
 
 
@@ -226,13 +242,13 @@ def build_arm_left():
     for x, length in ((0.50, 0.085), (0.565, 0.105), (0.625, 0.12)):
         root = Vector((x, 0.035, P.SHOULDER_Z))
         d = Vector((0.42, 0.88, -0.06)).normalized()
-        n = 7
+        n = 5
         ss = [i / (n - 1) for i in range(n)]
         path = [root + d * (length * s) for s in ss]
         rx = [geo.interp([(0, 0.030), (0.5, 0.033), (1, 0.010)], s) for s in ss]
         ry = [geo.interp([(0, 0.018), (1, 0.010)], s) for s in ss]
         wf = geo.Part("wingfeather")
-        geo.tube(wf, path, rx, ry, 6, ["yellow"] * 4 + ["yellow_deep"] * 3, up=(0, 0, 1), cap_rings=2, cap_depth=(1.0, 1.4))
+        geo.tube(wf, path, rx, ry, 6, ["yellow"] * 3 + ["yellow_deep"] * 2, up=(0, 0, 1), cap_rings=2, cap_depth=(1.0, 1.4))
         out.append(wf)
     return out
 
@@ -242,15 +258,24 @@ def build_leg_left():
     s0, s1 = P.SHIN_R
     t0, t1 = P.THIGH_R
     # (z, radius): drumstick thigh, a rounded feather roll at the knee, then the orange shin
-    profile = [(0.63, t0), (0.585, t0), (0.54, t0 * 0.97), (0.50, t0 * 0.91), (0.465, t0 * 0.84), (0.435, t1),
+    profile = [(0.63, t0), (0.54, t0 * 0.97), (0.465, t0 * 0.86), (0.435, t1),
                (0.415, P.CUFF_R * 0.93), (0.40, P.CUFF_R), (0.386, P.CUFF_R * 0.97), (0.374, P.CUFF_R * 0.86),
                (0.366, P.CUFF_R * 0.73), (0.360, s0), (0.31, s0 * 0.98), (0.24, s0 * 0.955),
                (0.16, s0 * 0.93), (P.ANKLE_Z, s1)]
     path = [Vector((P.HIP_X, 0, z)) for z, _ in profile]
     rr = [r for _, r in profile]
     cells = ["yellow" if z >= 0.366 else "orange" for z, _ in profile]
+    def feathers(v, s, ang, frame):
+        # the underside of the knee roll hangs down in rounded feather points
+        z = v.z
+        w = geo.smoothstep(0.405, 0.385, z) * geo.smoothstep(0.355, 0.364, z)
+        if w <= 0:
+            return v
+        point = max(0.0, math.cos(P.KNEE_FEATHERS * ang)) ** 1.5
+        return v + Vector((0, 0, -P.KNEE_FEATHER_DROP * point * w))
+
     leg = geo.Part("leg")
-    geo.tube(leg, path, rr, rr, 12, cells, up=(0, -1, 0), cap_rings=3)
+    geo.tube(leg, path, rr, rr, P.LEG_SEGMENTS, cells, up=(0, -1, 0), cap_rings=3, ring_fn=feathers)
     out.append(leg)
     out.append(build_foot_left())
     return out
@@ -260,7 +285,7 @@ def build_foot_left():
     F, B, S = P.FOOT_FRONT, P.FOOT_BACK, P.FOOT_SIDE
     spread = P.FOOT_TOE_SPREAD_DEG
     outline = []
-    count = 28
+    count = 26
     for i in range(count):
         phi = -180 + 360 * i / count            # degrees from forward (-Y), positive toward +X
         a = abs(phi)

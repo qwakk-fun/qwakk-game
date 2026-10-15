@@ -45,7 +45,14 @@ export interface MapDef {
   boxes: BoxDef[];
   rocks: RockDef[];
   spawns: Vec3[];
+  /** Deathmatch arena: a town ring around the center. */
+  arena: { x: number; z: number; radius: number };
+  /** Deathmatch spawn points inside the arena, on open ground. */
+  arenaSpawns: Vec3[];
 }
+
+/** Deathmatch arena radius around the island center (m). */
+export const ARENA_RADIUS = 75;
 
 export const MAP_SIZE = 840;
 const CELL_SIZE = 4;
@@ -299,7 +306,20 @@ export function generateMap(seed: number): MapDef {
   pads.push({ x: 0, z: 0, hx: 26, hz: 26, yaw: 0, y: playY, falloff: 24 });
 
   const buildingSpots: Pad[] = [];
-  const wantBuildings = 14;
+  // The deathmatch town: a ring of houses around the playground, doors facing in.
+  const TOWN = 7;
+  for (let i = 0; i < TOWN; i++) {
+    const a = (i / TOWN) * 6.283185307179586 + 0.3;
+    const r = i % 2 === 0 ? 46 : 58;
+    const x = dsin(a) * r;
+    const z = dcos(a) * r;
+    // Front door (+z local) points back toward the center.
+    const yaw = a + 3.141592653589793;
+    const pad: Pad = { x, z, hx: BUILDING.width / 2 + 3, hz: BUILDING.depth / 2 + 3, yaw, y: Math.max(islandHeight(x, z, seed), 2), falloff: 12 };
+    pads.push(pad);
+    buildingSpots.push(pad);
+  }
+  const wantBuildings = 14 + TOWN;
   for (let tries = 0; tries < 2000 && buildingSpots.length < wantBuildings; tries++) {
     const x = (rng() - 0.5) * MAP_SIZE * 0.72;
     const z = (rng() - 0.5) * MAP_SIZE * 0.72;
@@ -395,6 +415,50 @@ export function generateMap(seed: number): MapDef {
   b.boxes.push({ kind: 'boundary', c: [0, 20, edge + 1], h: [half, 40, 1], q: IDENTITY });
   b.boxes.push({ kind: 'boundary', c: [0, 20, -edge - 1], h: [half, 40, 1], q: IDENTITY });
 
+  // Arena cover: crates and low walls scattered between the houses.
+  for (let i = 0; i < 40; i++) {
+    const a = rng() * 6.283185307179586;
+    const r = 18 + rng() * (ARENA_RADIUS - 22);
+    const x = dsin(a) * r;
+    const z = dcos(a) * r;
+    if (nearPad(x, z, 2.5)) continue;
+    const y = terrainHeightAt(terrain, x, z);
+    const yaw = rng() * 6.283185307179586;
+    if (rng() < 0.55) {
+      const sz = 0.6 + rng() * 0.25;
+      b.boxes.push({ kind: 'crate', c: [x, y + sz - 0.1, z], h: [sz, sz, sz], q: yawQuat(yaw) });
+    } else {
+      b.boxes.push({ kind: 'cover', c: [x, y + 0.5, z], h: [1.8 + rng() * 1.2, 0.65, 0.3], q: yawQuat(yaw) });
+    }
+  }
+
+  // Deathmatch spawns: open ground spread around the arena, away from props.
+  const arenaSpawns: Vec3[] = [];
+  const clearOfBoxes = (x: number, z: number): boolean => {
+    for (const bx of b.boxes) {
+      if (bx.kind === 'boundary') continue;
+      const dx = bx.c[0] - x;
+      const dz = bx.c[2] - z;
+      const reach = Math.max(bx.h[0], bx.h[2]) + 1.5;
+      if (dx * dx + dz * dz < reach * reach) return false;
+    }
+    for (const rk of rocks) {
+      const dx = rk.c[0] - x;
+      const dz = rk.c[2] - z;
+      if (dx * dx + dz * dz < (rk.r + 1.5) * (rk.r + 1.5)) return false;
+    }
+    return true;
+  };
+  for (let i = 0; i < 400 && arenaSpawns.length < 24; i++) {
+    const a = rng() * 6.283185307179586;
+    const r = 8 + rng() * (ARENA_RADIUS - 12);
+    const x = dsin(a) * r;
+    const z = dcos(a) * r;
+    if (nearPad(x, z, 1) && rectDistance(pads[0] as Pad, x, z) > 0) continue;
+    if (!clearOfBoxes(x, z)) continue;
+    arenaSpawns.push([x, terrainHeightAt(terrain, x, z) + 0.2, z]);
+  }
+
   // 4. Spawn points: on the playground edge plus near each building's front door.
   const spawns: Vec3[] = [];
   for (let i = 0; i < 8; i++) {
@@ -406,5 +470,5 @@ export function generateMap(seed: number): MapDef {
     spawns.push([p.x + rx, p.y + 0.4, p.z + rz]);
   }
 
-  return { seed, size: MAP_SIZE, seaLevel: 0, terrain, boxes: b.boxes, rocks, spawns };
+  return { seed, size: MAP_SIZE, seaLevel: 0, terrain, boxes: b.boxes, rocks, spawns, arena: { x: 0, z: 0, radius: ARENA_RADIUS }, arenaSpawns };
 }

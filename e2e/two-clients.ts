@@ -1,7 +1,7 @@
 /**
  * Two-client smoke test in a real headless browser.
  *
- * Starts the game server and `vite preview` (build first: npm run build),
+ * Starts the game server and `vite preview` (build the test bundle first: npm run build:test),
  * opens two pages that join the same room with the autopilot on, and checks
  * that each page receives the other's positions and draws them smoothly.
  * Runs once without added latency, once at 120 ms round trip with jitter, and
@@ -61,9 +61,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const snap = (p: Page) => p.evaluate(() => (window as unknown as { __qwakk: { snapshot(): Snapshot } }).__qwakk.snapshot());
 
 async function main(): Promise<void> {
-  if (!existsSync(`${root}/apps/client/dist/index.html`)) throw new Error('Build the client first: npm run build');
-  const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, { PORT: String(SERVER_PORT) });
-  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
+  const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, { PORT: String(SERVER_PORT), QWAKK_BOTS: '0' });
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
   const procs = [server, web];
   const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
   process.on('exit', cleanup);
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'],
     });
     async function phase(label: string, seconds: number, query: string, strict = true) {
-      const url = (name: string) => `http://localhost:${WEB_PORT}/game/?devtools=1&autopilot=1&name=${name}&${query}`;
+      const url = (name: string) => `http://localhost:${WEB_PORT}/game/?autopilot=1&name=${name}&${query}`;
       const ctxA = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       const ctxB = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       const a = await ctxA.newPage();

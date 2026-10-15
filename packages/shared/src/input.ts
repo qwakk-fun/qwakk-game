@@ -7,9 +7,17 @@ export const Button = {
   Sprint: 1 << 1,
   Crouch: 1 << 2,
   Walk: 1 << 3,
+  Fire: 1 << 4,
+  Reload: 1 << 5,
+  /** Equip the rifle (key 1). Slot buttons are held for one tick by the client. */
+  Slot1: 1 << 6,
+  /** Equip the pistol (key 2). */
+  Slot2: 1 << 7,
+  /** Camera over the left shoulder. The server needs it to rebuild the aim ray. */
+  ShoulderLeft: 1 << 8,
 } as const;
 
-export const ALL_BUTTONS = Button.Jump | Button.Sprint | Button.Crouch | Button.Walk;
+export const ALL_BUTTONS = (1 << 9) - 1;
 
 /** One sim tick of player intent. This is all a client ever sends. */
 export interface InputFrame {

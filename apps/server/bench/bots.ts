@@ -15,6 +15,7 @@ interface BotInput {
   buttons: number;
   yaw: number;
   pitch: number;
+  vt: number;
 }
 
 export interface BotResult {
@@ -83,7 +84,10 @@ class Bot {
       d.yaw = ((this.yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
       d.pitch = Math.sin(tick * 0.05) * 0.3;
       // Jump is a short press so the edge detector sees it.
-      d.buttons = this.buttons | (tick % 47 === 0 ? Button.Jump : 0);
+      // Fire in bursts about a third of the time, like players in a fight.
+      const firing = Math.floor(tick / 20) % 3 === 0;
+      d.buttons = this.buttons | (tick % 47 === 0 ? Button.Jump : 0) | (firing ? Button.Fire : 0) | (tick % 200 === 0 ? Button.Reload : 0);
+      d.vt = Math.max(0, Math.round(this.room.clock.serverNow() - 130));
       this.input.send();
     }, 1000 / TICK_RATE);
   }

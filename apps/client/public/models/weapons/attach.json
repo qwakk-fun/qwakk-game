@@ -1,0 +1,29 @@
+{
+  "space": "RightHand joint local space of duck.glb (glTF axes, meters)",
+  "rifle": {
+    "position": [
+      -0.0,
+      0.08,
+      -0.07
+    ],
+    "quaternion": [
+      -0.541675,
+      0.45452,
+      0.541675,
+      0.45452
+    ]
+  },
+  "pistol": {
+    "position": [
+      -0.0,
+      0.08,
+      -0.07
+    ],
+    "quaternion": [
+      -0.541675,
+      0.45452,
+      0.541675,
+      0.45452
+    ]
+  }
+}

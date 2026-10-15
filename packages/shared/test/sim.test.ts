@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
+  ALL_BUTTONS,
   Button,
   createPlayerSim,
   castWorldRay,
@@ -178,9 +179,9 @@ describe('movement feel', () => {
 
 describe('input sanitizing', () => {
   it('clamps axes, normalizes diagonals, masks buttons and rejects junk', () => {
-    const f = sanitizeInput({ seq: 5, tick: 1, mx: 9, mz: 9, buttons: 0xff, yaw: 100, pitch: 99 })!;
+    const f = sanitizeInput({ seq: 5, tick: 1, mx: 9, mz: 9, buttons: 0xffff, yaw: 100, pitch: 99 })!;
     expect(Math.hypot(f.mx, f.mz)).toBeCloseTo(1, 6);
-    expect(f.buttons).toBe(Button.Jump | Button.Sprint | Button.Crouch | Button.Walk);
+    expect(f.buttons).toBe(ALL_BUTTONS);
     expect(f.yaw).toBeGreaterThanOrEqual(-Math.PI);
     expect(f.yaw).toBeLessThan(Math.PI);
     expect(f.pitch).toBeLessThanOrEqual(1.45);
@@ -200,11 +201,11 @@ describe('terrain collider', () => {
     for (let i = 0; i < 300; i++) {
       const x = -300 + ((i * 37.13) % 600) + 0.37;
       const z = -300 + ((i * 91.71) % 600) + 0.61;
-      const d = castWorldRay(sim, x, 200, z, 0, -1, 0, 400);
-      if (d === null) continue;
+      const hit = sim.world.castRay(new sim.rapier.Ray({ x, y: 200, z }, { x: 0, y: -1, z: 0 }), 400, true);
+      // Only rays that land on the terrain itself, not on a prop.
+      if (!hit || hit.collider.shape.type !== sim.rapier.ShapeType.HeightField) continue;
       const expected = terrainHeightAt(sim.map.terrain, x, z);
-      if (Math.abs(200 - d - expected) > 0.5) continue; // ray hit a prop first
-      expect(Math.abs(200 - d - expected)).toBeLessThan(1e-3);
+      expect(Math.abs(200 - hit.timeOfImpact - expected)).toBeLessThan(1e-3);
       checked++;
     }
     expect(checked).toBeGreaterThan(200);
@@ -215,7 +216,7 @@ describe('controller robustness', () => {
   it('does not stall on flat ground (Rapier zero-time ground hit)', () => {
     // A real state captured from a run where Rapier returned zero movement.
     const sim = createSimWorld(generateMap(SEED));
-    const p: PlayerSim = { x: 5.904958724975586, y: 4.5705695152282715, z: -3.342289924621582, vx: -0.7102665901184082, vy: 0, vz: -6.968130111694336, yaw: 0.2, pitch: -0.1, crouch: 0, grounded: 1, air: 0, jumpBuf: 0, prevButtons: 2 };
+    const p: PlayerSim = { ...createPlayerSim(0, 0, 0), x: 5.904958724975586, y: 4.5705695152282715, z: -3.342289924621582, vx: -0.7102665901184082, vy: 0, vz: -6.968130111694336, yaw: 0.2, pitch: -0.1, crouch: 0, grounded: 1, air: 0, jumpBuf: 0, prevButtons: 2 };
     const x0 = p.x;
     const z0 = p.z;
     stepPlayer(sim, p, { seq: 0, tick: 0, mx: 0.07142890922957867, mz: 0.9974456932215773, buttons: Button.Sprint, yaw: 0.22499999403953552, pitch: -0.1 });

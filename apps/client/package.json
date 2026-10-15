@@ -8,7 +8,10 @@
     "dev:lan": "vite --host",
     "build": "vite build",
     "preview": "vite preview --host",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "build:test": "VITE_DEVTOOLS=1 vite build --outDir dist-test",
+    "preview:test": "vite preview --outDir dist-test",
+    "test": "vitest run"
   },
   "dependencies": {
     "@colyseus/schema": "5.0.40",

@@ -5,6 +5,7 @@
  *
  * Usage: npm run bench            (8, 16 and 32 bots, 30 s each)
  *        npm run bench -- 4 8      (custom bot counts)
+ *        npm run bench -- --no-interest   (every player at full rate: the baseline)
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
@@ -12,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { runBots } from './bots.ts';
 
 const PORT = 2599;
+
 const MEASURE_SECONDS = 30;
 const STATS_MS = 10_000;
 
@@ -31,7 +33,7 @@ interface Snapshot {
 async function startServer(): Promise<{ proc: ChildProcess; snapshots: Snapshot[] }> {
   const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url));
   const proc = spawn(process.execPath, [entry], {
-    env: { ...process.env, PORT: String(PORT), QWAKK_STATS: '1', QWAKK_STATS_MS: String(STATS_MS) },
+    env: { ...process.env, PORT: String(PORT), QWAKK_STATS: '1', QWAKK_STATS_MS: String(STATS_MS), QWAKK_BOTS: '0', QWAKK_MAX_CLIENTS: '64', QWAKK_INTEREST: INTEREST_ON ? '1' : '0' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   const snapshots: Snapshot[] = [];
@@ -81,6 +83,7 @@ async function benchOnce(bots: number) {
   };
 }
 
+const INTEREST_ON = !process.argv.includes('--no-interest');
 const counts = process.argv.slice(2).map(Number).filter((n) => n > 0);
 const plan = counts.length > 0 ? counts : [8, 16, 32];
 const rows = [];
