@@ -1,0 +1,426 @@
+{
+ "bunker_pillbox": {
+  "category": "beach",
+  "triangles": 1400,
+  "lodTriangles": [
+   1400,
+   94,
+   56
+  ],
+  "vertices": 828,
+  "glb_src_bytes": 117164,
+  "colliders": 25
+ },
+ "czech_hedgehog": {
+  "category": "beach",
+  "triangles": 212,
+  "lodTriangles": [
+   212,
+   36
+  ],
+  "vertices": 120,
+  "glb_src_bytes": 22964,
+  "colliders": 3
+ },
+ "beach_obstacle": {
+  "category": "beach",
+  "triangles": 196,
+  "lodTriangles": [
+   196
+  ],
+  "vertices": 116,
+  "glb_src_bytes": 16064,
+  "colliders": 4
+ },
+ "sandbag_wall": {
+  "category": "cover",
+  "triangles": 792,
+  "lodTriangles": [
+   792,
+   46,
+   10
+  ],
+  "vertices": 432,
+  "glb_src_bytes": 69256,
+  "colliders": 1
+ },
+ "sandbag_corner": {
+  "category": "cover",
+  "triangles": 1232,
+  "lodTriangles": [
+   1232,
+   92,
+   20
+  ],
+  "vertices": 672,
+  "glb_src_bytes": 106584,
+  "colliders": 2
+ },
+ "barbed_wire": {
+  "category": "cover",
+  "triangles": 534,
+  "lodTriangles": [
+   534,
+   90
+  ],
+  "vertices": 498,
+  "glb_src_bytes": 47864,
+  "colliders": 1
+ },
+ "trench_straight": {
+  "category": "trench",
+  "triangles": 618,
+  "lodTriangles": [
+   618,
+   78,
+   34
+  ],
+  "vertices": 392,
+  "glb_src_bytes": 58900,
+  "colliders": 4
+ },
+ "trench_corner": {
+  "category": "trench",
+  "triangles": 950,
+  "lodTriangles": [
+   950,
+   180,
+   80
+  ],
+  "vertices": 600,
+  "glb_src_bytes": 94456,
+  "colliders": 9
+ },
+ "trench_end": {
+  "category": "trench",
+  "triangles": 550,
+  "lodTriangles": [
+   550,
+   74,
+   54
+  ],
+  "vertices": 350,
+  "glb_src_bytes": 55352,
+  "colliders": 6
+ },
+ "crate_small": {
+  "category": "loot",
+  "triangles": 512,
+  "lodTriangles": [
+   512
+  ],
+  "vertices": 272,
+  "glb_src_bytes": 35000,
+  "colliders": 1
+ },
+ "crate_large": {
+  "category": "loot",
+  "triangles": 536,
+  "lodTriangles": [
+   536
+  ],
+  "vertices": 288,
+  "glb_src_bytes": 36664,
+  "colliders": 1
+ },
+ "ammo_box": {
+  "category": "loot",
+  "triangles": 122,
+  "lodTriangles": [
+   122
+  ],
+  "vertices": 72,
+  "glb_src_bytes": 12808,
+  "colliders": 1
+ },
+ "fuel_barrel": {
+  "category": "loot",
+  "triangles": 166,
+  "lodTriangles": [
+   166
+  ],
+  "vertices": 128,
+  "glb_src_bytes": 14608,
+  "colliders": 1
+ },
+ "farmhouse": {
+  "category": "building",
+  "triangles": 3750,
+  "lodTriangles": [
+   3750,
+   156,
+   72
+  ],
+  "vertices": 2688,
+  "glb_src_bytes": 286388,
+  "colliders": 94
+ },
+ "townhouse": {
+  "category": "building",
+  "triangles": 3234,
+  "lodTriangles": [
+   3234,
+   150,
+   70
+  ],
+  "vertices": 2324,
+  "glb_src_bytes": 247812,
+  "colliders": 74
+ },
+ "house_ruined": {
+  "category": "building",
+  "triangles": 2380,
+  "lodTriangles": [
+   2380,
+   228,
+   70
+  ],
+  "vertices": 1639,
+  "glb_src_bytes": 198476,
+  "colliders": 97
+ },
+ "church": {
+  "category": "building",
+  "triangles": 3208,
+  "lodTriangles": [
+   3208,
+   112,
+   64
+  ],
+  "vertices": 2237,
+  "glb_src_bytes": 235840,
+  "colliders": 167
+ },
+ "barn": {
+  "category": "building",
+  "triangles": 2776,
+  "lodTriangles": [
+   2776,
+   100,
+   46
+  ],
+  "vertices": 1880,
+  "glb_src_bytes": 212720,
+  "colliders": 59
+ },
+ "lighthouse": {
+  "category": "landmark",
+  "triangles": 678,
+  "lodTriangles": [
+   678
+  ],
+  "vertices": 478,
+  "glb_src_bytes": 48088,
+  "colliders": 5
+ },
+ "bridge_stone": {
+  "category": "landmark",
+  "triangles": 418,
+  "lodTriangles": [
+   418
+  ],
+  "vertices": 280,
+  "glb_src_bytes": 32996,
+  "colliders": 19
+ },
+ "hedgerow": {
+  "category": "country",
+  "triangles": 912,
+  "lodTriangles": [
+   912,
+   156,
+   72
+  ],
+  "vertices": 478,
+  "glb_src_bytes": 35484,
+  "colliders": 2
+ },
+ "stone_wall": {
+  "category": "country",
+  "triangles": 1220,
+  "lodTriangles": [
+   1220,
+   22,
+   10
+  ],
+  "vertices": 672,
+  "glb_src_bytes": 100044,
+  "colliders": 1
+ },
+ "wood_fence": {
+  "category": "country",
+  "triangles": 232,
+  "lodTriangles": [
+   232
+  ],
+  "vertices": 128,
+  "glb_src_bytes": 21300,
+  "colliders": 1
+ },
+ "signpost": {
+  "category": "country",
+  "triangles": 182,
+  "lodTriangles": [
+   182
+  ],
+  "vertices": 114,
+  "glb_src_bytes": 17196,
+  "colliders": 1
+ },
+ "tree_oak": {
+  "category": "nature",
+  "triangles": 788,
+  "lodTriangles": [
+   788,
+   118,
+   26
+  ],
+  "vertices": 412,
+  "glb_src_bytes": 27136,
+  "colliders": 1
+ },
+ "tree_poplar": {
+  "category": "nature",
+  "triangles": 402,
+  "lodTriangles": [
+   402,
+   80,
+   26
+  ],
+  "vertices": 209,
+  "glb_src_bytes": 17404,
+  "colliders": 1
+ },
+ "tree_apple": {
+  "category": "nature",
+  "triangles": 878,
+  "lodTriangles": [
+   878,
+   100,
+   26
+  ],
+  "vertices": 486,
+  "glb_src_bytes": 54952,
+  "colliders": 1
+ },
+ "bush_round": {
+  "category": "nature",
+  "triangles": 360,
+  "lodTriangles": [
+   360,
+   56,
+   20
+  ],
+  "vertices": 188,
+  "glb_src_bytes": 15404,
+  "colliders": 1
+ },
+ "bush_wide": {
+  "category": "nature",
+  "triangles": 450,
+  "lodTriangles": [
+   450,
+   108,
+   20
+  ],
+  "vertices": 235,
+  "glb_src_bytes": 18640,
+  "colliders": 1
+ },
+ "rock_boulder": {
+  "category": "nature",
+  "triangles": 64,
+  "lodTriangles": [
+   64
+  ],
+  "vertices": 34,
+  "glb_src_bytes": 9984,
+  "colliders": 1
+ },
+ "rock_slab": {
+  "category": "nature",
+  "triangles": 62,
+  "lodTriangles": [
+   62
+  ],
+  "vertices": 33,
+  "glb_src_bytes": 9712,
+  "colliders": 1
+ },
+ "rock_spire": {
+  "category": "nature",
+  "triangles": 68,
+  "lodTriangles": [
+   68
+  ],
+  "vertices": 36,
+  "glb_src_bytes": 10452,
+  "colliders": 1
+ },
+ "crater": {
+  "category": "country",
+  "triangles": 360,
+  "lodTriangles": [
+   360
+  ],
+  "vertices": 204,
+  "glb_src_bytes": 24856,
+  "colliders": 0
+ },
+ "rubble_pile": {
+  "category": "country",
+  "triangles": 438,
+  "lodTriangles": [
+   438
+  ],
+  "vertices": 241,
+  "glb_src_bytes": 37004,
+  "colliders": 1
+ },
+ "tank_wreck": {
+  "category": "vehicle",
+  "triangles": 1072,
+  "lodTriangles": [
+   1072,
+   122,
+   66
+  ],
+  "vertices": 652,
+  "glb_src_bytes": 87260,
+  "colliders": 7
+ },
+ "truck_wreck": {
+  "category": "vehicle",
+  "triangles": 908,
+  "lodTriangles": [
+   908,
+   174,
+   60
+  ],
+  "vertices": 528,
+  "glb_src_bytes": 77640,
+  "colliders": 5
+ },
+ "landing_craft": {
+  "category": "vehicle",
+  "triangles": 594,
+  "lodTriangles": [
+   594,
+   80,
+   64
+  ],
+  "vertices": 360,
+  "glb_src_bytes": 53284,
+  "colliders": 7
+ },
+ "transport_plane": {
+  "category": "vehicle",
+  "triangles": 3376,
+  "lodTriangles": [
+   3376
+  ],
+  "vertices": 1686,
+  "glb_src_bytes": 171932,
+  "colliders": 0
+ }
+}

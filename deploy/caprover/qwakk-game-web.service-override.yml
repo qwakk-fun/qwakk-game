@@ -1,0 +1,7 @@
+# Paste into: Apps > qwakk-game-web > App Configs > Service Update Override.
+# Static files only, so a small cap is plenty.
+TaskTemplate:
+  Resources:
+    Limits:
+      NanoCPUs: 500000000       # 0.5 CPU
+      MemoryBytes: 134217728    # 128 MiB

@@ -1,0 +1,29 @@
+# Build context for deploy/server/Dockerfile and deploy/web/Dockerfile.
+# Both images build from the repo root, so keep the context small.
+
+.git
+.gitignore
+**/node_modules
+**/dist
+**/.vite
+**/*.log
+**/*.cpuprofile
+**/.DS_Store
+coverage
+test-results
+playwright-report
+
+# Never send local secrets to the Docker daemon.
+**/.env
+**/.env.*
+!**/.env.example
+
+# Not needed by either image.
+art
+e2e
+docs
+scripts
+**/*.blend
+**/*.blend1
+**/__pycache__
+docker-compose.yml

@@ -1,0 +1,33 @@
+# Local PostgreSQL for the game (Phase 2 leaderboard). Not used by the game yet.
+# Host port 5439, because the DEX stack (./dev.sh) already uses 5438.
+#
+#   docker compose up -d postgres
+#   docker compose down          # keeps the data volume
+#
+# DATABASE_URL=postgres://qwakk_game:qwakk_game_local@localhost:5439/qwakk_game
+# The password is a local-only development value, never used in CapRover.
+
+name: qwakk-game
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: qwakk-game-postgres
+    environment:
+      POSTGRES_DB: qwakk_game
+      POSTGRES_USER: qwakk_game
+      POSTGRES_PASSWORD: qwakk_game_local
+    ports:
+      - "127.0.0.1:5439:5432"
+    volumes:
+      - qwakk-game-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U qwakk_game -d qwakk_game"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+volumes:
+  qwakk-game-postgres-data:
+    name: qwakk-game-postgres-data
