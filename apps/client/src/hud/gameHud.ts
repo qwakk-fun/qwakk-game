@@ -79,6 +79,27 @@ export class GameHud {
     this.protect.textContent = 'Spawn protection';
   }
 
+  /** The root element, for mode-specific HUD parts (battle royale) to attach to. */
+  get element(): HTMLElement {
+    return this.root;
+  }
+
+  /** Battle royale hides the deathmatch round bar (it has its own). */
+  setMode(mode: 'br' | 'dm'): void {
+    this.root.classList.toggle('br', mode === 'br');
+  }
+
+  /** Taking zone damage: a short orange tint. */
+  zoneHurt(): void {
+    this.flashT = 0.35;
+    this.flash.classList.add('zone');
+    setTimeout(() => this.flash.classList.remove('zone'), 400);
+  }
+
+  dispose(): void {
+    this.root.remove();
+  }
+
   set visible(v: boolean) {
     this.root.style.display = v ? '' : 'none';
   }

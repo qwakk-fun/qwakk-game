@@ -18,3 +18,4 @@ __pycache__/
 # Animation preview videos, regenerate with art/blender/previews.py
 art/renders/anim/*.gif
 art/renders/anim/*.mp4
+apps/server/.navcache/

@@ -12,13 +12,17 @@
     "bench": "node --disable-warning=ExperimentalWarning bench/run.ts",
     "bots": "node --disable-warning=ExperimentalWarning bench/bots.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "bench:br": "node --disable-warning=ExperimentalWarning bench/br.ts",
+    "test:br": "vitest run test/br.test.ts test/nav.test.ts"
   },
   "dependencies": {
     "@colyseus/core": "0.18.18",
     "@colyseus/schema": "5.0.40",
     "@colyseus/ws-transport": "0.18.4",
-    "@qwakk/shared": "*"
+    "@qwakk/shared": "*",
+    "postgres": "3.4.9",
+    "recast-navigation": "0.43.1"
   },
   "devDependencies": {
     "@colyseus/sdk": "0.18.5"

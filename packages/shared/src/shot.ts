@@ -12,7 +12,8 @@
  * line is identical, minus whatever is behind the player.
  */
 import { dcos, dsin } from './math.ts';
-import { PLAYER_QUERY_GROUPS, type SimWorld } from './physics.ts';
+import type { SimWorld } from './physics.ts';
+import { BULLET_QUERY_GROUPS, OPAQUE_QUERY_GROUPS } from './collision.ts';
 import { rayHitbox, type HitTarget } from './hitbox.ts';
 import type { PlayerSim } from './sim.ts';
 import { eyeHeight } from './sim.ts';
@@ -85,10 +86,10 @@ export function shotAngles(s: PlayerSim, shot: ShotFired, seed: number): { yaw: 
   return { yaw, pitch };
 }
 
-/** World-only ray: distance to the first hit, or `max`. */
-function worldRay(sim: SimWorld, o: Vec3Like, d: Vec3Like, max: number): number {
+/** World-only ray: distance to the first hit, or `max`. Bullets by default (hedges, wire and bushes let them through). */
+function worldRay(sim: SimWorld, o: Vec3Like, d: Vec3Like, max: number, groups: number = BULLET_QUERY_GROUPS): number {
   const ray = new sim.rapier.Ray(o, d);
-  const hit = sim.world.castRay(ray, max, true, undefined, PLAYER_QUERY_GROUPS);
+  const hit = sim.world.castRay(ray, max, true, undefined, groups);
   return hit ? hit.timeOfImpact : max;
 }
 
@@ -99,7 +100,8 @@ export function aimOrigin(sim: SimWorld, s: PlayerSim, side: number, out: Vec3Li
   const rz = -dsin(s.yaw) * AIM.shoulderX * side;
   const len = Math.sqrt(rx * rx + AIM.shoulderY * AIM.shoulderY + rz * rz);
   const d = { x: rx / len, y: AIM.shoulderY / len, z: rz / len };
-  const free = Math.max(0, worldRay(sim, { x: s.x, y: eyeY, z: s.z }, d, len) - 0.05);
+  // Same groups as the camera's shoulder cast, so the aim ray stays on the camera's line.
+  const free = Math.max(0, worldRay(sim, { x: s.x, y: eyeY, z: s.z }, d, len, OPAQUE_QUERY_GROUPS) - 0.05);
   out.x = s.x + d.x * free;
   out.y = eyeY + d.y * free;
   out.z = s.z + d.z * free;

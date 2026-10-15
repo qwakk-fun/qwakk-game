@@ -26,6 +26,11 @@ function pressed(buttons: number, prev: number, bit: number): boolean {
   return (buttons & bit) !== 0 && (prev & bit) === 0;
 }
 
+/** Does the player own this weapon (WeaponId)? */
+export function hasWeapon(s: PlayerSim, weapon: number): boolean {
+  return ((s.arms >> weapon) & 1) === 1;
+}
+
 export function magOf(s: PlayerSim, weapon: number): number {
   return weapon === 0 ? s.mag0 : s.mag1;
 }
@@ -65,9 +70,9 @@ export function stepWeapon(s: PlayerSim, input: InputFrame): ShotFired | null {
   const b = input.buttons | 0;
   const prev = s.prevButtons | 0;
 
-  // Switching: cancels a reload, resets the spray, starts the equip timer.
+  // Switching: cancels a reload, resets the spray, starts the equip timer. Only to a weapon you own.
   const want = pressed(b, prev, Button.Slot1) ? 0 : pressed(b, prev, Button.Slot2) ? 1 : -1;
-  if (want >= 0 && want !== s.weapon) {
+  if (want >= 0 && want !== s.weapon && hasWeapon(s, want)) {
     s.weapon = want;
     s.equip = weaponStats(want).equipTicks;
     s.reload = 0;
@@ -75,6 +80,14 @@ export function stepWeapon(s: PlayerSim, input: InputFrame): ShotFired | null {
     s.cooldown = 0;
   }
   const w = weaponStats(s.weapon);
+  // Unarmed (battle royale before the first pickup): nothing to fire or reload.
+  if (!hasWeapon(s, s.weapon)) {
+    s.equip = 0;
+    s.reload = 0;
+    s.spray = 0;
+    if (s.cooldown > 0) s.cooldown -= 1;
+    return null;
+  }
 
   if (s.equip > 0) s.equip -= 1;
   if (s.cooldown > 0) s.cooldown -= 1;

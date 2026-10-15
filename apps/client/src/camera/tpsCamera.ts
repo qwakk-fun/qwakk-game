@@ -10,7 +10,7 @@
  *   wall gets in the way and eases back out when the way clears.
  */
 import * as THREE from 'three/webgpu';
-import { AIM, eyeHeight, PLAYER_QUERY_GROUPS, type SimWorld } from '@qwakk/shared';
+import { AIM, eyeHeight, OPAQUE_QUERY_GROUPS, type SimWorld } from '@qwakk/shared';
 
 export const CAMERA = {
   armLength: 3.1,
@@ -25,8 +25,14 @@ export const CAMERA = {
   /** Pivot height smoothing time constant (s). */
   heightTau: 0.06,
   baseFov: 75,
-  sprintFov: 81,
+  /** Sprinting widens the view by this much. */
+  sprintFovAdd: 6,
   fovTau: 0.15,
+  /** Arm while falling or gliding (a wider view of the landing spot). */
+  airArmLength: 6,
+  /** Distance of the orbit camera around the plane. */
+  planeOrbit: 34,
+  armTau: 0.4,
 } as const;
 
 export class TpsCamera {
@@ -37,6 +43,10 @@ export class TpsCamera {
   private arm: number = CAMERA.armLength;
   private pivotY = Number.NaN;
   private fov: number = CAMERA.baseFov;
+  private baseFov: number = CAMERA.baseFov;
+  /** Arm length the spring arm aims for (longer in the air). */
+  private armTarget: number = CAMERA.armLength;
+  private armMax: number = CAMERA.armLength;
   private readonly shape: InstanceType<SimWorld['rapier']['Ball']>;
   private readonly pivot = new THREE.Vector3();
   private readonly forward = new THREE.Vector3();
@@ -55,6 +65,36 @@ export class TpsCamera {
   private kickPitch = 0;
   private kickYaw = 0;
   private shakeAmp = 0;
+
+  /** Base field of view from the settings (degrees). */
+  setBaseFov(fov: number): void {
+    this.baseFov = fov;
+  }
+
+  /** Longer arm in the air, normal on foot. */
+  setAirborne(air: boolean): void {
+    this.armTarget = air ? CAMERA.airArmLength : CAMERA.armLength;
+  }
+
+  /** Orbit camera around a point (the plane): mouse look turns it, no collision. */
+  orbit(dt: number, x: number, y: number, z: number, yaw: number, pitch: number): void {
+    const cp = Math.cos(pitch);
+    this.forward.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
+    this.camera.position.set(x, y + 4, z).addScaledVector(this.forward, -CAMERA.planeOrbit);
+    this.lookTarget.set(x, y + 4, z);
+    this.camera.up.set(0, 1, 0);
+    this.camera.lookAt(this.lookTarget);
+    this.pivotY = Number.NaN;
+    this.setFovTowards(this.baseFov, dt);
+  }
+
+  private setFovTowards(target: number, dt: number): void {
+    this.fov += (target - this.fov) * (1 - Math.exp(-dt / CAMERA.fovTau));
+    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
+      this.camera.fov = this.fov;
+      this.camera.updateProjectionMatrix();
+    }
+  }
 
   swapShoulder(): void {
     this.side = -this.side;
@@ -112,8 +152,9 @@ export class TpsCamera {
     this.origin.addScaledVector(this.dir, sideHit);
 
     // Then the arm itself, straight back along the view direction.
+    this.armMax += (this.armTarget - this.armMax) * (1 - Math.exp(-dt / CAMERA.armTau));
     this.dir.copy(this.forward).negate();
-    const armHit = this.cast(this.origin, this.dir, CAMERA.armLength);
+    const armHit = this.cast(this.origin, this.dir, this.armMax);
     if (armHit < this.arm) this.arm = armHit;
     else this.arm += (armHit - this.arm) * (1 - Math.exp(-dt / CAMERA.armReturnTau));
 
@@ -132,12 +173,7 @@ export class TpsCamera {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.lookTarget);
 
-    const targetFov = sprinting ? CAMERA.sprintFov : CAMERA.baseFov;
-    this.fov += (targetFov - this.fov) * (1 - Math.exp(-dt / CAMERA.fovTau));
-    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
-      this.camera.fov = this.fov;
-      this.camera.updateProjectionMatrix();
-    }
+    this.setFovTowards(sprinting ? this.baseFov + CAMERA.sprintFovAdd : this.baseFov, dt);
   }
 
   /** Free distance along a ray for the probe sphere, minus a small margin. */
@@ -151,7 +187,7 @@ export class TpsCamera {
       max,
       true,
       undefined,
-      PLAYER_QUERY_GROUPS,
+      OPAQUE_QUERY_GROUPS,
     );
     if (!hit) return max;
     return Math.max(0, hit.time_of_impact - 0.02);

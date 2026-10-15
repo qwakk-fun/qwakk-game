@@ -7,6 +7,7 @@
  */
 import { dcos, dsin, clamp } from './math.ts';
 import { createRng, fbm } from './rng.ts';
+import type { BrMapData, WaterDef } from './brMapData.ts';
 
 export type Vec3 = [number, number, number];
 export type Quat = [number, number, number, number];
@@ -36,7 +37,28 @@ export interface TerrainDef {
   heights: Float32Array;
 }
 
+/** A static collider of a loaded map (map_v1 props), already in world space. */
+export interface ShapeDef {
+  type: 'box' | 'capsule' | 'cylinder' | 'hull';
+  /** Membership bits (collision.ts CG): what this shape blocks. */
+  bits: number;
+  /** The collider kind from colliders.json (wall, hedge, foliage...). */
+  kind: string;
+  /** Center and rotation (x, y, z, w). Hulls use the origin and identity: their points are in world space. */
+  c: Vec3;
+  q: Quat;
+  /** Box half extents. */
+  h?: Vec3;
+  /** Capsule and cylinder radius and half height of the straight part (along local +Y). */
+  r?: number;
+  hh?: number;
+  /** Hull points, flat x, y, z in world space. */
+  pts?: number[];
+}
+
 export interface MapDef {
+  /** 'greybox' (generated from the seed) or a loaded map id such as 'sainte-canard'. */
+  id: string;
   seed: number;
   /** Side length in meters. */
   size: number;
@@ -49,6 +71,12 @@ export interface MapDef {
   arena: { x: number; z: number; radius: number };
   /** Deathmatch spawn points inside the arena, on open ground. */
   arenaSpawns: Vec3[];
+  /** Loaded maps: prop colliders (empty for the greybox). */
+  shapes: ShapeDef[];
+  /** Water surfaces for the wading rule (null: no water slow-down). */
+  water: WaterDef | null;
+  /** Battle royale data (loot points, flight paths, circle hints); null for the greybox. */
+  br: BrMapData | null;
 }
 
 /** Deathmatch arena radius around the island center (m). */
@@ -470,5 +498,5 @@ export function generateMap(seed: number): MapDef {
     spawns.push([p.x + rx, p.y + 0.4, p.z + rz]);
   }
 
-  return { seed, size: MAP_SIZE, seaLevel: 0, terrain, boxes: b.boxes, rocks, spawns, arena: { x: 0, z: 0, radius: ARENA_RADIUS }, arenaSpawns };
+  return { id: 'greybox', seed, size: MAP_SIZE, seaLevel: 0, terrain, boxes: b.boxes, rocks, spawns, arena: { x: 0, z: 0, radius: ARENA_RADIUS }, arenaSpawns, shapes: [], water: null, br: null };
 }

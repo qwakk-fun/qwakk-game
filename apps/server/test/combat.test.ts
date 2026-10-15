@@ -25,6 +25,7 @@ beforeAll(async () => {
 function flatWorld() {
   const cells = 10;
   const map: MapDef = {
+    id: 'test',
     seed: 0,
     size: 100,
     seaLevel: -10,
@@ -34,6 +35,9 @@ function flatWorld() {
     spawns: [[0, 0.5, 0]],
     arena: { x: 0, z: 0, radius: 50 },
     arenaSpawns: [],
+    shapes: [],
+    water: null,
+    br: null,
   };
   return createSimWorld(map);
 }
@@ -82,7 +86,8 @@ describe('server hit validation', () => {
    */
   function rewindScenario(viewLagMs: number, aimLagMs = 150, rttMs = -1) {
     const { log, ev } = recorder();
-    const dm = new Deathmatch(flatWorld(), { ...DEFAULT_DM, bots: false }, ev);
+    // A fixed spread secret: the random part of the spread is the same every run.
+    const dm = new Deathmatch(flatWorld(), { ...DEFAULT_DM, bots: false, secret: 7 }, ev);
     const shooter = dm.addHuman('shooter', 'S');
     const target = dm.addHuman('target', 'T');
     place(shooter, 0, 0);

@@ -12,6 +12,7 @@ import {
   aimOrigin,
   Button,
   PLAYER_QUERY_GROUPS,
+  SIGHT_QUERY_GROUPS,
   WeaponId,
   weaponStats,
   type InputFrame,
@@ -20,13 +21,9 @@ import {
   type SimWorld,
 } from '@qwakk/shared';
 
-export interface BotTarget {
-  id: string;
-  x: number;
-  y: number;
-  z: number;
-  alive: boolean;
-}
+import type { BotLike, BotTarget } from './arena.ts';
+
+export type { BotTarget } from './arena.ts';
 
 export const BOT_NAMES = ['Quackers', 'Puddles', 'Waddles', 'Bill', 'Feathers', 'Drake', 'Mallard', 'Ducky', 'Paddle', 'Splash', 'Nugget', 'Dabble'];
 
@@ -34,8 +31,20 @@ const TAU = Math.PI * 2;
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 const wrap = (a: number): number => a - TAU * Math.floor((a + Math.PI) / TAU);
 
-/** Skill knobs. Lower reaction and error means a harder bot. */
-const SKILL = {
+/** Skill knobs (deathmatch defaults; other modes may pass their own). Lower reaction and error means a harder bot. */
+export interface BotSkill {
+  reactionTicks: readonly [number, number];
+  yawError: number;
+  pitchError: number;
+  errorSettlePerTick: number;
+  turnRatePerTick: number;
+  recoilControl: number;
+  viewRange: number;
+  fovCos: number;
+  hearRange: number;
+}
+
+export const SKILL: BotSkill = {
   reactionTicks: [10, 18] as const,
   yawError: 0.13,
   pitchError: 0.06,
@@ -45,9 +54,9 @@ const SKILL = {
   viewRange: 95,
   fovCos: Math.cos((75 * Math.PI) / 180),
   hearRange: 9,
-} as const;
+};
 
-export class BotBrain {
+export class BotBrain implements BotLike {
   private readonly frame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
   private yaw = 0;
   private pitch = 0;
@@ -70,9 +79,22 @@ export class BotBrain {
   private readonly sim: SimWorld;
   private readonly tmp = { x: 0, y: 0, z: 0 };
 
-  constructor(sim: SimWorld) {
+  private readonly skill: BotSkill;
+
+  constructor(sim: SimWorld, skill: BotSkill = SKILL) {
     this.sim = sim;
     this.map = sim.map;
+    this.skill = skill;
+  }
+
+  /** Id of the duck it is fighting, '' for none. */
+  get targetIdNow(): string {
+    return this.targetId;
+  }
+
+  /** Has a target it is fighting right now. */
+  get busy(): boolean {
+    return this.targetId !== '';
   }
 
   /** Reset after a respawn. */
@@ -115,6 +137,67 @@ export class BotBrain {
     return f;
   }
 
+  /**
+   * Battle royale: perception and fighting only, no roaming. Returns true
+   * while the bot fights (the frame then holds movement, aim and fire);
+   * false when nothing is in sight (the frame holds only weapon chores, and
+   * the caller steers). Same line-of-sight and aim rules as think().
+   */
+  engage(self: PlayerSim, others: readonly BotTarget[], tick: number): boolean {
+    const f = this.frame;
+    f.mx = 0;
+    f.mz = 0;
+    f.buttons = 0;
+    if (!self.alive) return false;
+    if (tick % 3 === 0) this.perceive(self, others);
+    const target = this.targetId ? others.find((o) => o.id === this.targetId && o.alive) : undefined;
+    if (!target) this.targetId = '';
+    if (target) this.fight(self, target);
+    else {
+      this.burstLeft = 0;
+      this.holdFire = false;
+    }
+    this.weaponChores(self, !!target);
+    if (this.crouching && target) f.buttons |= Button.Crouch;
+    if (this.jumpCooldown > 0) this.jumpCooldown--;
+    f.yaw = wrap(this.yaw);
+    f.pitch = Math.max(-1.3, Math.min(1.4, this.pitch));
+    return !!target;
+  }
+
+  /** The frame engage() wrote. */
+  get output(): InputFrame {
+    return this.frame;
+  }
+
+  /** Where the last fight target was seen (still fresh), or null. Counts down like think()'s chase. */
+  takeLastSeen(): { x: number; z: number } | null {
+    const l = this.lastSeen;
+    if (!l) return null;
+    if (l.ticks-- <= 0) {
+      this.lastSeen = null;
+      return null;
+    }
+    return { x: l.x, z: l.z };
+  }
+
+  /** Forget the last sighting (reached it, nothing there). */
+  clearLastSeen(): void {
+    this.lastSeen = null;
+  }
+
+  /** Keep the fighter's facing in sync when another brain steers (its field of view follows the look). */
+  lookAt(yaw: number, pitch: number): void {
+    this.yaw = yaw;
+    this.pitch = pitch;
+  }
+
+  /** Turn toward a yaw and pitch at the bot turn rate; returns the new facing. */
+  turnTo(yaw: number, pitch: number): { yaw: number; pitch: number } {
+    this.turnToward(yaw, pitch);
+    return { yaw: wrap(this.yaw), pitch: Math.max(-1.3, Math.min(1.4, this.pitch)) };
+  }
+
   private eye(self: PlayerSim): { x: number; y: number; z: number } {
     return aimOrigin(this.sim, self, 1, this.tmp);
   }
@@ -125,13 +208,14 @@ export class BotBrain {
     const dy = o.y + 1.1 - e.y;
     const dz = o.z - e.z;
     const d = Math.hypot(dx, dy, dz);
-    if (d > SKILL.viewRange || d < 0.01) return false;
+    if (d > this.skill.viewRange || d < 0.01) return false;
     const fx = -Math.sin(this.yaw);
     const fz = -Math.cos(this.yaw);
     const facing = (dx * fx + dz * fz) / Math.max(0.01, Math.hypot(dx, dz));
-    if (facing < SKILL.fovCos && d > SKILL.hearRange) return false;
+    if (facing < this.skill.fovCos && d > this.skill.hearRange) return false;
     const ray = new this.sim.rapier.Ray(e, { x: dx / d, y: dy / d, z: dz / d });
-    const hit = this.sim.world.castRay(ray, d, true, undefined, PLAYER_QUERY_GROUPS);
+    // Sight: walls, hedges and bushes hide players (bots get no wallhack).
+    const hit = this.sim.world.castRay(ray, d, true, undefined, SIGHT_QUERY_GROUPS);
     return !hit || hit.timeOfImpact > d - 0.4;
   }
 
@@ -150,9 +234,9 @@ export class BotBrain {
       if (best.id !== this.targetId) {
         // New target: a human-like reaction delay and a fresh aim error.
         this.targetId = best.id;
-        this.reaction = Math.round(rand(SKILL.reactionTicks[0], SKILL.reactionTicks[1]));
-        this.yawErr = rand(-1, 1) * SKILL.yawError;
-        this.pitchErr = rand(-1, 1) * SKILL.pitchError;
+        this.reaction = Math.round(rand(this.skill.reactionTicks[0], this.skill.reactionTicks[1]));
+        this.yawErr = rand(-1, 1) * this.skill.yawError;
+        this.pitchErr = rand(-1, 1) * this.skill.pitchError;
         this.aimHead = Math.random() < 0.1;
         this.crouching = bestD > 30 && Math.random() < 0.25;
       }
@@ -176,10 +260,10 @@ export class BotBrain {
     const pattern = w.pattern[Math.min(Math.floor(self.spray), w.pattern.length - 1)] ?? [0, 0];
 
     // Aim error settles toward zero, with a little hand tremor.
-    this.yawErr = this.yawErr * SKILL.errorSettlePerTick + rand(-1, 1) * 0.003;
-    this.pitchErr = this.pitchErr * SKILL.errorSettlePerTick + rand(-1, 1) * 0.002;
-    const wantYaw = Math.atan2(-dx, -dz) + this.yawErr + pattern[1] * SKILL.recoilControl;
-    const wantPitch = Math.atan2(dy, horiz) + this.pitchErr - pattern[0] * SKILL.recoilControl;
+    this.yawErr = this.yawErr * this.skill.errorSettlePerTick + rand(-1, 1) * 0.003;
+    this.pitchErr = this.pitchErr * this.skill.errorSettlePerTick + rand(-1, 1) * 0.002;
+    const wantYaw = Math.atan2(-dx, -dz) + this.yawErr + pattern[1] * this.skill.recoilControl;
+    const wantPitch = Math.atan2(dy, horiz) + this.pitchErr - pattern[0] * this.skill.recoilControl;
     this.turnToward(wantYaw, wantPitch);
 
     // Movement: strafe, keep a fighting distance, stand still for long-range bursts.
@@ -282,7 +366,7 @@ export class BotBrain {
 
   private turnToward(yaw: number, pitch: number): void {
     const dy = wrap(yaw - this.yaw);
-    const step = SKILL.turnRatePerTick;
+    const step = this.skill.turnRatePerTick;
     this.yaw += Math.max(-step, Math.min(step, dy));
     this.pitch += Math.max(-step, Math.min(step, pitch - this.pitch));
   }

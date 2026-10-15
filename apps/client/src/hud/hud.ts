@@ -38,6 +38,12 @@ export class Hud {
     this.el.style.display = visible ? '' : 'none';
   }
 
+  dispose(): void {
+    this.visible = false;
+    this.el.style.display = 'none';
+    this.el.innerHTML = '';
+  }
+
   toggle(): void {
     this.visible = !this.visible;
     this.el.style.display = this.visible ? '' : 'none';

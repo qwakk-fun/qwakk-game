@@ -50,9 +50,20 @@ export const config = {
   lerpSmoothMs: devtools ? num('lerpsmooth', NET.remoteSmoothMs) : NET.remoteSmoothMs,
   /**
    * Hands-free play for tests and phone frame-time checks (dev tools only):
-   * `autopilot=1` runs in circles, `autopilot=fight` hunts and shoots the nearest visible duck.
+   * `autopilot=1` runs in circles, `autopilot=fight` hunts and shoots the nearest visible duck,
+   * `autopilot=br` jumps, lands and loots in a battle royale.
    */
-  autopilot: (devtools ? (params.get('autopilot') ?? '') : '') as '' | '1' | 'fight',
+  autopilot: (devtools ? (params.get('autopilot') ?? '') : '') as '' | '1' | 'fight' | 'br',
+  /** Autopilot drop target `aptarget=x,z` (dev tools only): the battle royale autopilot glides there. */
+  apTarget: ((): { x: number; z: number } | null => {
+    const v = devtools ? params.get('aptarget') : null;
+    const [x, z] = (v ?? '').split(',').map(Number);
+    return v && Number.isFinite(x) && Number.isFinite(z) ? { x: x as number, z: z as number } : null;
+  })(),
+  /** Game mode for a direct start without the menu (dev tools): `?mode=br` or `?mode=dm`. */
+  mode: (params.get('mode') === 'br' ? 'br' : 'dm') as 'br' | 'dm',
+  /** Graphics quality: `?quality=low` (shorter draw distances). The menu setting wins when it starts the game. */
+  quality: (params.get('quality') === 'low' ? 'low' : 'high') as 'low' | 'high',
   /** Watch the match without playing (dev tools only, the server must allow spectators). */
   spectate: devtools && flag('spectate'),
   /** Show the debug HUD on start (toggle with H). Dev tools only by default. */

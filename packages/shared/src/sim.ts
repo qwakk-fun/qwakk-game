@@ -4,12 +4,23 @@
  * SimWorld: the same (state, input) gives the same next state on the client
  * (prediction and replay) and on the server (authority).
  */
-import { BODY, DT, MOVE, TICK_RATE } from './constants.ts';
+import { BODY, DT, HEAL, MOVE, TICK_RATE, WATER } from './constants.ts';
 import { Button, type InputFrame } from './input.ts';
 import { stepWeapon, type ShotFired } from './combat.ts';
 import { WeaponId, weaponStats } from './weapons.ts';
 import { dcos, dsin } from './math.ts';
 import { CROUCH_CAPSULE, PLAYER_QUERY_GROUPS, STAND_CAPSULE, type SimWorld } from './physics.ts';
+import { waterSurfaceAt } from './brMapData.ts';
+import { stepDrop } from './drop.ts';
+import { stepHeal } from './heal.ts';
+
+/** Movement mode. Plane riders are not in the world; freefall and glide are the drop. */
+export const Mode = {
+  Ground: 0,
+  Plane: 1,
+  Freefall: 2,
+  Glide: 3,
+} as const;
 
 /**
  * Everything the step reads or writes. All numbers, so it serializes as flat
@@ -53,12 +64,25 @@ export interface PlayerSim {
   spray: number;
   /** Shots fired so far (wraps at 65536). Seeds each shot's spread. */
   shotSeq: number;
+  /** Movement mode (Mode.*). */
+  mode: number;
+  /** Health. The server applies damage; heals complete in the sim. */
+  hp: number;
+  /** Weapons owned, bit per WeaponId (deathmatch: both). Without the equipped one the duck is unarmed. */
+  arms: number;
+  /** Ticks left on the heal in progress (0: none) and which one (1 bandage, 2 medkit). */
+  heal: number;
+  healKind: number;
+  /** Heal items carried. */
+  bandages: number;
+  medkits: number;
 }
 
 /** Field list in a fixed order: reconciler mirror list and test helpers. */
 export const PLAYER_SIM_FIELDS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'crouch', 'grounded', 'air', 'jumpBuf', 'prevButtons',
   'alive', 'weapon', 'equip', 'cooldown', 'reload', 'mag0', 'mag1', 'res0', 'res1', 'spray', 'shotSeq',
+  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits',
 ] as const satisfies readonly (keyof PlayerSim)[];
 
 export function createPlayerSim(x: number, y: number, z: number, yaw = 0): PlayerSim {
@@ -68,6 +92,7 @@ export function createPlayerSim(x: number, y: number, z: number, yaw = 0): Playe
     x, y, z, vx: 0, vy: 0, vz: 0, yaw, pitch: 0, crouch: 0, grounded: 0, air: 0, jumpBuf: 0, prevButtons: 0,
     alive: 1, weapon: WeaponId.Rifle, equip: 0, cooldown: 0, reload: 0,
     mag0: rifle.magSize, mag1: pistol.magSize, res0: rifle.reserve, res1: pistol.reserve, spray: 0, shotSeq: 0,
+    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0,
   };
 }
 
@@ -81,6 +106,7 @@ const JUMP_BUFFER_TICKS = Math.round(MOVE.jumpBuffer * TICK_RATE);
 
 /** Target ground speed for the current buttons and stance. */
 export function wishSpeedFor(s: PlayerSim, input: InputFrame): number {
+  if (s.heal > 0) return Math.min(HEAL.moveSpeed, s.crouch ? MOVE.crouchSpeed : HEAL.moveSpeed);
   if (s.crouch) return MOVE.crouchSpeed;
   if (input.buttons & Button.Walk) return MOVE.walkSpeed;
   // No sprinting while the trigger is held.
@@ -139,9 +165,12 @@ const UNSTICK_LIFT = 0.004;
 export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number = DT): ShotFired | null {
   const buttons = input.buttons | 0;
   let shot: ShotFired | null = null;
-  if (s.alive) {
+  if (s.alive && s.mode === Mode.Ground) {
     stepMovement(sim, s, input, dt);
+    stepHeal(s, input);
     shot = stepWeapon(s, input);
+  } else if (s.alive && (s.mode === Mode.Freefall || s.mode === Mode.Glide)) {
+    stepDrop(sim, s, input, dt);
   } else {
     s.yaw = input.yaw;
     s.pitch = input.pitch;
@@ -190,7 +219,7 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   const wlen = Math.sqrt(wx * wx + wz * wz);
   let wishSpeed = 0;
   if (wlen > 1e-6) {
-    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1);
+    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s);
     wx /= wlen;
     wz /= wlen;
   }
@@ -216,7 +245,32 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   s.vy -= MOVE.gravity * dt;
   if (s.vy < -MOVE.maxFallSpeed) s.vy = -MOVE.maxFallSpeed;
 
-  // Move the stance probe to the player and let Rapier resolve the motion.
+  const grounded = moveCapsule(sim, s, dt);
+  if (grounded && s.vy <= 0) {
+    s.grounded = 1;
+    s.vy = 0;
+    s.air = 0;
+  } else {
+    s.grounded = 0;
+    if (s.air < 255) s.air += 1;
+  }
+}
+
+/** Speed factor for wading (river, shallow sea). 1 on dry land and on maps without water. */
+export function wadeFactor(sim: SimWorld, s: PlayerSim): number {
+  const w = sim.map.water;
+  if (!w) return 1;
+  const depth = waterSurfaceAt(w, s.x, s.z) - s.y;
+  if (depth <= WATER.wadeDepth) return 1;
+  return depth > WATER.deepDepth ? WATER.deepFactor : WATER.wadeFactor;
+}
+
+/**
+ * Move the player's capsule by its velocity for one step through Rapier's
+ * character controller, clip the velocity against what it hit, and return
+ * whether it ended on walkable ground. Shared by walking and the drop.
+ */
+export function moveCapsule(sim: SimWorld, s: PlayerSim, dt: number): boolean {
   const cap = s.crouch ? CROUCH_CAPSULE : STAND_CAPSULE;
   const probe = s.crouch ? sim.probeCrouch : sim.probeStand;
   probe.setTranslation({ x: s.x, y: s.y + cap.centerY, z: s.z });
@@ -259,15 +313,7 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   }
   // Ceiling bonk.
   if (dy > 0 && my < dy * 0.5 && !grounded) s.vy = 0;
-
-  if (grounded && s.vy <= 0) {
-    s.grounded = 1;
-    s.vy = 0;
-    s.air = 0;
-  } else {
-    s.grounded = 0;
-    if (s.air < 255) s.air += 1;
-  }
+  return grounded;
 }
 
 /**

@@ -124,3 +124,102 @@ export const INTEREST = {
   /** Shot effects are not sent to clients farther than this from both ends of the tracer (m). */
   shotFxRadius: 160,
 } as const;
+
+/** Drop: the plane, freefall and the glider. Speeds in m/s, heights in m. */
+export const DROP = {
+  /** Freefall: steer speed, fall speed, extra fall speed while diving (W). */
+  freefallSteer: 10,
+  freefallSpeed: 32,
+  freefallDiveExtra: 14,
+  /** Glider opens by itself this high above the terrain. */
+  autoOpenHeight: 45,
+  /** The glider cannot be opened before falling this far below the plane (avoids an instant open on the jump press). */
+  minFallBeforeOpen: 4,
+  /** Glide: forward speed and sink rate, cruising (best ratio, about 1:3), diving (W) and braking (S). */
+  glideForward: 13,
+  glideSink: 4.3,
+  glideDiveForward: 19,
+  glideDiveSink: 7.5,
+  glideBrakeForward: 6,
+  glideBrakeSink: 3,
+  glideStrafe: 4,
+  /** How fast the velocity follows its target (per second). */
+  steerRate: 2.6,
+  sinkRate: 3,
+  /** Jump only over land: terrain at least this high under the plane. */
+  minLandHeight: 1,
+  /** Everyone still aboard is ejected this many meters before the plane's last land point. */
+  autoEjectBeforeCoast: 70,
+  /** Seconds between the start of the match phase and the plane reaching its path start. */
+  planeLeadSeconds: 0,
+} as const;
+
+/** Heals: part of the sim (they slow you and can be interrupted), so prediction matches. */
+export const HEAL = {
+  bandageTicks: Math.round(4 * TICK_RATE),
+  bandageAmount: 15,
+  /** Bandages heal up to this much health. */
+  bandageCap: 75,
+  medkitTicks: Math.round(7 * TICK_RATE),
+  medkitCap: 100,
+  /** Movement speed cap while healing (m/s). */
+  moveSpeed: 2.2,
+} as const;
+
+/** Wading in the river and the shallow sea. */
+export const WATER = {
+  /** Water deeper than this (above the feet) slows you. */
+  wadeDepth: 0.25,
+  deepDepth: 1.0,
+  wadeFactor: 0.7,
+  deepFactor: 0.45,
+} as const;
+
+/** Battle royale room and match flow. */
+export const BR = {
+  roomName: 'br',
+  /** Ducks per match; bots fill the empty seats when the room locks. */
+  players: 16,
+  /** Warm-up: starts with the first human; shorter once this many humans are in. */
+  warmupSeconds: 45,
+  warmupFullSeconds: 15,
+  warmupFullHumans: 8,
+  /** Results stay up this long after the winner is decided, then the room closes. */
+  endSeconds: 20,
+  /** A dead duck's crate stays this long (it only holds what was dropped). */
+  crateSeconds: 600,
+} as const;
+
+/** Zone (circle) phases: wait, then shrink to the radius; damage per second outside. Phase 0 is the drop. */
+export const ZONE = {
+  phases: [
+    { waitS: 90, shrinkS: 0, radius: 380, dps: 0 },
+    { waitS: 90, shrinkS: 60, radius: 260, dps: 1 },
+    { waitS: 60, shrinkS: 45, radius: 170, dps: 2 },
+    { waitS: 50, shrinkS: 40, radius: 105, dps: 4 },
+    { waitS: 40, shrinkS: 30, radius: 60, dps: 7 },
+    { waitS: 30, shrinkS: 25, radius: 30, dps: 11 },
+    { waitS: 20, shrinkS: 20, radius: 0, dps: 18 },
+  ],
+  /** Before the first circle shows, the zone covers the whole map with this radius. */
+  startRadius: 700,
+  /** The first circle is shown this many seconds into phase 0. */
+  firstShownS: 60,
+  /** Keep at least this share of land inside circles up to this radius. */
+  minLandShare: 0.7,
+  landCheckMaxRadius: 260,
+} as const;
+
+/** Anti-wallhack visibility (server interest management). */
+export const VIS = {
+  /** Always send enemies this close, seen or not (footsteps range). */
+  alwaysRadius: 10,
+  /** Never send enemies farther than this (the fog hides them anyway). */
+  maxRange: 320,
+  /** Keep sending a pair this long after it was last visible (ms). */
+  graceMs: 1000,
+  /** Predict positions this far ahead when testing visibility (ms), on top of the round trip. */
+  lookaheadMs: 150,
+  /** Re-test each pair about this often (ticks). */
+  retestTicks: 3,
+} as const;

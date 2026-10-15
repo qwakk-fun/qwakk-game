@@ -44,6 +44,7 @@ function run(s: PlayerSim, frames: number[]): number {
 function flatWorld(boxes: BoxDef[] = []) {
   const cells = 10;
   const map: MapDef = {
+    id: 'test',
     seed: 0,
     size: 100,
     seaLevel: -10,
@@ -53,6 +54,9 @@ function flatWorld(boxes: BoxDef[] = []) {
     spawns: [],
     arena: { x: 0, z: 0, radius: 50 },
     arenaSpawns: [],
+    shapes: [],
+    water: null,
+    br: null,
   };
   return createSimWorld(map);
 }

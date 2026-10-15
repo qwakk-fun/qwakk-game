@@ -3,12 +3,14 @@
  * Dev and test builds only: loaded through a dynamic import behind the
  * build-time DEVTOOLS constant, so public bundles do not contain it.
  */
-import { simSelfTestHash } from '@qwakk/shared';
+import { mapDefHash, simSelfTestHash, simSelfTestHashOn } from '@qwakk/shared';
 import type { PlayerState } from '@qwakk/shared/net';
 import type { Session } from '../net/session.ts';
 import type { Avatar } from '../player/avatar.ts';
 import type { CombatFeedback } from './combatFeedback.ts';
 import type { FrameTimer, MotionProbe } from './metrics.ts';
+import type { BrClient } from './brClient.ts';
+import type { WorldHandle } from '../world/worldHandle.ts';
 
 export interface TestView {
   session: Session;
@@ -17,6 +19,17 @@ export interface TestView {
   remotes: Map<string, { state: PlayerState; avatar: Avatar; motion: MotionProbe }>;
   localMotion: MotionProbe;
   combat: CombatFeedback;
+  br: BrClient | null;
+  renderer: { info: { render: unknown } };
+  world: WorldHandle;
+  controls: { yaw: number; pitch: number };
+  hold(ms: number): void;
+}
+
+function renderStats(v: TestView): { drawCalls: number; triangles: number; world: { drawCalls: number; triangles: number } | null } {
+  const r = v.renderer.info.render as { drawCalls?: number; calls?: number; triangles?: number };
+  const w = v.world.sainte?.info() ?? null;
+  return { drawCalls: r.drawCalls ?? r.calls ?? 0, triangles: r.triangles ?? 0, world: w ? { drawCalls: w.drawCalls, triangles: w.triangles } : null };
 }
 
 export function exposeTestHook(v: TestView): void {
@@ -35,6 +48,8 @@ export function exposeTestHook(v: TestView): void {
         fps: v.timer.fps,
         frameMsAvg: v.timer.avg,
         frameMsMax: v.timer.max,
+        cpuMsAvg: v.timer.cpuAvg,
+        cpuMsP95: v.timer.cpuP95,
         pingMs: s.pingMs,
         serverTick: s.room.state.tick,
         players: s.room.state.players.size,
@@ -47,9 +62,30 @@ export function exposeTestHook(v: TestView): void {
         combat: { ...v.combat.stats, now: performance.now() },
         kills: [...s.room.state.players.values()].reduce((n, p) => n + p.kills, 0),
         poseEntries: { near: s.room.state.poses.size, far: s.room.state.farPoses.size },
+        visibleRemotes: Object.keys(remotes).filter((id) => s.pose(id) !== null),
+        mode: s.room.state.mode,
+        mapId: s.room.state.mapId,
+        phase: s.room.state.phase,
+        alive: s.room.state.alive,
+        planeT0: s.room.state.planeT0,
+        zone: { x: s.room.state.zone?.cx ?? 0, z: s.room.state.zone?.cz ?? 0, r: s.room.state.zone?.r ?? 0 },
+        mine: me ? { mode: me.state.mode, hp: me.state.hp, arms: me.state.arms, weapon: me.state.weapon, res0: me.state.res0, res1: me.state.res1, bandages: me.state.bandages, medkits: me.state.medkits } : null,
+        br: v.br ? { ...v.br.stats, items: v.br.autopilotView().items.length } : null,
+        render: renderStats(v),
       };
     },
     simSelfTestHash: () => simSelfTestHash(),
+    /** The same scenario on the loaded map, and the hash of its terrain and collider list. */
+    mapSelfTestHash: () => simSelfTestHashOn(v.world.map, 200),
+    mapDefHash: () => mapDefHash(v.world.map),
+    /** Stop the autopilot for `ms` and face the point (x, z), for screenshots. */
+    face: (x: number, z: number, ms = 1500, pitch = 0.05) => {
+      const me = v.session.me;
+      if (!me) return;
+      v.hold(ms);
+      v.controls.yaw = Math.atan2(-(x - me.state.x), -(z - me.state.z));
+      v.controls.pitch = pitch;
+    },
     resetStats: () => {
       Object.assign(v.session.prediction, { reconciles: 0, corrected: 0, lastErrM: 0, maxErrM: 0, sumErrM: 0 });
       v.localMotion.reset();

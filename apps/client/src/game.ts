@@ -6,15 +6,18 @@
  *   2. read interpolated poses (local: predicted, others: 100 to 150 ms behind);
  *   3. animate, place the camera from the latest mouse angles, then render;
  *   4. HUD.
+ * Battle royale specifics (plane, drop, loot, zone, spectating, results) live
+ * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { Button, COMBAT, createSimWorld, generateMap, inaccuracy, terrainHeightAt, weaponStats, type SimWorld } from '@qwakk/shared';
-import { MatchPhase, type PlayerState } from '@qwakk/shared/net';
+import { Button, COMBAT, inaccuracy, Mode, weaponStats } from '@qwakk/shared';
+import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
 import { TpsCamera } from './camera/tpsCamera.ts';
 import { config, DEVTOOLS } from './config.ts';
 import { Effects } from './fx/effects.ts';
 import type { Autopilot } from './game/autopilot.ts';
+import { BrClient } from './game/brClient.ts';
 import { CombatFeedback } from './game/combatFeedback.ts';
 import { FrameTimer, MotionProbe } from './game/metrics.ts';
 import { GameHud, type ScoreRow } from './hud/gameHud.ts';
@@ -22,15 +25,29 @@ import { Hud } from './hud/hud.ts';
 import { Controls } from './input/controls.ts';
 import type { Session } from './net/session.ts';
 import { loadClips } from './player/animations.ts';
-import { Avatar } from './player/avatar.ts';
+import { Avatar, type AvatarPose } from './player/avatar.ts';
 import { loadDuckGlb } from './player/duckModel.ts';
 import { hasWeaponArt, loadWeaponLibrary } from './player/weaponModel.ts';
 import type { RenderContext } from './render/renderer.ts';
-import { createEnvironment, type Environment } from './world/environment.ts';
-import { createPropsGroup } from './world/propsMesh.ts';
-import { createTerrainMesh } from './world/terrainMesh.ts';
+import type { WorldHandle } from './world/worldHandle.ts';
 
 const LAG_PRESETS = [0, 60, 120, 150, 250];
+
+export type ExitReason = 'ended' | 'left' | 'disconnected';
+
+export interface ExitSummary {
+  mode: 'br' | 'dm';
+  placement?: number;
+  players?: number;
+  kills?: number;
+}
+
+export interface GameOptions {
+  mode: 'br' | 'dm';
+  settings: { sensitivity: number; fov: number; volume: number };
+  /** The player chose to leave (results screen or the pause card). */
+  exit(reason: ExitReason, summary: ExitSummary): void;
+}
 
 interface RemoteView {
   state: PlayerState;
@@ -42,15 +59,16 @@ interface RemoteView {
 export class Game {
   private readonly ctx: RenderContext;
   private readonly session: Session;
-  private readonly sim: SimWorld;
+  private readonly world: WorldHandle;
   private readonly controls: Controls;
   private readonly cam: TpsCamera;
   private readonly hud: Hud;
   private readonly ghud: GameHud;
-  private readonly env: Environment;
   private readonly fx: Effects;
   readonly sound = new Sound();
   private readonly combat: CombatFeedback;
+  readonly br: BrClient | null;
+  private readonly opts: GameOptions;
   /** Dev builds only (loaded on demand, absent from public bundles). */
   private autopilot: Autopilot | null = null;
   private readonly timer = new FrameTimer();
@@ -66,32 +84,51 @@ export class Game {
   private crouchBlend = 0;
   private spectateIndex = 0;
   private lastLife = -1;
-  private readonly tmp = new THREE.Vector3();
-  private readonly tmp2 = new THREE.Vector3();
+  private running = false;
+  /** Dev test hook: autopilot paused until then (performance.now ms). */
+  holdUntil = 0;
+  private readonly pose: AvatarPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, alive: true, weapon: 0, act: 0, fly: 0, vest: 0, helmet: 0 };
 
-  constructor(ctx: RenderContext, session: Session, canvas: HTMLCanvasElement, hudEl: HTMLElement) {
+  constructor(ctx: RenderContext, session: Session, world: WorldHandle, canvas: HTMLCanvasElement, hudEl: HTMLElement, opts: GameOptions) {
     this.ctx = ctx;
     this.session = session;
-    const map = generateMap(session.seed);
-    this.sim = createSimWorld(map);
+    this.world = world;
+    this.opts = opts;
+    const sim = world.sim;
 
     const { scene } = ctx;
-    scene.add(createTerrainMesh(map.terrain));
-    scene.add(createPropsGroup(map));
-    this.env = createEnvironment(scene, config.shadows);
     scene.add(this.localAvatar.object);
     this.localAvatar.object.visible = false;
-    this.fx = new Effects(scene, (x, _y, z) => terrainHeightAt(map.terrain, x, z));
+    this.fx = new Effects(scene, (x, _y, z) => world.groundAt(x, z));
 
     this.controls = new Controls(canvas);
-    this.cam = new TpsCamera(ctx.camera, this.sim);
+    this.controls.sensitivity = opts.settings.sensitivity;
+    this.cam = new TpsCamera(ctx.camera, sim);
+    this.cam.setBaseFov(opts.settings.fov);
+    this.sound.setVolume(opts.settings.volume);
     this.hud = new Hud(hudEl, config.hud);
     this.ghud = new GameHud(document.getElementById('app') as HTMLElement);
     // The condition is spelled out (not the DEVTOOLS import) so the bundler folds it to a constant here and drops the import from public builds.
-    if ((import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') && config.autopilot) void import('./game/autopilot.ts').then((m) => (this.autopilot = new m.Autopilot(this.sim)));
+    if ((import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') && config.autopilot) void import('./game/autopilot.ts').then((m) => (this.autopilot = new m.Autopilot(sim)));
     this.lagIndex = Math.max(0, LAG_PRESETS.indexOf(config.latencyMs));
 
-    this.combat = new CombatFeedback(session, this.sim, this.fx, this.sound, this.ghud, this.cam, {
+    const isBr = session.room.state.mode === GameMode.BattleRoyale;
+    this.ghud.setMode(isBr ? 'br' : 'dm');
+    this.br = isBr
+      ? new BrClient({
+          ctx,
+          session,
+          world,
+          controls: this.controls,
+          cam: this.cam,
+          sound: this.sound,
+          ghud: this.ghud,
+          remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
+          exit: (summary) => opts.exit('ended', summary),
+        })
+      : null;
+
+    this.combat = new CombatFeedback(session, sim, this.fx, this.sound, this.ghud, this.cam, {
       localAvatar: this.localAvatar,
       remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
       myPosition: () => this.myPos,
@@ -103,6 +140,9 @@ export class Game {
       if (a === 'hud') this.hud.toggle();
       if (a === 'scoreboard-on') this.showBoard = true;
       if (a === 'scoreboard-off') this.showBoard = false;
+      if (a === 'map') this.br?.toggleMap();
+      if (a === 'spectate-next') this.br?.spectate(1);
+      if (a === 'spectate-prev') this.br?.spectate(-1);
       if (!DEVTOOLS && (a === 'lag' || a === 'jitter' || a === 'loss')) return;
       if (a === 'lag') {
         this.lagIndex = (this.lagIndex + 1) % LAG_PRESETS.length;
@@ -111,13 +151,17 @@ export class Game {
       if (a === 'jitter') ns.jitterMs = ns.jitterMs > 0 ? 0 : 20;
       if (a === 'loss') ns.loss = ns.loss > 0 ? 0 : 0.02;
     });
-    canvas.addEventListener('mousedown', () => {
-      if (config.spectate) this.spectateIndex++;
-    });
+    canvas.addEventListener('mousedown', this.onSpectatorClick);
 
+    const handlers = this.combat.handlers();
     session.start(
-      this.sim,
-      this.combat.handlers(),
+      sim,
+      {
+        ...handlers,
+        shotHint: (weapon, angle, loud) => this.br?.shotHint(weapon, angle, loud, this.myPos),
+        picked: (kind, amount) => this.br?.picked(kind, amount),
+        result: (placement, total, kills, damage, survivedMs) => this.br?.result(placement, total, kills, damage, survivedMs),
+      },
       (id, state, local) => {
         if (local) {
           this.localAvatar.object.visible = true;
@@ -134,13 +178,14 @@ export class Game {
         this.remotes.delete(id);
       },
     );
+    this.br?.attach();
 
     void (async () => {
       await Promise.all([loadClips(), loadWeaponLibrary()]);
       const all = () => [this.localAvatar, ...[...this.remotes.values()].map((r) => r.avatar)];
       if (hasWeaponArt(0) || hasWeaponArt(1)) for (const a of all()) a.refreshWeapons();
       const glb = config.placeholderDuck ? null : await loadDuckGlb();
-      if (!glb) return;
+      if (!glb || !this.running) return;
       this.duckGlb = glb;
       for (const a of all()) a.setModel(glb);
     })();
@@ -148,23 +193,45 @@ export class Game {
     if (import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') void import('./game/testHook.ts').then((m) => m.exposeTestHook(this.testView()));
   }
 
+  private readonly onSpectatorClick = (): void => {
+    if (config.spectate) this.spectateIndex++;
+  };
+
   get controlsRef(): Controls {
     return this.controls;
   }
 
   start(): void {
+    this.running = true;
     void this.ctx.renderer.setAnimationLoop((time: number) => this.frame(time));
   }
 
   stop(): void {
+    this.running = false;
     void this.ctx.renderer.setAnimationLoop(null);
+  }
+
+  /** Stop and remove everything this game added (the next game gets a fresh scene). */
+  dispose(): void {
+    this.stop();
+    this.controls.dispose();
+    this.ctx.renderer.domElement.removeEventListener('mousedown', this.onSpectatorClick);
+    this.br?.dispose();
+    this.ghud.dispose();
+    this.hud.dispose();
+    for (const r of this.remotes.values()) r.avatar.dispose();
+    this.remotes.clear();
+    this.localAvatar.dispose();
+    this.world.dispose();
+    this.sound.close();
   }
 
   /** Input for one fixed step: keyboard and mouse, or the autopilot. */
   private sampleInput = (): { mx: number; mz: number; buttons: number; yaw: number; pitch: number } => {
     const me = this.session.me;
     let s: { mx: number; mz: number; buttons: number };
-    const ap = this.autopilot;
+    // Dev test hook: hold still facing a point (screenshots).
+    const ap = DEVTOOLS && performance.now() < this.holdUntil ? null : this.autopilot;
     if (DEVTOOLS && ap && config.autopilot === 'fight' && me) {
       const ducks = [];
       for (const [id, r] of this.remotes) {
@@ -173,6 +240,8 @@ export class Game {
         if (p) ducks.push({ id, x: p.x, y: p.y, z: p.z });
       }
       s = ap.fight(me.state as never, this.controls, ducks);
+    } else if (DEVTOOLS && ap && config.autopilot === 'br' && me && this.br) {
+      s = ap.br(me.state as never, this.controls, this.br.autopilotView(), config.apTarget);
     } else if (DEVTOOLS && ap && config.autopilot === '1') {
       s = ap.circle(this.controls);
     } else {
@@ -184,6 +253,7 @@ export class Game {
   };
 
   private frame(now: number): void {
+    const t0 = performance.now();
     const dt = this.timer.frame(now);
     const session = this.session;
     session.pump(now, this.sampleInput);
@@ -196,9 +266,11 @@ export class Game {
       const x = me.value('x');
       const y = me.value('y');
       const z = me.value('z');
-      this.myPos.set(x, y, z);
+      const alive = st.alive === 1;
+      const mode = st.mode;
+      if (mode !== Mode.Plane || !alive) this.myPos.set(x, y, z);
       this.controls.currentSlot = st.weapon;
-      // New life: turn the camera to the spawn facing the server chose.
+      // New life: turn the camera to the facing the server chose.
       if (mine.life !== this.lastLife) {
         if (this.lastLife >= 0) {
           this.controls.yaw = mine.spawnYaw;
@@ -206,39 +278,72 @@ export class Game {
         }
         this.lastLife = mine.life;
       }
-      const alive = st.alive === 1;
+      const p = this.pose;
+      p.x = x;
+      p.y = y;
+      p.z = z;
       // The duck faces the camera right away, not one tick later.
-      this.localAvatar.update(
-        { x, y, z, yaw: this.controls.yaw, pitch: this.controls.pitch, crouch: st.crouch, grounded: st.grounded === 1, alive, weapon: st.weapon, act: st.reload > 0 ? 1 : st.equip > 0 ? 2 : 0 },
-        dt,
-      );
+      p.yaw = this.controls.yaw;
+      p.pitch = this.controls.pitch;
+      p.crouch = st.crouch;
+      p.grounded = st.grounded === 1;
+      p.alive = alive;
+      p.weapon = mine.armed ? st.weapon : 2;
+      p.act = st.reload > 0 ? 1 : st.equip > 0 ? 2 : st.heal > 0 ? 3 : 0;
+      p.fly = mode;
+      p.vest = mine.vest;
+      p.helmet = mine.helmet;
+      this.localAvatar.object.visible = mode !== Mode.Plane;
+      this.localAvatar.update(p, dt);
       this.localMotion.sample(x, z, dt);
       this.crouchBlend += (st.crouch - this.crouchBlend) * (1 - Math.exp(-dt * 16));
-      if (alive) {
+      this.controls.spectating = !alive && this.br !== null;
+      if (this.br?.placeCamera(dt, this.myPos)) {
+        // Plane orbit or spectating: placed by the battle royale view.
+      } else if (alive) {
+        this.cam.setAirborne(mode === Mode.Freefall || mode === Mode.Glide);
         this.cam.update(dt, x, y, z, this.crouchBlend, this.controls.yaw, this.controls.pitch, this.lastSprint);
       } else {
         const t = this.combat.diedAt > 0 ? (performance.now() - this.combat.diedAt) / 1000 : 0;
-        const killer = this.combat.killerId ? this.remotes.get(this.combat.killerId)?.avatar.object.position ?? null : null;
+        const killer = this.combat.killerId ? (this.remotes.get(this.combat.killerId)?.avatar.object.position ?? null) : null;
         this.cam.deathView(dt, this.myPos, killer, t);
       }
-      this.env.follow(this.myPos);
+      this.world.follow(this.myPos);
     } else if (config.spectate) {
       this.spectate(dt);
     }
 
     // Other players: interpolated poses.
+    const camPos = this.ctx.camera.position;
     for (const [id, r] of this.remotes) {
       const s = r.state;
       const p = session.pose(id);
       r.avatar.object.visible = p !== null;
       if (!p) continue;
-      r.avatar.update({ x: p.x, y: p.y, z: p.z, yaw: p.yaw, pitch: p.pitch, crouch: p.crouch, grounded: p.grounded, alive: s.alive === 1, weapon: s.weapon, act: s.act }, dt);
+      const a = this.pose;
+      a.x = p.x;
+      a.y = p.y;
+      a.z = p.z;
+      a.yaw = p.yaw;
+      a.pitch = p.pitch;
+      a.crouch = p.crouch;
+      a.grounded = p.grounded;
+      a.alive = s.alive === 1;
+      a.weapon = s.armed ? s.weapon : 2;
+      a.act = p.act;
+      a.fly = p.fly;
+      a.vest = s.vest;
+      a.helmet = s.helmet;
+      r.avatar.update(a, dt);
+      r.avatar.setDetail(camPos.distanceTo(r.avatar.object.position));
       r.motion.sample(p.x, p.z, dt);
       // Their reload, heard in 3D.
-      if (s.act === 1 && r.lastAct !== 1) this.sound.reload(weaponStats(s.weapon).reloadTicks / 30, r.avatar.object.position);
-      r.lastAct = s.act;
+      if (p.act === 1 && r.lastAct !== 1) this.sound.reload(weaponStats(s.weapon).reloadTicks / 30, r.avatar.object.position);
+      r.lastAct = p.act;
     }
 
+    this.br?.frame(dt, this.myPos);
+    this.world.update(this.ctx.camera, dt);
     this.fx.update(dt, this.ctx.camera);
     this.sound.listen(this.ctx.camera);
     this.ctx.renderer.render(this.ctx.scene, this.ctx.camera);
@@ -249,6 +354,7 @@ export class Game {
       this.hudClock = 0;
       this.renderHud();
     }
+    this.timer.cpuSample(performance.now() - t0);
   }
 
   /** Spectator camera: follow a living duck (click to switch). */
@@ -260,7 +366,7 @@ export class Game {
     if (!p) return;
     this.myPos.set(p.x, p.y, p.z);
     this.cam.update(dt, p.x, p.y, p.z, p.crouch, p.yaw, p.pitch, false);
-    this.env.follow(this.myPos);
+    this.world.follow(this.myPos);
   }
 
   private updateGameHud(dt: number): void {
@@ -272,13 +378,19 @@ export class Game {
     if (me && mine) {
       const s = me.state;
       const w = weaponStats(s.weapon);
-      g.health(mine.hp, COMBAT.maxHp);
+      g.health(s.hp, COMBAT.maxHp);
+      const armed = mine.armed === 1;
       const mag = s.weapon === 0 ? s.mag0 : s.mag1;
       const res = s.weapon === 0 ? s.res0 : s.res1;
-      g.ammoInfo(w.name, mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
+      if (armed) g.ammoInfo(w.name, mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
+      else g.ammoInfo('Unarmed', 0, 0, 0);
       g.crosshair(inaccuracy(w, s as never, Math.floor(s.spray)), this.ctx.camera.fov, window.innerHeight);
       g.protection(mine.protect === 1);
-      g.crosshairVisible(mine.alive === 1);
+      g.crosshairVisible(mine.alive === 1 && s.mode === Mode.Ground);
+    }
+    if (this.br) {
+      this.br.hud(dt, this.showBoard);
+      return;
     }
     let leader = '';
     let leaderKills = -1;
@@ -309,6 +421,7 @@ export class Game {
     const me = s.me;
     const ns = s.netsim.settings;
     const net = s.netsim.active ? `${ns.latencyMs} ms rtt, +/-${ns.jitterMs / 2} ms, ${(ns.loss * 100).toFixed(0)}% loss` : 'off';
+    const info = this.ctx.renderer.info.render as unknown as { drawCalls?: number; calls?: number; triangles?: number };
     this.hud.render({
       fps: this.timer.fps,
       frameMsAvg: this.timer.avg,
@@ -317,7 +430,7 @@ export class Game {
       jitterMs: s.room.clock.jitter(),
       serverTick: s.room.state.tick,
       players: s.room.state.players.size,
-      backend: this.ctx.backend,
+      backend: `${this.ctx.backend}  calls ${info.drawCalls ?? info.calls ?? 0}  tris ${Math.round((info.triangles ?? 0) / 1000)}k`,
       predErrorM: s.prediction.lastErrM,
       driftEma: me?.drift.ema ?? 0,
       driftPeak: me?.drift.peak ?? 0,
@@ -340,7 +453,11 @@ export class Game {
       remotes: this.remotes,
       localMotion: this.localMotion,
       combat: this.combat,
+      br: this.br,
+      renderer: this.ctx.renderer,
+      world: this.world,
+      controls: this.controls,
+      hold: (ms: number) => (this.holdUntil = performance.now() + ms),
     };
   }
 }
-

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Map viewer</title>
+    <link rel="icon" href="data:," />
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #151619; }
+      canvas { display: block; width: 100vw; height: 100vh; }
+      #info { position: fixed; left: 8px; top: 8px; color: #fff; font: 12px ui-monospace, monospace; white-space: pre; text-shadow: 0 1px 2px #000; }
+    </style>
+  </head>
+  <body>
+    <canvas id="game"></canvas>
+    <div id="info">Loading the map...</div>
+    <script type="module" src="./src/dev/mapView.ts"></script>
+  </body>
+</html>

@@ -11,6 +11,14 @@ export interface RenderContext {
   backend: 'WebGPU' | 'WebGL2';
 }
 
+/** A new empty scene with the default sky and fog (each game gets its own). */
+export function freshScene(): THREE.Scene {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(WORLD_COLORS.sky);
+  scene.fog = new THREE.Fog(WORLD_COLORS.fog, 120, 520);
+  return scene;
+}
+
 export async function createRenderer(canvas: HTMLCanvasElement, opts: { forceWebGL: boolean; pixelRatio: number; shadows: boolean }): Promise<RenderContext> {
   const renderer = new THREE.WebGPURenderer({ canvas, antialias: true, forceWebGL: opts.forceWebGL, powerPreference: 'high-performance' });
   await renderer.init();
@@ -20,9 +28,7 @@ export async function createRenderer(canvas: HTMLCanvasElement, opts: { forceWeb
   renderer.shadowMap.type = THREE.PCFShadowMap;
   renderer.toneMapping = THREE.NoToneMapping;
 
-  const scene = new THREE.Scene();
-  scene.background = new THREE.Color(WORLD_COLORS.sky);
-  scene.fog = new THREE.Fog(WORLD_COLORS.fog, 120, 520);
+  const scene = freshScene();
 
   const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.08, 1400);
 

@@ -18,6 +18,7 @@ import { clips, type ClipSet } from './animations.ts';
 import { cloneDuckGlb, createPlaceholderDuck, type DuckParts } from './duckModel.ts';
 import { rotateBoneWorld, twoBoneIK } from './ik.ts';
 import { attachPose, createWeapon, disposeWeapon, type WeaponInstance } from './weaponModel.ts';
+import { createGlider, createHelmetMesh, createVestMesh } from '../world/sainte/glider.ts';
 
 export interface AvatarPose {
   x: number;
@@ -29,10 +30,19 @@ export interface AvatarPose {
   crouch: number;
   grounded: boolean;
   alive: boolean;
+  /** WeaponId, or 2 (or more) for unarmed. */
   weapon: number;
-  /** 0 idle, 1 reloading, 2 equipping. */
+  /** 0 idle, 1 reloading, 2 equipping, 3 healing. */
   act: number;
+  /** Movement mode (Mode.*): 2 freefall, 3 gliding (draws the glider). */
+  fly?: number;
+  /** Armor levels worn (drawn on the duck). */
+  vest?: number;
+  helmet?: number;
 }
+
+/** Past this distance a duck drops its outline hull and its shadow (draw calls). */
+const DETAIL_FAR = 35;
 
 const BONES = [
   'Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
@@ -87,6 +97,12 @@ export class Avatar {
   private deathT = -1;
   private lastAct = 0;
   private wasGrounded = true;
+  private glider: THREE.Object3D | null = null;
+  private helmetMesh: THREE.Object3D | null = null;
+  private vestMesh: THREE.Object3D | null = null;
+  private helmetLevel = 0;
+  private vestLevel = 0;
+  private detailNear = true;
 
   constructor() {
     this.object.add(this.body);
@@ -109,6 +125,64 @@ export class Avatar {
     this.body.add(this.glb);
     this.rig = this.buildRig(this.glb, clips());
     this.weapon = -1; // re-parent the weapon on the next update
+    this.helmetLevel = -1; // re-attach the gear to the new bones
+    this.vestLevel = -1;
+    this.detailNear = !this.detailNear;
+    this.setDetail(this.detailNear ? 0 : 1000);
+  }
+
+  /**
+   * Distance detail: near ducks get their outline hull and cast shadows, far
+   * ones do not (each hull and shadow is another draw call per mesh).
+   */
+  setDetail(distance: number): void {
+    const near = distance < DETAIL_FAR;
+    if (near === this.detailNear) return;
+    this.detailNear = near;
+    this.body.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      if (m.name.endsWith('-outline') || m.userData.outline === true) m.visible = near;
+      else m.castShadow = near;
+    });
+  }
+
+  /** Glider over the duck while gliding, helmet and vest by level. */
+  private updateGear(p: AvatarPose): void {
+    const gliding = p.fly === 3 && p.alive;
+    if (gliding && !this.glider) {
+      this.glider = createGlider();
+      this.object.add(this.glider);
+    }
+    if (this.glider) this.glider.visible = gliding;
+    const helmet = p.helmet ?? 0;
+    if (helmet !== this.helmetLevel) {
+      this.helmetLevel = helmet;
+      this.helmetMesh?.removeFromParent();
+      this.helmetMesh = null;
+      if (helmet > 0) {
+        this.helmetMesh = createHelmetMesh(helmet);
+        if (this.rig) this.rig.bones.Head.add(this.helmetMesh);
+        else {
+          this.helmetMesh.position.set(0, 1.45, 0);
+          this.body.add(this.helmetMesh);
+        }
+      }
+    }
+    const vest = p.vest ?? 0;
+    if (vest !== this.vestLevel) {
+      this.vestLevel = vest;
+      this.vestMesh?.removeFromParent();
+      this.vestMesh = null;
+      if (vest > 0) {
+        this.vestMesh = createVestMesh(vest);
+        if (this.rig) this.rig.bones.Spine2.add(this.vestMesh);
+        else {
+          this.vestMesh.position.set(0, 0.85, 0);
+          this.body.add(this.vestMesh);
+        }
+      }
+    }
   }
 
   /** Replace greybox guns with freshly loaded art. */
@@ -227,9 +301,13 @@ export class Avatar {
     this.walkPhase += speed * dt * 2.6;
 
     this.selectWeapon(p.weapon);
+    this.updateGear(p);
 
     if (this.rig) this.updateRig(this.rig, p, dt, speed, vf, vr);
     else this.updatePlaceholder(p, speed);
+    // Freefall: dive head first; gliding: lean into the glider a little.
+    const lean = p.fly === 2 ? 1.0 : p.fly === 3 ? 0.25 : 0;
+    this.body.rotation.x += (-lean - this.body.rotation.x) * (this.deathT >= 0 ? 0 : 1 - Math.exp(-dt * 6));
 
     // Fall over when dead without a death clip.
     const deathClip = this.rig?.mixer && this.rig.full.has('Death_A');
@@ -239,7 +317,6 @@ export class Avatar {
       this.body.position.y = 0.25 * t;
       this.holder.visible = false;
     } else if (this.deathT < 0) {
-      this.body.rotation.x = 0;
       this.holder.visible = true;
     }
     this.lastAct = p.act;
@@ -334,7 +411,17 @@ export class Avatar {
     rotateBoneWorld(b.Head, _q.setFromAxisAngle(right, pitch * 0.1));
 
     const inst = this.weapons[this.weapon];
-    if (!inst) return;
+    if (!inst) {
+      // Unarmed: wings down at the sides with a small swing, instead of the T-pose rest.
+      const fwd = _v.set(0, 0, -1).applyQuaternion(this.object.quaternion);
+      const swing = Math.sin(this.walkPhase) * 0.25 * Math.min(1, speed / 5) * (p.grounded ? 1 : 0);
+      const spread = p.fly === 3 ? 0.2 : p.fly === 2 ? 0.5 : 1.2;
+      rotateBoneWorld(b.LeftArm, _q.setFromAxisAngle(fwd, -spread));
+      rotateBoneWorld(b.RightArm, _q.setFromAxisAngle(fwd, spread));
+      rotateBoneWorld(b.LeftArm, _q.setFromAxisAngle(right, swing));
+      rotateBoneWorld(b.RightArm, _q.setFromAxisAngle(right, -swing));
+      return;
+    }
     if (!rig.mixer || !attachPose(this.weapon)) {
       this.updateHolder(pitch, 0.3 * c);
       this.holder.updateMatrixWorld(true);
@@ -405,6 +492,8 @@ export class Avatar {
         if (ra) ra.timeScale = Math.max(0.6, speed / 5.2);
       }
     }
+    // Unarmed: the arms swing with the legs, no aim pose.
+    if (this.weapon !== WeaponId.Rifle && this.weapon !== WeaponId.Pistol) return;
     // Upper body: aim pose, or the reload or equip while they run.
     const prefix = this.weapon === WeaponId.Pistol ? 'Pistol' : 'Rifle';
     const reload = rig.upper.get(`${prefix}_Reload`);

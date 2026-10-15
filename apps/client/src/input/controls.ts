@@ -17,7 +17,7 @@ function loadSensitivity(): number {
   }
 }
 
-export type ControlAction = 'shoulder' | 'hud' | 'lag' | 'jitter' | 'loss' | 'scoreboard-on' | 'scoreboard-off';
+export type ControlAction = 'shoulder' | 'hud' | 'lag' | 'jitter' | 'loss' | 'scoreboard-on' | 'scoreboard-off' | 'map' | 'spectate-next' | 'spectate-prev';
 
 export class Controls {
   yaw = 0;
@@ -32,49 +32,68 @@ export class Controls {
   private fireLatch = false;
   private fireHeld = false;
   private reloadLatch = false;
+  private useLatch = false;
+  private deployLatch = false;
+  private heal1Latch = false;
+  private heal2Latch = false;
   /** Weapon slot asked for since the last sample (-1 none). */
   private slotLatch = -1;
   /** Which slot the player is on, for the mouse wheel toggle. */
   currentSlot = 0;
   /** Camera over the left shoulder (V toggles). Sent as an input bit for the server's aim ray. */
   leftShoulder = false;
+  /** Dead in a battle royale: clicks cycle the duck being watched instead of firing. */
+  spectating = false;
+  private readonly abort = new AbortController();
+
+  /** Remove every listener (the game ends; a new game makes new controls). */
+  dispose(): void {
+    this.abort.abort();
+    this.listeners.clear();
+  }
 
   constructor(element: HTMLElement) {
     this.element = element;
+    const opts = { signal: this.abort.signal };
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === element;
       if (!this.locked) {
         this.keys.clear();
         this.fireHeld = false;
       }
-    });
+    }, opts);
     document.addEventListener('mousedown', (e) => {
-      if (!this.locked || e.button !== 0) return;
+      if (!this.locked) return;
+      if (this.spectating) {
+        this.emit(e.button === 2 ? 'spectate-prev' : 'spectate-next');
+        return;
+      }
+      if (e.button !== 0) return;
       this.fireHeld = true;
       this.fireLatch = true;
-    });
+    }, opts);
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.fireHeld = false;
-    });
+    }, opts);
     document.addEventListener(
       'wheel',
       (e) => {
         if (!this.locked || e.deltaY === 0) return;
         this.slotLatch = this.currentSlot === 0 ? 1 : 0;
       },
-      { passive: true },
+      { passive: true, signal: this.abort.signal },
     );
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
       this.yaw = wrapAngle(this.yaw - e.movementX * this.sensitivity);
       this.pitch = Math.max(NET.minPitch, Math.min(NET.maxPitch, this.pitch - e.movementY * this.sensitivity));
-    });
-    window.addEventListener('keydown', (e) => this.onKey(e, true));
-    window.addEventListener('keyup', (e) => this.onKey(e, false));
+    }, opts);
+    window.addEventListener('keydown', (e) => this.onKey(e, true), opts);
+    window.addEventListener('keyup', (e) => this.onKey(e, false), opts);
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.fireHeld = false;
-    });
+    }, opts);
   }
 
   requestLock(): void {
@@ -108,6 +127,11 @@ export class Controls {
       if (code === 'KeyR' && this.locked) this.reloadLatch = true;
       if (code === 'Digit1' && this.locked) this.slotLatch = 0;
       if (code === 'Digit2' && this.locked) this.slotLatch = 1;
+      if (code === 'KeyE' && this.locked) this.useLatch = true;
+      if (code === 'KeyF' && this.locked) this.deployLatch = true;
+      if (code === 'Digit4' && this.locked) this.heal1Latch = true;
+      if (code === 'Digit5' && this.locked) this.heal2Latch = true;
+      if (code === 'KeyM') this.emit('map');
       if (code === 'Tab') this.emit('scoreboard-on');
       if (code === 'KeyH') this.emit('hud');
       if (code === 'KeyN') this.emit('lag');
@@ -147,10 +171,18 @@ export class Controls {
     if (this.slotLatch === 0) buttons |= Button.Slot1;
     if (this.slotLatch === 1) buttons |= Button.Slot2;
     if (this.leftShoulder) buttons |= Button.ShoulderLeft;
+    if (this.useLatch || k.has('KeyE')) buttons |= Button.Use;
+    if (this.deployLatch || k.has('KeyF')) buttons |= Button.Deploy;
+    if (this.heal1Latch) buttons |= Button.Heal1;
+    if (this.heal2Latch) buttons |= Button.Heal2;
     this.jumpLatch = false;
     this.fireLatch = false;
     this.reloadLatch = false;
     this.slotLatch = -1;
+    this.useLatch = false;
+    this.deployLatch = false;
+    this.heal1Latch = false;
+    this.heal2Latch = false;
     return { mx, mz, buttons };
   }
 }

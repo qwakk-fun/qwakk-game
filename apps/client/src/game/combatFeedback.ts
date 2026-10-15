@@ -17,7 +17,7 @@ import {
   type ShotFired,
   type SimWorld,
 } from '@qwakk/shared';
-import { MatchPhase } from '@qwakk/shared/net';
+import { KillWeapon, MatchPhase } from '@qwakk/shared/net';
 import type { Sound } from '../audio/sound.ts';
 import type { TpsCamera } from '../camera/tpsCamera.ts';
 import type { Effects } from '../fx/effects.ts';
@@ -76,7 +76,7 @@ export class CombatFeedback {
     this.views = views;
   }
 
-  handlers(): SessionHandlers {
+  handlers(): Omit<SessionHandlers, 'shotHint' | 'picked' | 'result'> {
     return {
       localShot: (shot, state, buttons) => this.localShot(shot, state, buttons),
       shots: (list) => {
@@ -95,9 +95,14 @@ export class CombatFeedback {
           this.marker(head);
         }
       },
-      damaged: (fx, fz, damage) => {
-        const me = this.views.myPosition();
-        this.hud.damaged(Math.atan2(-(fx - me.x), -(fz - me.z)));
+      damaged: (angle, damage) => {
+        if (angle === null) {
+          // The zone: a tint, no direction, no flinch.
+          this.hud.zoneHurt();
+          this.sound.hurt();
+          return;
+        }
+        this.hud.damaged(angle);
         this.cam.shake(0.06 + damage * 0.004);
         this.sound.hurt();
         this.views.localAvatar.hitReact();
@@ -107,20 +112,28 @@ export class CombatFeedback {
         const victim = this.session.playerByPid(victimPid);
         const myPid = this.session.mine?.pid ?? -1;
         const victimId = this.session.idOfPid(victimPid);
-        this.hud.killFeed(killer?.name ?? '?', victim?.name ?? '?', WEAPON_NAMES[weapon] ?? '', head, killerPid === myPid || victimPid === myPid);
+        const zone = killerPid === 0;
+        const left = weapon === KillWeapon.Left;
+        if (left) this.hud.killFeed(victim?.name ?? '?', '', 'left the pond', false, false);
+        else this.hud.killFeed(zone ? 'The zone' : (killer?.name ?? '?'), victim?.name ?? '?', zone ? 'zone' : (WEAPON_NAMES[weapon] ?? ''), head, killerPid === myPid || victimPid === myPid);
         // The splat goes where the victim is drawn, not where the server had it.
+        // No position (we could not see the victim) and nothing drawn: no splat.
         const avatar = victimId ? this.views.remoteAvatar(victimId) : null;
-        if (avatar) this.a.copy(avatar.object.position);
+        let splat = !left;
+        if (avatar && avatar.object.visible) this.a.copy(avatar.object.position);
         else if (victimPid === myPid) this.a.copy(this.views.myPosition());
-        else this.a.set(at[0], at[1], at[2]);
-        this.fx.killBurst(this.a);
-        this.stats.featherBursts++;
-        this.stats.lastFeatherAt = performance.now();
+        else if (at) this.a.set(at[0], at[1], at[2]);
+        else splat = false;
+        if (splat) {
+          this.fx.killBurst(this.a);
+          this.stats.featherBursts++;
+          this.stats.lastFeatherAt = performance.now();
+        }
         if (victimPid === myPid) {
           this.diedAt = performance.now();
           this.stats.deaths++;
-          this.killerName = killer?.name ?? '';
-          this.killerId = this.session.idOfPid(killerPid);
+          this.killerName = zone ? 'the zone' : (killer?.name ?? '');
+          this.killerId = zone ? null : this.session.idOfPid(killerPid);
           this.sound.quack(undefined, 0.4);
         }
       },
@@ -138,6 +151,7 @@ export class CombatFeedback {
   private localShot(shot: ShotFired, state: PlayerSim, buttons: number): void {
     this.stats.shotsFired++;
     // Ducks that cannot take damage right now give no predicted hit (spawn protection, round over).
+    // Warm-up and round breaks deal no damage: no predicted hit markers then.
     const playing = this.session.room.state.phase === MatchPhase.Playing;
     const targets: HitTarget[] = [];
     for (const [id, p] of this.session.remotes) {

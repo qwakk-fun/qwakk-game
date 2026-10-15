@@ -1,76 +1,23 @@
 /**
- * Entry: start the renderer and physics, join the room, build the island from
- * the server's seed, then hand over to the game loop.
+ * Page entry. Public builds show the menu (ui/menu), which loads the game
+ * module (play.ts) on demand. Dev and test builds can skip it: `?mode=br`,
+ * `?mode=dm` or a dev tool (`?autopilot=`, `?spectate=1`) starts the game
+ * directly, as the browser tests expect.
  */
-import { CloseCode } from '@colyseus/sdk';
-import { initPhysics } from '@qwakk/shared';
-import { config } from './config.ts';
-import { Game } from './game.ts';
-import { Session } from './net/session.ts';
-import { createRenderer } from './render/renderer.ts';
+import { bootMenu, directStart } from './ui/menu/index.ts';
 
-const canvas = document.getElementById('game') as HTMLCanvasElement;
-const overlay = document.getElementById('overlay') as HTMLElement;
-const status = document.getElementById('status') as HTMLElement;
-const hudEl = document.getElementById('hud') as HTMLElement;
-const reconnect = document.getElementById('reconnect') as HTMLButtonElement;
-
-if (config.devtools) for (const el of document.querySelectorAll<HTMLElement>('.devonly')) el.hidden = false;
-
-reconnect.addEventListener('click', (e) => {
-  e.stopPropagation();
-  location.reload();
-});
-
-/** Stop the game and show the overlay with a message and the Reconnect button. */
-function showStopped(message: string): void {
-  if (document.pointerLockElement) document.exitPointerLock();
-  overlay.classList.remove('hidden');
-  overlay.dataset.stopped = '1';
-  status.textContent = message;
-  reconnect.hidden = false;
+// Same build-time switch as config.DEVTOOLS, spelled out here: importing
+// config.ts would pull @qwakk/shared (Rapier) into this first chunk and the
+// menu would wait for the whole game bundle before it paints.
+const direct = directStart(import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1');
+if (direct) {
+  void import('./play.ts').then(async (play) => {
+    try {
+      await play.startGame(direct);
+    } catch (err) {
+      play.showStartError(err);
+    }
+  });
+} else {
+  bootMenu(() => import('./play.ts'));
 }
-
-async function boot(): Promise<void> {
-  const [ctx] = await Promise.all([createRenderer(canvas, config), initPhysics()]);
-  status.textContent = config.devtools ? `Joining ${config.server} ...` : 'Joining the island...';
-  const session = await Session.join(config.server, config.name, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
-  status.textContent = 'Click to play';
-
-  const game = new Game(ctx, session, canvas, hudEl);
-  game.start();
-
-  // Server closed the connection (kicked, restart, network gone): say so instead of freezing.
-  session.room.onLeave((code) => {
-    if (code === CloseCode.CONSENTED) return; // we left on purpose (page unload)
-    game.stop();
-    showStopped('Disconnected from the island. Check your connection and reconnect.');
-  });
-  session.room.onError((code, message) => console.error('[room] error', code, message));
-
-  const controls = game.controlsRef;
-  overlay.addEventListener('click', () => {
-    game.sound.unlock();
-    if (overlay.dataset.stopped !== '1') controls.requestLock();
-  });
-  canvas.addEventListener('click', () => {
-    game.sound.unlock();
-    if (!controls.locked && !config.spectate) controls.requestLock();
-  });
-  document.addEventListener('pointerlockchange', () => {
-    if (overlay.dataset.stopped === '1') return;
-    overlay.classList.toggle('hidden', document.pointerLockElement === canvas || config.autopilot !== '' || config.spectate);
-  });
-  if (config.autopilot || config.spectate) overlay.classList.add('hidden');
-  window.addEventListener('beforeunload', () => session.leave());
-}
-
-boot().catch((err: unknown) => {
-  console.error(err);
-  const detail = err instanceof Error ? err.message : String(err);
-  showStopped(
-    import.meta.env.DEV
-      ? `Could not start: ${detail}. Is the game server running (npm run dev)?`
-      : 'Could not reach the island right now. Please try again in a moment.',
-  );
-});

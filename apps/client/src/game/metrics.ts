@@ -9,6 +9,21 @@ export class FrameTimer {
   avg = 0;
   max = 0;
   private acc = 0;
+  /** Main-thread time spent in our frame (input, sim, scene update, render submit), ms. */
+  private cpu: number[] = [];
+  cpuAvg = 0;
+  cpuP95 = 0;
+
+  /** Record the CPU time of one frame (from the start of frame() to the end). */
+  cpuSample(ms: number): void {
+    this.cpu.push(ms);
+    if (this.cpu.length >= 120) {
+      const sorted = [...this.cpu].sort((a, b) => a - b);
+      this.cpuAvg = sorted.reduce((a, b) => a + b, 0) / sorted.length;
+      this.cpuP95 = sorted[Math.floor(sorted.length * 0.95)] ?? 0;
+      this.cpu = [];
+    }
+  }
 
   frame(now: number): number {
     const dt = this.last === 0 ? 16.7 : now - this.last;

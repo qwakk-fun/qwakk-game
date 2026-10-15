@@ -20,9 +20,17 @@ COPY packages/shared packages/shared
 COPY apps/client apps/client
 
 # Baked into the bundle at build time. CapRover passes app env vars as build
-# args, so this can be overridden in the qwakk-game-web app settings.
+# args, so these are set in the qwakk-game-web app settings.
 ARG VITE_GAME_SERVER=wss://play.qwakk.fun
-ENV VITE_GAME_SERVER=${VITE_GAME_SERVER}
+# Public Turnstile site key. Set it together with TURNSTILE_SECRET on the
+# server, or leave both unset: a secret without a site key makes every new
+# guest fail with 403 turnstile_failed.
+ARG VITE_TURNSTILE_SITEKEY=
+# API origin. Empty: derived from VITE_GAME_SERVER (https://play.qwakk.fun).
+ARG VITE_API_BASE=
+ENV VITE_GAME_SERVER=${VITE_GAME_SERVER} \
+    VITE_TURNSTILE_SITEKEY=${VITE_TURNSTILE_SITEKEY} \
+    VITE_API_BASE=${VITE_API_BASE}
 # Public builds never ship dev tools (fake network, ?server=, autopilot).
 ENV VITE_DEVTOOLS=0
 RUN npm run build -w @qwakk/client

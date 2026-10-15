@@ -15,9 +15,16 @@ export const Button = {
   Slot2: 1 << 7,
   /** Camera over the left shoulder. The server needs it to rebuild the aim ray. */
   ShoulderLeft: 1 << 8,
+  /** Pick up the item in front of you (E). Server only: pickups are never predicted. */
+  Use: 1 << 9,
+  /** Use a bandage (4) or a medkit (5). Part of the sim (heals slow you). */
+  Heal1: 1 << 10,
+  Heal2: 1 << 11,
+  /** Jump out of the plane, or open the glider early (F). */
+  Deploy: 1 << 12,
 } as const;
 
-export const ALL_BUTTONS = (1 << 9) - 1;
+export const ALL_BUTTONS = (1 << 13) - 1;
 
 /** One sim tick of player intent. This is all a client ever sends. */
 export interface InputFrame {

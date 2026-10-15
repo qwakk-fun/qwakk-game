@@ -15,6 +15,19 @@ export class Sound {
   private readonly fwd = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
 
+  /** Master volume, 0 to 1 (the menu's setting). */
+  setVolume(v: number): void {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.master) this.master.gain.value = this.volume;
+  }
+
+  /** Stop all audio (the game ended). */
+  close(): void {
+    void this.ctx?.close();
+    this.ctx = null;
+    this.master = null;
+  }
+
   /** Browsers start audio only after a user gesture: call this from a click. */
   unlock(): void {
     if (!this.ctx) {
@@ -200,5 +213,23 @@ export class Sound {
     if (!this.ready || !this.ctx) return;
     const dest = this.out(at);
     if (dest) this.noiseBurst(dest, this.ctx.currentTime, 0.06, 5000, 1500, 0.25, 2);
+  }
+
+  /** Picking something up: a soft double click. */
+  pickup(): void {
+    const out = this.out();
+    if (!this.ready || !out || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.tone(out, t, 'triangle', 660, 880, 0.06, 0.12);
+    this.tone(out, t + 0.07, 'triangle', 880, 1100, 0.07, 0.1);
+  }
+
+  /** Winning: a little rising quack fanfare. */
+  victory(): void {
+    const out = this.out();
+    if (!this.ready || !out || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    [523, 659, 784, 1046].forEach((f, i) => this.tone(out, t + i * 0.12, 'square', f, f * 1.01, 0.16, 0.08));
+    this.quack(t + 0.55, 0.35);
   }
 }

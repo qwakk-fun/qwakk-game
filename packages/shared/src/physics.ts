@@ -8,18 +8,16 @@
  */
 import RAPIER from '@dimforge/rapier3d-compat';
 import { BODY, MOVE } from './constants.ts';
+import { CG, MOVE_QUERY_GROUPS, SOLID_BITS, staticGroups } from './collision.ts';
 import type { MapDef } from './map.ts';
+import { greyboxBits } from './mapV1.ts';
 
 export type Rapier = typeof RAPIER;
 
-const GROUP_WORLD = 0x0001;
-const GROUP_PLAYER = 0x0002;
-
-/** Rapier InteractionGroups: membership in the high 16 bits, filter in the low 16. */
-const WORLD_GROUPS = (GROUP_WORLD << 16) | 0xffff;
-const PROBE_GROUPS = (GROUP_PLAYER << 16) | GROUP_WORLD;
-/** Query filter used by every player query: act as a player, hit only world. */
-export const PLAYER_QUERY_GROUPS = (GROUP_PLAYER << 16) | GROUP_WORLD;
+/** Movement probes: act as a player, collide only with what blocks movement. */
+const PROBE_GROUPS = (CG.Player << 16) | CG.Move;
+/** Query filter used by every movement query: act as a player, hit only what blocks movement. */
+export const PLAYER_QUERY_GROUPS = MOVE_QUERY_GROUPS;
 
 let initPromise: Promise<void> | null = null;
 
@@ -83,18 +81,30 @@ export function createSimWorld(map: MapDef): SimWorld {
   const n = map.terrain.cells;
   const span = n * map.terrain.cellSize;
   const hf = R.ColliderDesc.heightfield(n, n, rapierHeights(map), { x: span, y: 1, z: span }, R.HeightFieldFlags.FIX_INTERNAL_EDGES)
-    .setCollisionGroups(WORLD_GROUPS);
+    .setCollisionGroups(staticGroups(SOLID_BITS));
   world.createCollider(hf);
 
   for (const b of map.boxes) {
     const desc = R.ColliderDesc.cuboid(b.h[0], b.h[1], b.h[2])
       .setTranslation(b.c[0], b.c[1], b.c[2])
       .setRotation({ x: b.q[0], y: b.q[1], z: b.q[2], w: b.q[3] })
-      .setCollisionGroups(WORLD_GROUPS);
+      .setCollisionGroups(staticGroups(greyboxBits(b.kind)));
     world.createCollider(desc);
   }
   for (const r of map.rocks) {
-    world.createCollider(R.ColliderDesc.ball(r.r).setTranslation(r.c[0], r.c[1], r.c[2]).setCollisionGroups(WORLD_GROUPS));
+    world.createCollider(R.ColliderDesc.ball(r.r).setTranslation(r.c[0], r.c[1], r.c[2]).setCollisionGroups(staticGroups(SOLID_BITS)));
+  }
+  // Loaded maps: prop colliders, in file order (client and server build the same list).
+  for (const s of map.shapes) {
+    let desc: RAPIER.ColliderDesc | null;
+    if (s.type === 'box' && s.h) desc = R.ColliderDesc.cuboid(s.h[0], s.h[1], s.h[2]);
+    else if (s.type === 'capsule') desc = R.ColliderDesc.capsule(s.hh ?? 0, s.r ?? 0.1);
+    else if (s.type === 'cylinder') desc = R.ColliderDesc.cylinder(s.hh ?? 0, s.r ?? 0.1);
+    else if (s.type === 'hull' && s.pts) desc = R.ColliderDesc.convexHull(new Float32Array(s.pts));
+    else desc = null;
+    if (!desc) continue;
+    desc.setTranslation(s.c[0], s.c[1], s.c[2]).setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] }).setCollisionGroups(staticGroups(s.bits));
+    world.createCollider(desc);
   }
 
   const probeStand = world.createCollider(
@@ -133,10 +143,10 @@ export function createSimWorld(map: MapDef): SimWorld {
   };
 }
 
-/** Cast a ray against the static world. Returns the hit distance or null. */
-export function castWorldRay(sim: SimWorld, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number): number | null {
+/** Cast a ray against the static world. Returns the hit distance or null. `groups` picks what blocks it (collision.ts). */
+export function castWorldRay(sim: SimWorld, ox: number, oy: number, oz: number, dx: number, dy: number, dz: number, maxDist: number, groups: number = PLAYER_QUERY_GROUPS, solid = true): number | null {
   const ray = new sim.rapier.Ray({ x: ox, y: oy, z: oz }, { x: dx, y: dy, z: dz });
-  const hit = sim.world.castRay(ray, maxDist, true, undefined, PLAYER_QUERY_GROUPS);
+  const hit = sim.world.castRay(ray, maxDist, solid, undefined, groups);
   return hit ? hit.timeOfImpact : null;
 }
 

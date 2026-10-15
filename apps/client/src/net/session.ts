@@ -15,6 +15,7 @@
  */
 import { Callbacks, Client, Predict, type InputHandle, type Reconciler, type Room } from '@colyseus/sdk';
 import {
+  BR,
   INTEREST,
   NET,
   PLAYER_SIM_FIELDS,
@@ -26,7 +27,7 @@ import {
   type ShotFired,
   type SimWorld,
 } from '@qwakk/shared';
-import { IslandState, Msg, PlayerInput, type PlayerState, type Pose } from '@qwakk/shared/net';
+import { IslandState, Msg, PlayerInput, type LootItem, type PlayerState, type Pose } from '@qwakk/shared/net';
 import { config } from '../config.ts';
 import { FarInterp } from './farInterp.ts';
 import { NetSim, type NetSimSettings } from './netsim.ts';
@@ -45,8 +46,16 @@ export interface SessionHandlers {
   /** Another player's shot: shooter pid, weapon, outcome, muzzle and end points (m). */
   shots(list: { pid: number; weapon: number; outcome: number; from: [number, number, number]; to: [number, number, number] }[]): void;
   hitConfirm(victimPid: number, damage: number, head: boolean, killed: boolean): void;
-  damaged(fromX: number, fromZ: number, damage: number): void;
-  kill(killerPid: number, victimPid: number, weapon: number, head: boolean, at: [number, number, number]): void;
+  /** Damage taken: world angle toward the attacker (null: the zone) and the amount. */
+  damaged(angle: number | null, damage: number): void;
+  /** `at` is null when the server did not tell us where (we could not see the victim). killerPid 0: the zone. */
+  kill(killerPid: number, victimPid: number, weapon: number, head: boolean, at: [number, number, number] | null): void;
+  /** A shot we cannot see: weapon, world angle toward it, loudness 0..2. */
+  shotHint(weapon: number, angle: number, loud: number): void;
+  /** Our pickup went through. */
+  picked(kind: number, amount: number): void;
+  /** We are out (or won): placement, players in the match, kills, damage, survived ms. */
+  result(placement: number, total: number, kills: number, damage: number, survivedMs: number): void;
   /** The local sim fired (live step only, never on replay). `state` is the post-step state. */
   localShot(shot: ShotFired, state: PlayerSim, buttons: number): void;
 }
@@ -60,6 +69,9 @@ export interface RemotePose {
   crouch: number;
   grounded: boolean;
   far: boolean;
+  /** Movement mode (glider) and action (reload, equip, heal), from the pose entry. */
+  fly: number;
+  act: number;
 }
 
 const NEAR_DELAY = NET.interpDelayMs;
@@ -83,7 +95,7 @@ export class Session {
   /** Scratch frames: one for staging sends, one for the reconciler step. */
   private readonly sendFrame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
   private readonly stepFrame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
-  private readonly poseOut: RemotePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, far: false };
+  private readonly poseOut: RemotePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, far: false, fly: 0, act: 0 };
   private readonly far = new Map<string, FarInterp>();
   /** Per player: which source was drawn last and the offset that hides a near/far switch. */
   private readonly blends = new Map<string, { far: boolean; ox: number; oy: number; oz: number; x: number; y: number; z: number; t: number }>();
@@ -95,9 +107,10 @@ export class Session {
     this.input = room.input({ type: PlayerInput, mode: 'reliable' });
   }
 
-  static async join(endpoint: string, name: string, net: NetSimSettings, spectate = false): Promise<Session> {
+  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
-    const room = await client.joinOrCreate<IslandState>(ROOM.name, { name, spectate }, IslandState);
+    const roomName = opts.mode === 'br' ? BR.roomName : ROOM.name;
+    const room = await client.joinOrCreate<IslandState>(roomName, { name: opts.name ?? '', token: opts.token, spectate }, IslandState);
     const netsim = new NetSim(net);
     netsim.attach(room);
     const session = new Session(room, netsim);
@@ -175,8 +188,25 @@ export class Session {
       );
     });
     this.room.onMessage(Msg.HitConfirm, (d: number[]) => handlers.hitConfirm(d[0] ?? 0, d[1] ?? 0, d[2] === 1, d[3] === 1));
-    this.room.onMessage(Msg.Damaged, (d: number[]) => handlers.damaged(m(d[0] ?? 0), m(d[1] ?? 0), d[2] ?? 0));
-    this.room.onMessage(Msg.Kill, (d: number[]) => handlers.kill(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1, [m(d[4] ?? 0), m(d[5] ?? 0), m(d[6] ?? 0)]));
+    this.room.onMessage(Msg.Damaged, (d: number[]) => handlers.damaged(d[2] === 1 ? null : (d[0] ?? 0) / 1000, d[1] ?? 0));
+    this.room.onMessage(Msg.Kill, (d: number[]) => handlers.kill(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1, d[4] === 1 ? [m(d[5] ?? 0), m(d[6] ?? 0), m(d[7] ?? 0)] : null));
+    this.room.onMessage(Msg.ShotHint, (list: number[][]) => {
+      for (const d of list) handlers.shotHint(d[0] ?? 0, (d[1] ?? 0) / 1000, d[2] ?? 0);
+    });
+    this.room.onMessage(Msg.Picked, (d: number[]) => handlers.picked(d[0] ?? 0, d[1] ?? 0));
+    this.room.onMessage(Msg.Result, (d: number[]) => handlers.result(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] ?? 0, d[4] ?? 0));
+  }
+
+  /** Loot items in our view (battle royale): added, changed (amount), removed. */
+  watchItems(onAdd: (id: string, it: LootItem) => void, onRemove: (id: string) => void): void {
+    const callbacks = Callbacks.get(this.room);
+    callbacks.onAdd('items', (it: LootItem, id: string) => onAdd(id, it));
+    callbacks.onRemove('items', (_it: LootItem, id: string) => onRemove(id));
+  }
+
+  /** While dead: watch the next (1) or previous (-1) living duck. */
+  spectate(dir: 1 | -1): void {
+    this.room.send(Msg.Spectate, dir);
   }
 
   private createReconciler(sim: SimWorld, player: PlayerState): void {
@@ -276,11 +306,16 @@ export class Session {
       o.pitch = this.predict.value(near, 'pitch');
       o.crouch = this.predict.value(near, 'crouch');
       o.grounded = near.grounded === 1;
+      o.fly = near.fly;
+      o.act = near.act;
       isFar = false;
     } else if (farInterp && !farInterp.empty) {
       const c = this.room.clock;
       farInterp.sample(c.serverNow() - FAR_DELAY - c.smoothedRtt() / 2, o);
-      o.grounded = st.farPoses.get(id)?.grounded === 1;
+      const fp = st.farPoses.get(id);
+      o.grounded = fp?.grounded === 1;
+      o.fly = fp?.fly ?? 0;
+      o.act = fp?.act ?? 0;
       isFar = true;
     } else return null;
     o.far = isFar;
