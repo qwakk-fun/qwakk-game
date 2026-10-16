@@ -51,6 +51,8 @@ export interface AvatarPose {
   helmet?: number;
   /** Backpack level worn (drawn on the duck's back). */
   pack?: number;
+  /** Knocked (team modes): drawn crouched, gun away, swaying. The hitbox stays the crouched one. */
+  down?: boolean;
 }
 
 /** Past this distance a duck drops its outline hull and its shadow (draw calls). */
@@ -340,6 +342,8 @@ export class Avatar {
     return (w as WeaponInstance).muzzle.getWorldPosition(out);
   }
 
+  private downT = 0;
+
   update(p: AvatarPose, dt: number): void {
     this.object.position.set(p.x, p.y, p.z);
     this.object.rotation.set(0, p.yaw, 0);
@@ -380,6 +384,10 @@ export class Avatar {
     // Freefall: dive head first; gliding: lean into the glider a little.
     const lean = p.fly === 2 ? 1.0 : p.fly === 3 ? 0.25 : 0;
     this.body.rotation.x += (-lean - this.body.rotation.x) * (this.deathT >= 0 ? 0 : 1 - Math.exp(-dt * 6));
+    // Knocked: a dazed side to side sway (no lean, so the drawn head stays on the crouched hitbox).
+    this.downT = p.down && p.alive ? this.downT + dt : 0;
+    const sway = this.downT > 0 ? Math.sin(this.downT * 2.4) * 0.12 : 0;
+    this.body.rotation.z += (sway - this.body.rotation.z) * (1 - Math.exp(-dt * 8));
 
     // Fall over when dead without a death clip.
     const deathClip = this.rig?.mixer && this.rig.full.has('Death_A');

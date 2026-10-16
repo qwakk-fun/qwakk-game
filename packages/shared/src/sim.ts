@@ -4,7 +4,7 @@
  * SimWorld: the same (state, input) gives the same next state on the client
  * (prediction and replay) and on the server (authority).
  */
-import { ADS, BODY, DT, HEAL, MOVE, TICK_RATE, WATER } from './constants.ts';
+import { ADS, BODY, DT, HEAL, KNOCK, MOVE, TICK_RATE, WATER } from './constants.ts';
 import { aimBlend, stepAim } from './ads.ts';
 import { Button, type InputFrame } from './input.ts';
 import { stepWeapon, type ShotFired } from './combat.ts';
@@ -79,13 +79,19 @@ export interface PlayerSim {
   medkits: number;
   /** Aim down sights: ticks into the aim, 0 (hip) to ADS.inTicks (full aim). */
   aim: number;
+  /**
+   * 1 while knocked (team modes, set by the server): the duck crawls at
+   * KNOCK.crawlSpeed, stays low and cannot jump, shoot, aim, reload, switch
+   * or heal. `hp` is then its bleed meter.
+   */
+  down: number;
 }
 
 /** Field list in a fixed order: reconciler mirror list and test helpers. */
 export const PLAYER_SIM_FIELDS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'crouch', 'grounded', 'air', 'jumpBuf', 'prevButtons',
   'alive', 'weapon', 'equip', 'cooldown', 'reload', 'mag0', 'mag1', 'res0', 'res1', 'spray', 'shotSeq',
-  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits', 'aim',
+  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits', 'aim', 'down',
 ] as const satisfies readonly (keyof PlayerSim)[];
 
 export function createPlayerSim(x: number, y: number, z: number, yaw = 0): PlayerSim {
@@ -95,7 +101,7 @@ export function createPlayerSim(x: number, y: number, z: number, yaw = 0): Playe
     x, y, z, vx: 0, vy: 0, vz: 0, yaw, pitch: 0, crouch: 0, grounded: 0, air: 0, jumpBuf: 0, prevButtons: 0,
     alive: 1, weapon: WeaponId.Rifle, equip: 0, cooldown: 0, reload: 0,
     mag0: rifle.magSize, mag1: pistol.magSize, res0: rifle.reserve, res1: pistol.reserve, spray: 0, shotSeq: 0,
-    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0, aim: 0,
+    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0, aim: 0, down: 0,
   };
 }
 
@@ -109,6 +115,7 @@ const JUMP_BUFFER_TICKS = Math.round(MOVE.jumpBuffer * TICK_RATE);
 
 /** Target ground speed for the current buttons and stance. */
 export function wishSpeedFor(s: PlayerSim, input: InputFrame): number {
+  if (s.down) return KNOCK.crawlSpeed;
   if (s.heal > 0) return Math.min(HEAL.moveSpeed, s.crouch ? MOVE.crouchSpeed : HEAL.moveSpeed);
   if (s.crouch) return MOVE.crouchSpeed;
   if (input.buttons & Button.Walk) return MOVE.walkSpeed;
@@ -132,14 +139,14 @@ function accelerate(s: PlayerSim, wx: number, wz: number, wishSpeed: number, acc
 }
 
 /** Ground friction with a stop-speed floor for crisp stops and counter-strafes. */
-function applyFriction(s: PlayerSim, dt: number): void {
+function applyFriction(s: PlayerSim, dt: number, stopSpeed: number): void {
   const speed = Math.sqrt(s.vx * s.vx + s.vz * s.vz);
   if (speed < 1e-4) {
     s.vx = 0;
     s.vz = 0;
     return;
   }
-  const control = speed < MOVE.stopSpeed ? MOVE.stopSpeed : speed;
+  const control = speed < stopSpeed ? stopSpeed : speed;
   const drop = control * MOVE.friction * dt;
   const scale = Math.max(speed - drop, 0) / speed;
   s.vx *= scale;
@@ -170,7 +177,11 @@ const UNSTICK_LIFT = 0.004;
 export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number = DT): ShotFired | null {
   const buttons = input.buttons | 0;
   let shot: ShotFired | null = null;
-  if (s.alive && s.mode === Mode.Ground) {
+  if (s.alive && s.mode === Mode.Ground && s.down) {
+    // Knocked: crawl only. The weapon, the aim and heals stay frozen.
+    s.aim = 0;
+    stepMovement(sim, s, input, dt);
+  } else if (s.alive && s.mode === Mode.Ground) {
     stepAim(s, input);
     stepMovement(sim, s, input, dt);
     stepHeal(s, input);
@@ -210,12 +221,13 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   s.pitch = input.pitch;
 
   // Stance. Standing up needs room above the head.
-  const wantCrouch = (buttons & Button.Crouch) !== 0;
+  // Knocked ducks stay low (the crouched capsule and hitbox).
+  const wantCrouch = (buttons & Button.Crouch) !== 0 || s.down === 1;
   if (wantCrouch && !s.crouch) s.crouch = 1;
   else if (!wantCrouch && s.crouch && hasHeadroom(sim, s.x, s.y, s.z)) s.crouch = 0;
 
   // Jump edge with a short buffer, so a press just before landing still fires.
-  const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0;
+  const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0 && s.down === 0;
   if (jumpPressed) s.jumpBuf = JUMP_BUFFER_TICKS;
   else if (s.jumpBuf > 0) s.jumpBuf -= 1;
 
@@ -232,9 +244,9 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
     wz /= wlen;
   }
 
-  const canJump = s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
+  const canJump = s.down === 0 && s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
   if (s.grounded) {
-    applyFriction(s, dt);
+    applyFriction(s, dt, s.down ? KNOCK.crawlStopSpeed : MOVE.stopSpeed);
     if (wishSpeed > 0) accelerate(s, wx, wz, wishSpeed, MOVE.groundAccel, dt, Infinity);
   } else {
     if (wishSpeed > 0) accelerate(s, wx, wz, wishSpeed, MOVE.airAccel, dt, MOVE.airWishSpeedCap);

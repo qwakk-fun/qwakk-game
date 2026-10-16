@@ -106,3 +106,23 @@ describe('anti-wallhack interest', () => {
     expect(interest.sees('v', 't')).toBe(true);
   });
 });
+
+describe('allies (teams, party allies)', () => {
+  it("an ally's pose reaches its ally through a wall and at any range; an enemy's never does", () => {
+    const sim = world([WALL]);
+    const ally = (a: string, b: string) => (a === 'v' && b === 'mate') || (a === 'mate' && b === 'v');
+    const interest = new Interest({ enabled: true, cull: true, ally }, new Visibility(sim));
+    interest.addViewer('v', fakeView());
+    const seats = [seat('v', 0, 0), seat('mate', 0, -30), seat('foe', 1, -30), seat('farMate', 0, -VIS.maxRange - 30)];
+    interest.update(seats, 0, () => eye(0, 0));
+    expect(interest.sees('v', 'mate')).toBe(true);
+    expect(interest.sees('v', 'foe')).toBe(false);
+    // Long after any grace period, still the same.
+    interest.update(seats, VIS.graceMs * 5, () => eye(0, 0));
+    expect(interest.sees('v', 'mate')).toBe(true);
+    expect(interest.sees('v', 'foe')).toBe(false);
+    // A teammate still in the plane is not in the world: not sent.
+    interest.update([seat('v', 0, 0), seat('mate', 0, -30, false)], VIS.graceMs * 6, () => eye(0, 0));
+    expect(interest.sees('v', 'mate')).toBe(false);
+  });
+});

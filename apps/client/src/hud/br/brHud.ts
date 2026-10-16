@@ -8,6 +8,8 @@
  * spectating) and the results card. Plain DOM; per-frame updates only write
  * what changed.
  */
+import { hint, keyLabel, touchUiOn } from '../../input/touch/mode.ts';
+import { COPY } from '../../ui/menu/copy.ts';
 import { InventoryPanel, type InvAction, type InvScreen } from './inventoryPanel.ts';
 import { MapPainter, type MapOverlay } from './mapCanvas.ts';
 
@@ -45,6 +47,8 @@ export interface BrHudData {
   /** Outside the current circle: a warning. */
   outside: boolean;
   alive: number;
+  /** Teams still in (team modes), 0 to leave it out. */
+  teams: number;
   kills: number;
   /** Heading of the camera (yaw) and the world angle toward the next circle (null: inside it or none). */
   yaw: number;
@@ -67,6 +71,8 @@ export interface BoardRow {
   placement: number;
   me: boolean;
   bot: boolean;
+  /** On your team. */
+  ally: boolean;
 }
 
 export interface ResultCard {
@@ -77,6 +83,8 @@ export interface ResultCard {
   damage: number;
   survivedMs: number;
   killer: string;
+  /** Ducks per team (1 solo); with more, places are team places out of `total` teams. */
+  teamSize: number;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement, text?: string): HTMLElementTagNameMap[K] {
@@ -96,6 +104,7 @@ export class BrHud {
   private readonly mini: HTMLCanvasElement;
   private readonly big: HTMLCanvasElement;
   private readonly bigWrap: HTMLElement;
+  private readonly mapHint: HTMLElement;
   private readonly compassStrip: HTMLElement;
   private readonly compassZone: HTMLElement;
   private readonly zone: HTMLElement;
@@ -114,6 +123,7 @@ export class BrHud {
   private readonly painter: MapPainter;
   private readonly labels: { name: string; x: number; z: number }[];
   private mapOpen = false;
+
   private last = { zone: '', counts: '', inv: '', prompt: '', crate: '', banner: '', board: '', outside: false };
   private miniClock = 0;
   private onWatch: (() => void) | null = null;
@@ -157,8 +167,14 @@ export class BrHud {
     this.big = el('canvas', 'br-map-canvas', this.bigWrap);
     this.big.width = 900;
     this.big.height = 900;
-    el('div', 'br-map-hint', this.bigWrap, 'M to close');
+    this.mapHint = el('div', 'br-map-hint', this.bigWrap, 'M to close');
     this.bigWrap.hidden = true;
+    // Touch: a tap on the map closes it (the map takes taps only while the touch controls are on).
+    this.bigWrap.addEventListener('click', (e) => {
+      if (!touchUiOn()) return;
+      e.stopPropagation();
+      this.toggleMap();
+    });
     this.card = el('div', 'br-card', this.root);
     this.card.hidden = true;
     this.invPanel = new InventoryPanel(this.root, inv.action, inv.close);
@@ -176,6 +192,7 @@ export class BrHud {
   toggleMap(): void {
     this.mapOpen = !this.mapOpen;
     this.bigWrap.hidden = !this.mapOpen;
+    this.mapHint.textContent = hint('M to close', COPY.touch.hints.mapClose);
   }
 
   get mapVisible(): boolean {
@@ -209,7 +226,7 @@ export class BrHud {
       this.zone.classList.toggle('outside', d.outside);
       this.root.classList.toggle('br-outside', d.outside);
     }
-    const counts = `${d.alive} alive · ${d.kills} ${d.kills === 1 ? 'kill' : 'kills'}`;
+    const counts = `${d.alive} alive${d.teams > 0 ? ` · ${d.teams} ${d.teams === 1 ? 'team' : 'teams'}` : ''} · ${d.kills} ${d.kills === 1 ? 'kill' : 'kills'}`;
     if (counts !== this.last.counts) {
       this.last.counts = counts;
       this.counts.textContent = counts;
@@ -220,17 +237,18 @@ export class BrHud {
       this.healName.textContent = d.heal.name;
       this.healFill.style.width = `${Math.round(d.heal.progress * 100)}%`;
     } else this.healBar.hidden = true;
-    const prompt = d.prompt ? JSON.stringify(d.prompt) : '';
+    const prompt = d.prompt ? JSON.stringify(d.prompt) + touchUiOn() : '';
     if (prompt !== this.last.prompt) {
       this.last.prompt = prompt;
       this.prompt.hidden = !d.prompt;
       this.prompt.replaceChildren();
       if (d.prompt) {
-        el('kbd', 'br-key', this.prompt, d.prompt.key);
+        const key = keyLabel(d.prompt.key);
+        if (key) el('kbd', 'br-key', this.prompt, key);
         el('span', '', this.prompt, d.prompt.text);
         if (d.prompt.note) el('span', 'br-prompt-note', this.prompt, d.prompt.note);
         if (d.prompt.alt) {
-          el('kbd', 'br-key alt', this.prompt, d.prompt.alt.key);
+          el('kbd', 'br-key alt', this.prompt, keyLabel(d.prompt.alt.key));
           el('span', 'br-prompt-alt', this.prompt, d.prompt.alt.text);
         }
       }
@@ -321,12 +339,12 @@ export class BrHud {
       el('div', 'br-board-line', left, inv.helmet ? `Helmet level ${inv.helmet}, ${Math.round(inv.helmetPct * 100)}%` : 'No helmet');
       el('div', 'br-board-line', left, `Bandages ${inv.bandages} (4), medkits ${inv.medkits} (5)`);
       el('div', 'br-board-line', left, `${inv.pack ? `Backpack level ${inv.pack}` : 'No backpack'}, ${Math.round(inv.load)} / ${inv.capacity} carried`);
-      el('div', 'br-board-line hint', left, 'I opens the inventory');
+      el('div', 'br-board-line hint', left, hint('I opens the inventory', COPY.touch.hints.boardInventory));
     }
     const right = el('div', 'br-board-list', this.board);
     el('div', 'br-board-title', right, 'Ducks');
     for (const r of sorted) {
-      const row = el('div', `br-board-row${r.me ? ' me' : ''}${r.alive ? '' : ' out'}`, right);
+      const row = el('div', `br-board-row${r.me ? ' me' : ''}${r.ally ? ' ally' : ''}${r.alive ? '' : ' out'}`, right);
       el('span', 'n', row, r.name);
       el('span', 'k', row, `${r.kills}`);
       el('span', 'p', row, r.alive ? 'alive' : `#${r.placement}`);
@@ -341,14 +359,16 @@ export class BrHud {
     c.replaceChildren();
     c.hidden = false;
     c.classList.toggle('win', r.win);
+    const team = r.teamSize > 1;
+    const others = Math.max(0, r.total - 1);
     if (r.win) {
-      el('div', 'br-card-eyebrow', c, 'Last duck standing');
+      el('div', 'br-card-eyebrow', c, team ? 'Last team standing' : 'Last duck standing');
       el('div', 'br-card-title', c, 'Winner winner, bread dinner');
-      el('div', 'br-card-sub', c, `You out-quacked ${Math.max(0, r.total - 1)} ${r.total - 1 === 1 ? 'duck' : 'ducks'} on Sainte-Canard. The pond is yours.`);
+      el('div', 'br-card-sub', c, team ? `Your team out-quacked ${others} ${others === 1 ? 'team' : 'teams'} on Sainte-Canard. The pond is yours.` : `You out-quacked ${others} ${others === 1 ? 'duck' : 'ducks'} on Sainte-Canard. The pond is yours.`);
     } else {
-      el('div', 'br-card-eyebrow', c, `#${r.placement} of ${r.total}`);
-      el('div', 'br-card-title', c, 'Plucked!');
-      el('div', 'br-card-sub', c, r.killer ? `Taken out by ${r.killer}. Shake off the feathers and drop again.` : 'Shake off the feathers and drop again.');
+      el('div', 'br-card-eyebrow', c, team ? `Team #${r.placement} of ${r.total}` : `#${r.placement} of ${r.total}`);
+      el('div', 'br-card-title', c, team ? 'Squad plucked!' : 'Plucked!');
+      el('div', 'br-card-sub', c, team ? 'Your whole team is out. Regroup and drop again.' : r.killer ? `Taken out by ${r.killer}. Shake off the feathers and drop again.` : 'Shake off the feathers and drop again.');
     }
     const stats = el('div', 'br-card-stats', c);
     for (const [label, value] of [

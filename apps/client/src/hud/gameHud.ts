@@ -221,6 +221,15 @@ export class GameHud {
     this.protect.hidden = !on;
   }
 
+  private knockedOn = false;
+
+  /** Knocked: the health bar becomes the bleed meter (orange). */
+  knocked(on: boolean): void {
+    if (on === this.knockedOn) return;
+    this.knockedOn = on;
+    this.root.classList.toggle('ghud-knocked', on);
+  }
+
   /** Per-frame fades. `cameraYaw` turns world-space damage arcs into screen space. */
   update(dt: number, cameraYaw: number): void {
     if (this.markerT > 0) {

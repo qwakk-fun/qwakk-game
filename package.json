@@ -19,7 +19,7 @@
     "test": "npm test --workspaces --if-present",
     "bench": "npm run bench -w @qwakk/server --",
     "start": "npm start -w @qwakk/server",
-    "e2e": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-lobby.ts",
+    "e2e": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-lobby.ts && node --disable-warning=ExperimentalWarning e2e/party-duo.ts && node --disable-warning=ExperimentalWarning e2e/mobile-touch.ts",
     "test:net": "node --disable-warning=ExperimentalWarning e2e/pause-resume.ts",
     "shots": "node --disable-warning=ExperimentalWarning e2e/firefight-shots.ts",
     "build:test": "npm run build:test -w @qwakk/client",
@@ -35,7 +35,10 @@
     "docker:web": "docker build -f deploy/web/Dockerfile -t qwakk-game-web .",
     "smoke": "node --disable-warning=ExperimentalWarning deploy/smoke/join.ts",
     "db:up": "docker compose up -d postgres",
-    "db:down": "docker compose down"
+    "db:down": "docker compose down",
+    "e2e:party": "node --disable-warning=ExperimentalWarning e2e/party-duo.ts",
+    "e2e:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-touch.ts",
+    "perf:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-perf.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

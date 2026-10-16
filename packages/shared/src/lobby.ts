@@ -6,7 +6,10 @@
  * Pure data and string helpers (only constants.ts, which imports nothing),
  * so the menu can load it (`@qwakk/shared/lobby`) without Rapier or the sim.
  */
-import { BR, MATCH, ROOM } from './constants.ts';
+import { BR, MATCH, PARTY, ROOM, TEAM_SIZES } from './constants.ts';
+
+/** Party and team numbers for the menu (which must not import the sim). */
+export { PARTY, TEAM_SIZES };
 
 /** The default start rule, for the menu's explanation (a server may run other numbers in tests). */
 export const START_RULE = { minHumans: BR.minHumans, countdownSeconds: BR.countdownSeconds, players: BR.players } as const;
@@ -55,7 +58,7 @@ export interface RoomListing {
   /** Friendly room name: derived from the room id (roomLabel), or the deathmatch room's name. */
   label: string;
   stage: RoomStage;
-  /** Real players in the room (bots and spectators not counted). Deathmatch: bots fill the rest of the 32 seats. */
+  /** Real players in the room (bots and spectators not counted). Deathmatch: bots fill the rest of the `MATCH.players` seats. */
   humans: number;
   /** Most humans the room takes. */
   cap: number;
@@ -63,6 +66,96 @@ export interface RoomListing {
   need: number;
   /** Countdown seconds left (stage 'countdown'), else 0. */
   left: number;
+  /** Battle royale: ducks per team (1 solo, 2 duo, 4 squad; missing: solo). */
+  team?: number;
+  /** Battle royale: the most ducks one team can still take (a party needs at least its size). */
+  fit?: number;
+}
+
+/** A battle royale team size from untrusted input (join options, a listing): 1, 2 or 4, else solo. */
+export function teamSizeOf(v: unknown): number {
+  return typeof v === 'number' && (TEAM_SIZES as readonly number[]).includes(v) ? v : 1;
+}
+
+/** The team mode a party of this size needs (solo, duo, squad). */
+export function teamSizeFor(partySize: number): number {
+  return TEAM_SIZES.find((t) => t >= partySize) ?? TEAM_SIZES[TEAM_SIZES.length - 1]!;
+}
+
+/**
+ * Quick Play for a battle royale from the live list: the open room (waiting
+ * or counting down, not locked) whose teams fit the whole party (`want`: a
+ * team size to insist on, else any that fits), most humans first. Null:
+ * create one.
+ */
+export function pickQuickRoom<T extends { roomId: string; locked: boolean; listing: RoomListing }>(rooms: readonly T[], partySize: number, want?: number): T | null {
+  const open = rooms.filter((r) => {
+    const l = r.listing;
+    if (l.mode === 'dm' || r.locked || (l.stage !== 'waiting' && l.stage !== 'countdown') || l.humans >= l.cap) return false;
+    const team = teamSizeOf(l.team);
+    if (want !== undefined && team !== want) return false;
+    return team >= partySize && (l.fit ?? team) >= partySize;
+  });
+  open.sort((a, b) => compareListings(a.listing, b.listing) || a.roomId.localeCompare(b.roomId));
+  return open[0] ?? null;
+}
+
+/** Messages of the party room (apps/server/src/party/PartyRoom.ts). */
+export const PartyMsg = {
+  /** Server to client: the party as this member sees it (PartyView). */
+  View: 'party',
+  /**
+   * Client to server, the leader only: { mode, roomId } of the game room it
+   * just joined (the server checks it is seated there). Server to client: the
+   * same, to every member in the menu, who then joins that room.
+   */
+  Go: 'go',
+} as const;
+
+/** One member as the party shows it. Names and tags only: no player ids, no tokens. */
+export interface PartyMemberView {
+  name: string;
+  tag: string;
+  leader: boolean;
+  /** In a match right now (the leader's next room does not pull it). */
+  busy: boolean;
+  /** This is you. */
+  you: boolean;
+}
+
+export interface PartyView {
+  code: string;
+  members: PartyMemberView[];
+}
+
+export interface PartyGo {
+  mode: 'br' | 'dm';
+  roomId: string;
+}
+
+/** Game room join refusals about parties and teams (onAuth errors, see gameRoom.ts JOIN_ERROR). */
+export const TEAM_ERROR = {
+  /** The party is bigger than this room's teams. */
+  partyTooBig: 4410,
+  /** No team in this room has room for the party (or for one more duck). */
+  noTeam: 4411,
+} as const;
+
+const CODE_RE = new RegExp(`^[${PARTY.codeAlphabet}]{${PARTY.codeLength}}$`);
+
+/** A party code from what someone typed or pasted (a link works too), or null. */
+export function partyCodeOf(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  let s = raw.trim();
+  const m = /[?&]party=([^&#\s]+)/i.exec(s);
+  if (m) s = m[1] ?? '';
+  s = s.toUpperCase().replace(/[\s-]/g, '');
+  return CODE_RE.test(s) ? s : null;
+}
+
+/** Is this string shaped like a party code (the matchmaking guard rate-limits joins by code)? */
+export function isPartyCode(s: string): boolean {
+  return CODE_RE.test(s);
 }
 
 /**
@@ -74,6 +167,10 @@ export const LOBBY_ERROR = {
   createLimited: 529,
   /** The server already runs its most rooms. */
   roomsFull: 530,
+  /** This address tried too many party codes recently. */
+  joinLimited: 531,
+  /** Parties are joined by code only (no join or Quick Play into a party). */
+  codeOnly: 532,
 } as const;
 
 const ADJ = ['Muddy', 'Sunny', 'Foggy', 'Breezy', 'Misty', 'Golden', 'Quiet', 'Rowdy', 'Salty', 'Sleepy', 'Windy', 'Lucky', 'Mossy', 'Rainy', 'Crispy', 'Bubbly'];

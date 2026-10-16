@@ -8,6 +8,7 @@
  *
  * Usage: npm run bench:br            (4 clients, 60 s measured after the drop)
  *        npm run bench:br -- 8 90    (clients, seconds)
+ *        npm run bench:br -- 4 60 2  (team size: 2 duo, 4 squad; the clients fill teams together)
  */
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -19,6 +20,7 @@ import { IslandState, MatchPhase } from '@qwakk/shared/net';
 const PORT = 2598;
 const clients = Number(process.argv[2] ?? 4);
 const seconds = Number(process.argv[3] ?? 60);
+const team = Number(process.argv[4] ?? 1);
 
 interface Stats {
   players: number;
@@ -129,7 +131,7 @@ async function main(): Promise<void> {
     const counters: Counter[] = [];
     const stops: (() => void)[] = [];
     for (let i = 0; i < clients; i++) {
-      const room = await client.joinOrCreate(BR.roomName, { name: `bench${i + 1}` }, IslandState);
+      const room = await client.joinOrCreate(BR.roomName, { name: `bench${i + 1}`, team }, IslandState);
       const c: Counter = { down: 0, up: 0, poseSamples: 0, poseSum: 0, othersSum: 0 };
       instrument(room, c);
       counters.push(c);

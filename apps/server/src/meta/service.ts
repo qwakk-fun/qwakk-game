@@ -52,6 +52,8 @@ export class MetaService {
     read: new RateLimiter(LIMITS.read),
     createRoom: new RateLimiter(LIMITS.createRoom),
     lobby: new RateLimiter(LIMITS.lobby),
+    partyCreate: new RateLimiter(LIMITS.partyCreate),
+    partyJoin: new RateLimiter(LIMITS.partyJoin),
   };
   /** Open WebSockets per address (game rooms plus the lobby). */
   readonly connections = new ConnectionCounter(CONNECTIONS_PER_IP);
@@ -152,6 +154,15 @@ export class MetaService {
     return this.allow('lobby', ip);
   }
 
+  /** Per-IP limits on new parties and on party joins by code. Loopback exempt outside production. */
+  allowPartyCreate(ip: string): boolean {
+    return this.allow('partyCreate', ip);
+  }
+
+  allowPartyJoin(ip: string): boolean {
+    return this.allow('partyJoin', ip);
+  }
+
   /**
    * Per-IP cap on open WebSockets (every upgrade, before Colyseus sees it).
    * True: counted until the socket closes. False: refuse it. Loopback exempt
@@ -165,7 +176,7 @@ export class MetaService {
     return true;
   }
 
-  private allow(kind: 'join' | 'createRoom' | 'lobby', ip: string): boolean {
+  private allow(kind: 'join' | 'createRoom' | 'lobby' | 'partyCreate' | 'partyJoin', ip: string): boolean {
     if (this.loopbackExempt(ip)) return true;
     return this.limits[kind].take(ipKey(ip));
   }

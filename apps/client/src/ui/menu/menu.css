@@ -925,6 +925,22 @@ p.qm-lb-msg {
   font: 600 12px/1 var(--qm-mono);
 }
 
+/* How to play on touch screens (button names instead of keys). */
+.qm-howto-touch {
+  display: grid;
+  gap: 14px;
+  margin: 10px 0;
+}
+.qm-howto-touch h3 {
+  margin: 0;
+  font-size: clamp(20px, 2.2vw, 24px);
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+.qm-keys-touch kbd {
+  font-family: var(--qm-sans);
+}
+
 /* Footer */
 .qm-foot {
   position: relative;
@@ -956,6 +972,140 @@ body.qm-open #overlay {
 }
 
 /* Narrow screens: duck on top, small, then the hero. */
+/* Parties and team modes */
+.qm-rooms-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+}
+.qm-modes {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--qm-line);
+  border-radius: 9px;
+  background: var(--qm-raised);
+}
+.qm-mode {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--qm-text-2);
+  font: 600 12.5px/1 var(--qm-sans);
+  cursor: pointer;
+}
+.qm-mode.is-on {
+  background: var(--qm-yellow);
+  color: var(--qm-ink);
+}
+.qm-mode:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.qm-room-mode {
+  padding: 2px 6px;
+  border: 1px solid var(--qm-line-strong);
+  border-radius: 6px;
+  font: 600 11px/1.2 var(--qm-mono);
+  color: var(--qm-text-2);
+}
+.qm-party-body {
+  display: grid;
+  gap: 10px;
+}
+.qm-party-start {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.qm-party-join {
+  display: flex;
+  flex: 1 1 220px;
+  gap: 8px;
+}
+.qm-party-code {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--qm-line);
+  border-radius: 9px;
+  background: var(--qm-raised);
+  font: 600 14px/1.2 var(--qm-mono);
+  text-transform: uppercase;
+}
+.qm-party-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.qm-party-codebox {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-right: auto;
+}
+.qm-party-label {
+  font: 500 12px/1 var(--qm-mono);
+  color: var(--qm-text-3);
+}
+.qm-party-codetext {
+  font: 700 22px/1 var(--qm-mono);
+  letter-spacing: 0.12em;
+  color: var(--qm-yellow);
+}
+.qm-party-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.qm-party-member {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 12px;
+  border: 1px solid var(--qm-line);
+  border-radius: 10px;
+  background: var(--qm-raised);
+}
+.qm-party-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-right: auto;
+  font-weight: 600;
+  color: #3ddc84;
+}
+.qm-party-chip {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--qm-line);
+  font: 600 11px/1.2 var(--qm-mono);
+  color: var(--qm-text-2);
+}
+.qm-party-chip.is-leader {
+  background: var(--qm-wash);
+  color: var(--qm-yellow);
+}
+.qm-party-chip.is-busy {
+  color: var(--qm-beak);
+}
+.qm-party-msg {
+  font: 500 13px/1.45 var(--qm-mono);
+  color: var(--qm-text-2);
+}
+.qm-party-msg.is-error {
+  color: var(--qm-bad);
+}
+.qm-party-msg[hidden] {
+  display: none;
+}
+
 @media (max-width: 860px) {
   .qm-top {
     flex-direction: column;
@@ -1013,6 +1163,23 @@ body.qm-open #overlay {
   .qm-foot {
     justify-content: center;
     text-align: center;
+  }
+}
+
+/* A phone on its side: the duck art gives its height to the room lists. */
+@media (max-height: 500px) and (orientation: landscape) {
+  .qm-art {
+    display: none;
+  }
+  .qm-stage {
+    padding-top: 4px;
+  }
+  .qm-top {
+    flex-direction: row;
+    align-items: center;
+  }
+  .qm-tabs [role='tab'] {
+    flex: none;
   }
 }
 

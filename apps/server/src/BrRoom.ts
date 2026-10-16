@@ -10,7 +10,7 @@
  * fields; enemy poses are culled by line of sight (interest.ts); loot items
  * are sent per viewer, only near ones (StateView).
  */
-import type { Client } from '@colyseus/core';
+import { ServerError, type Client } from '@colyseus/core';
 import { BR, INTEREST, Mode, planeAt, TICK_RATE } from '@qwakk/shared';
 import { GameMode, InvOp, MatchPhase, Msg, type PlayerState } from '@qwakk/shared/net';
 import type { BotLike, Seat } from './arena.ts';
@@ -18,11 +18,13 @@ import { BattleRoyale, DEFAULT_BR } from './br/battleRoyale.ts';
 import type { BrBotContext } from './br/context.ts';
 import { ItemViews } from './br/itemViews.ts';
 import { brResults } from './br/results.ts';
-import { GameRoom, type GameRoomOptions } from './gameRoom.ts';
+import { GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
 import type { ViewerPoint } from './interest.ts';
 import { loadSainteCanard, type ServerMap } from './maps.ts';
 import { recordMatch } from './meta/index.ts';
-import { roomLabel, type RoomListing, type RoomStage } from '@qwakk/shared/lobby';
+import { parties } from './party/registry.ts';
+import type { TeamGroup } from './br/teams.ts';
+import { roomLabel, TEAM_ERROR, teamSizeOf, type RoomListing, type RoomStage } from '@qwakk/shared/lobby';
 
 export interface BrRoomOptions extends GameRoomOptions {
   /** Start countdown length override (s), for tests. */
@@ -35,6 +37,13 @@ export interface BrRoomOptions extends GameRoomOptions {
   zoneTimeScale?: number;
   /** Bot brain factory (the server entry passes the navmesh bots). */
   createBot?: (ctx: BrBotContext, seatId: string) => BotLike;
+  /** Ducks per team, chosen by whoever creates the room: 1 solo (default), 2 duo, 4 squad. */
+  team?: number;
+  /**
+   * Tests only (QWAKK_TEST_HOOKS=1, never in production): a client may hurt
+   * its OWN duck (`dev:hurt`), so the browser e2e can knock a duck and revive it.
+   */
+  testHooks?: boolean;
 }
 
 /** Item views are brought up to date every this many ticks. */
@@ -71,6 +80,8 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     this.countdownTicks = Math.max(1, Math.round((options.countdownSeconds ?? DEFAULT_BR.countdownSeconds) * TICK_RATE));
     this.state.mode = GameMode.BattleRoyale;
     this.state.phase = MatchPhase.Warmup;
+    const teamSize = teamSizeOf(options.team);
+    this.state.teamSize = teamSize;
     this.items = new ItemViews(this.state.items as never, this.vis, () => this.match.loot);
     const createBot = options.createBot ?? (() => {
       throw new Error('BrRoom needs a createBot option');
@@ -86,14 +97,16 @@ export class BrRoom extends GameRoom<BattleRoyale> {
         seed: options.seed,
         createBot,
         zoneTimeScale: options.zoneTimeScale,
+        teamSize,
         isFar: (viewer, target, now, rtt) => this.interest.isFarAt(viewer, target, now, rtt),
         farExtraDelayMs: INTEREST.farExtraDelayMs,
       },
       {
         shot: (shooter, weapon, r) => this.queueShot(shooter, weapon, r),
-        hit: (shooter, victim, damage, head, killed) => this.clients.getById(shooter.id)?.send(Msg.HitConfirm, [victim.pid, damage, head ? 1 : 0, killed ? 1 : 0]),
+        hit: (shooter, victim, damage, head, killed, knocked) => this.clients.getById(shooter.id)?.send(Msg.HitConfirm, [victim.pid, damage, head ? 1 : 0, killed ? 1 : 0, knocked ? 1 : 0]),
         damaged: (victim, from, damage) => this.sendDamaged(victim, from, damage),
         kill: (killer, victim, weapon, head) => this.onKill(killer, victim, weapon, head),
+        knock: (by, victim, weapon, head) => this.sendKnock(by, victim, weapon, head),
         picked: (seat, got) => {
           const c = this.clients.getById(seat.id);
           for (const g of got) c?.send(Msg.Picked, [g.kind, g.amount]);
@@ -104,7 +117,7 @@ export class BrRoom extends GameRoom<BattleRoyale> {
         },
         result: (seat, placement) => {
           const r = this.match.resultOf(seat);
-          this.clients.getById(seat.id)?.send(Msg.Result, [placement, this.match.seats.size, r.kills, r.dealt, r.survivedMs]);
+          this.clients.getById(seat.id)?.send(Msg.Result, [placement, this.match.field || this.match.seats.size, r.kills, r.dealt, r.survivedMs, this.match.teamSize]);
         },
         started: () => this.onStarted(),
         ended: () => this.onEnded(),
@@ -120,6 +133,12 @@ export class BrRoom extends GameRoom<BattleRoyale> {
   override async onCreate(options: BrRoomOptions = {}): Promise<void> {
     this.onMessage(Msg.Spectate, (client, dir: unknown) => this.cycleWatch(client.sessionId, dir === -1 ? -1 : 1));
     this.onMessage(Msg.Inv, (client, msg: unknown) => this.inventoryRequest(client.sessionId, msg));
+    if (options.testHooks && process.env.NODE_ENV !== 'production') {
+      this.onMessage('dev:hurt', (client, n: unknown) => {
+        const seat = this.match.seats.get(client.sessionId);
+        if (seat && typeof n === 'number' && n > 0 && this.match.phase === 'playing') this.match.worldDamage(seat, Math.min(1000, n));
+      });
+    }
     await super.onCreate(options);
     this.state.label = roomLabel(this.roomId);
     // Not persisted here: the matchmaker records the room (with this metadata) once onCreate returns.
@@ -131,7 +150,8 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     const m = this.match;
     const stage: RoomStage = m.phase === 'warmup' ? (m.countingDown ? 'countdown' : 'waiting') : m.phase;
     const humans = m.phase === 'warmup' ? m.humans : Math.max(0, this.clients.length - this.spectators.size);
-    return { label: this.state.label, stage, humans, cap: this.maxClients, need: m.waitingFor, left: stage === 'countdown' ? m.secondsLeft : 0 };
+    const fit = m.phase === 'warmup' ? m.teams.fit(m.currentTick) : 0;
+    return { label: this.state.label, stage, humans, cap: this.maxClients, need: m.waitingFor, left: stage === 'countdown' ? m.secondsLeft : 0, team: m.teamSize, fit };
   }
 
   /** Publish the listing when it changed (at most once a second during the countdown), and close joins just before the start. */
@@ -150,16 +170,37 @@ export class BrRoom extends GameRoom<BattleRoyale> {
       }
     }
     const l = this.listing();
-    const key = `${l.stage}|${l.humans}|${l.need}|${l.left}`;
+    const key = `${l.stage}|${l.humans}|${l.need}|${l.left}|${l.fit}`;
     if (key === this.listingKey) return;
     this.listingKey = key;
     this.setMetadata(l).catch((err: unknown) => console.error('[lobby] listing update failed:', err));
   }
 
-  protected addHuman(client: Client, name: string): Seat | null {
-    const seat = this.match.addHuman(client.sessionId, name);
+  /** The joiner's party from the registry (by verified player id), with the members who may follow it in. */
+  private groupOf(auth: JoinAuth | undefined): TeamGroup {
+    const playerId = auth?.playerId ?? null;
+    const p = parties.partyOf(playerId);
+    if (!p || !playerId) return { playerId, partyId: null, followers: [] };
+    return { playerId, partyId: p.id, followers: p.members.filter((m) => m !== playerId && !parties.isPlaying(m)) };
+  }
+
+  /** A party bigger than this room's teams, or no team with room for it: refused with a code the menu explains. */
+  protected override checkAdmission(auth: JoinAuth): void {
+    if (this.match.phase !== 'warmup') return; // the join is refused in onJoin as before
+    const g = this.groupOf(auth);
+    const t = this.match.admit(g);
+    if (t === 'party-too-big') throw new ServerError(TEAM_ERROR.partyTooBig, `your party has ${1 + g.followers.length} ducks, this room plays teams of ${this.match.teamSize}`);
+    if (t === 'no-team') throw new ServerError(TEAM_ERROR.noTeam, 'no team in this room has room for you');
+  }
+
+  protected addHuman(client: Client, name: string, auth: JoinAuth | undefined): Seat | null {
+    const seat = this.match.addHuman(client.sessionId, name, this.groupOf(auth));
     if (seat) this.items.addViewer(client.sessionId);
     return seat;
+  }
+
+  protected override reviveOf(seat: Seat): { progress: number; by: Seat | null } {
+    return this.match.reviveProgress(seat);
   }
 
   protected removeHuman(id: string): void {
@@ -200,10 +241,18 @@ export class BrRoom extends GameRoom<BattleRoyale> {
 
   private onKill(killer: Seat | null, victim: Seat, weapon: number, head: boolean): void {
     this.sendKill(killer, victim, weapon, head);
-    // The fallen duck watches its killer; anyone watching the fallen one moves on too.
+    // The fallen duck watches a teammate still in it, else its killer; anyone watching the fallen one moves on too.
     const next = killer && killer.sim.alive ? killer.id : null;
-    for (const [viewer, watched] of [...this.watching]) if (watched === victim.id) this.setWatch(viewer, next ?? this.nextAlive(viewer, 1));
-    if (!victim.bot) this.setWatch(victim.id, next ?? this.nextAlive(victim.id, 1));
+    for (const [viewer, watched] of [...this.watching]) if (watched === victim.id) this.setWatch(viewer, this.mateToWatch(viewer) ?? next ?? this.nextAlive(viewer, 1));
+    if (!victim.bot) this.setWatch(victim.id, this.mateToWatch(victim.id) ?? next ?? this.nextAlive(victim.id, 1));
+  }
+
+  /** A living teammate to watch (team modes), or null. */
+  private mateToWatch(viewerId: string): string | null {
+    const me = this.match.seats.get(viewerId);
+    if (!me) return null;
+    for (const s of this.match.seats.values()) if (this.match.allies(me, s) && s.sim.alive) return s.id;
+    return null;
   }
 
   private onEnded(): void {
@@ -226,13 +275,16 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     const m = this.match;
     const seats = [...m.seats.values()];
     if (!seats.some((s) => !s.bot)) return;
+    const results = brResults(m);
     void recordMatch({
       matchId: this.roomId,
       mode: 'br',
       mapId: this.state.mapId,
       startedAt: this.startedAt,
       endedAt: Date.now(),
-      players: brResults(m).map((r) => ({
+      // Team modes: places are team places out of the teams in the match (results.ts).
+      field: results.field,
+      players: results.rows.map((r) => ({
         playerId: r.seat.bot ? null : (this.seatPlayerIds.get(r.seat.id) ?? null),
         name: r.seat.name,
         isBot: r.seat.bot !== null,
@@ -240,12 +292,17 @@ export class BrRoom extends GameRoom<BattleRoyale> {
         kills: r.kills,
         damage: r.damage,
         survivedMs: r.survivedMs,
+        deaths: r.died ? 1 : 0,
       })),
     });
   }
 
+  /** The next duck to watch: living teammates first (team modes), else any living duck. */
   private nextAlive(viewerId: string, dir: number): string | null {
-    const alive = [...this.match.seats.values()].filter((s) => s.sim.alive && s.id !== viewerId);
+    const me = this.match.seats.get(viewerId);
+    const all = [...this.match.seats.values()].filter((s) => s.sim.alive && s.id !== viewerId);
+    const mates = me ? all.filter((s) => this.match.allies(me, s)) : [];
+    const alive = mates.length > 0 ? mates : all;
     if (alive.length === 0) return null;
     const cur = this.watching.get(viewerId);
     const i = alive.findIndex((s) => s.id === cur);
@@ -304,6 +361,8 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     if (st.timeLeft !== left) st.timeLeft = left;
     const alive = m.alive;
     if (st.alive !== alive) st.alive = alive;
+    const teams = m.phase === 'warmup' ? 0 : m.teamsIn;
+    if (st.teams !== teams) st.teams = teams;
     if (m.phase === 'warmup' && st.total !== m.seats.size) st.total = m.seats.size;
     const need = m.waitingFor;
     if (st.need !== need) st.need = need;

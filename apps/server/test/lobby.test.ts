@@ -42,15 +42,14 @@ function newMatch(started?: () => void): { br: BattleRoyale; tick: (n: number) =
 }
 
 describe('lobby start rule', () => {
-  it('defaults: 3 humans start a 30 s countdown', () => {
-    expect(BR.minHumans).toBe(3);
+  it('defaults: 2 humans start a 30 s countdown', () => {
+    expect(BR.minHumans).toBe(2);
     expect(BR.countdownSeconds).toBe(30);
   });
 
-  it('two humans wait: no countdown, however long they wait', () => {
+  it('one human waits: no countdown, however long they wait', () => {
     const { br, tick } = newMatch();
     br.addHuman('a', 'A');
-    br.addHuman('b', 'B');
     tick(5 * TICK_RATE);
     expect(br.phase).toBe('warmup');
     expect(br.countingDown).toBe(false);
@@ -58,19 +57,19 @@ describe('lobby start rule', () => {
     expect(br.secondsLeft).toBe(0);
   });
 
-  it('the third human starts the countdown; dropping to two resets it; the next third starts it fresh', () => {
+  it('the second human starts the countdown; dropping to one resets it; the next second starts it fresh', () => {
     const { br, tick } = newMatch();
-    for (const id of ['a', 'b', 'c']) br.addHuman(id, id);
+    for (const id of ['a', 'b']) br.addHuman(id, id);
     expect(br.countingDown).toBe(true);
     expect(br.waitingFor).toBe(0);
     expect(br.secondsLeft).toBe(BR.countdownSeconds);
     tick(10 * TICK_RATE);
     expect(br.secondsLeft).toBe(BR.countdownSeconds - 10);
-    // A fourth joins during the countdown: it keeps running, not restarted.
-    br.addHuman('d', 'd');
+    // A third joins during the countdown: it keeps running, not restarted.
+    br.addHuman('c', 'c');
     expect(br.secondsLeft).toBe(BR.countdownSeconds - 10);
-    br.remove('d');
     br.remove('c');
+    br.remove('b');
     expect(br.countingDown).toBe(false);
     expect(br.waitingFor).toBe(1);
     tick(60 * TICK_RATE);

@@ -14,6 +14,10 @@
  * coming round a corner is already there when it shows), then kept for
  * VIS.graceMs after it was last visible. Removing an entry deletes it on the
  * client, so a hidden enemy is simply not in the client's memory.
+ *
+ * Allies (teammates, party allies in a deathmatch) are always sent to each
+ * other, walls or not: they are on your side, and their markers show through
+ * walls. Enemies stay under the culling above, unchanged.
  */
 import type { StateView } from '@colyseus/schema';
 import { INTEREST, VIS } from '@qwakk/shared';
@@ -68,6 +72,8 @@ export interface InterestOptions {
   enabled: boolean;
   /** Anti-wallhack line-of-sight culling (battle royale). */
   cull: boolean;
+  /** Is `targetId` on `viewerId`'s side (sent regardless of line of sight)? */
+  ally?: (viewerId: string, targetId: string) => boolean;
 }
 
 export class Interest {
@@ -174,6 +180,7 @@ export class Interest {
   private visible(v: Viewer, me: ViewerPoint | null, s: InterestSeat, nowMs: number): boolean {
     if (!s.inWorld) return false;
     if (!this.o.cull || !this.vis || !me) return true;
+    if (this.o.ally?.(v.id, s.id)) return true;
     if (me.watchId === s.id) return true;
     this.counts.pairs++;
     const dx = s.x - me.x;

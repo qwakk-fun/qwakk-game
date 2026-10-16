@@ -6,6 +6,8 @@
  *   allowJoin(ip)         per-IP join rate limit (token bucket, in memory)
  *   allowCreateRoom(ip)   per-IP limit on new game rooms (matchmaking.ts)
  *   allowLobby(ip)        per-IP limit on lobby (room list) connections
+ *   allowPartyCreate(ip)  per-IP limit on new parties (matchmaking.ts)
+ *   allowPartyJoin(ip)    per-IP limit on party joins by code (matchmaking.ts)
  *   (guardJoinIps also caps open WebSockets per IP, CONNECTIONS_PER_IP)
  *   recordMatch(result)   write a finished match; no-op without DATABASE_URL, never throws
  *   joinIp(context)       the client IP from a Colyseus AuthContext (TRUST_PROXY aware)
@@ -54,6 +56,14 @@ export function allowCreateRoom(ip: string): boolean {
 
 export function allowLobby(ip: string): boolean {
   return meta().allowLobby(ip);
+}
+
+export function allowPartyCreate(ip: string): boolean {
+  return meta().allowPartyCreate(ip);
+}
+
+export function allowPartyJoin(ip: string): boolean {
+  return meta().allowPartyJoin(ip);
 }
 
 /**

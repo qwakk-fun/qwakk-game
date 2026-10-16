@@ -113,8 +113,11 @@ export const MATCH = {
    * deathmatch room (QWAKK_DM_MAP overrides it for one server run).
    */
   mapId: 'canard-quarter',
-  /** Humans plus bots per room: 1 human plays with 31 bots, 2 with 30, and so on. */
-  players: 32,
+  /**
+   * Humans plus bots per room: 1 human plays with 23 bots, 2 with 22, and so on.
+   * Below ROOM.maxClients on purpose (32 was too crowded); past 24 humans there are no bots.
+   */
+  players: 24,
   /**
    * First to this many kills wins the round. A full room is busy: a headless
    * room of 32 navmesh bots on Canard Quarter scores about 3.7 kills a second
@@ -235,7 +238,7 @@ export const BR = {
    * starts once `minHumans` real players are in a room and resets if they drop
    * below it; when it ends, bots fill the empty seats and the match starts.
    */
-  minHumans: 3,
+  minHumans: 2,
   countdownSeconds: 30,
   /** A room full of humans starts this soon (or sooner, if the countdown is lower). */
   fullCountdownSeconds: 10,
@@ -279,4 +282,55 @@ export const VIS = {
   lookaheadMs: 150,
   /** Re-test each pair about this often (ticks). */
   retestTicks: 3,
+} as const;
+
+/**
+ * Parties: friends group up in the menu (a short code and a share link), then
+ * the leader picks a room and the party lands there together, on one team in
+ * the team battle royale modes and as allies in a deathmatch. Server memory
+ * only (one instance).
+ */
+export const PARTY = {
+  /** Colyseus room name of a party (private: joined by its code only). */
+  roomName: 'party',
+  maxSize: 4,
+  /** Code length and alphabet (no 0/O, 1/I/L look-alikes). */
+  codeLength: 6,
+  codeAlphabet: 'ABCDEFGHJKMNPQRSTUVWXYZ23456789',
+  /** Seats a battle royale room holds for party members following their leader (s). */
+  reserveSeconds: 30,
+} as const;
+
+/** Battle royale team modes: ducks per team (solo, duo, squad). BR.players must divide by each. */
+export const TEAM_SIZES = [1, 2, 4] as const;
+
+/**
+ * Knocked state in the team modes: at 0 health a duck with a standing
+ * teammate is knocked instead of out. It crawls, cannot shoot, aim, heal or
+ * jump, and bleeds out; a teammate holding Use next to it revives it. The
+ * crawl is part of the sim (predicted); the rest is server rules.
+ */
+export const KNOCK = {
+  /** The bleed meter a knocked duck starts with (shown as its health). */
+  hp: 100,
+  /** Seconds a knocked duck takes to bleed out on its own. */
+  bleedSeconds: 30,
+  /** Damage to a knocked duck counts this many times (a few hits finish it). */
+  damageScale: 2,
+  /** Crawl speed (m/s), and the friction floor while crawling (the normal MOVE.stopSpeed would hold a crawl below 1 m/s). */
+  crawlSpeed: 1.0,
+  crawlStopSpeed: 0.5,
+  /** Seconds a teammate holds Use to revive, how close it must stay (m, chest to chest) and the health it comes back with. */
+  reviveSeconds: 5,
+  reviveRange: 2.2,
+  reviveHp: 25,
+} as const;
+
+/** Name tags over ducks (client): allies always, enemies only when seen and under the crosshair. */
+export const NAMETAG = {
+  /** Enemy tags: within this range (m) and this angle of the crosshair (rad), with a clear line of sight. */
+  enemyRange: 60,
+  enemyAngle: 0.07,
+  /** Enemy tags linger this long after the crosshair leaves (ms). */
+  enemyHoldMs: 350,
 } as const;

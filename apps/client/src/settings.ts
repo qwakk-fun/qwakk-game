@@ -7,7 +7,10 @@
  * (0.0022 rad per mouse count). It is mirrored to `qwakk.sensitivity`, the
  * key the in-game -/= keys use, so both stay in step.
  */
-/** Graphics preset the game applies: low shortens draw distances. */
+import { TOUCH, TOUCH_SENS } from './input/touch/constants.ts';
+import { coarsePointer } from './input/touch/device.ts';
+
+/** Graphics preset the game applies: low shortens draw distances and drops shadows on phones. */
 export type Quality = 'low' | 'high';
 
 export interface Settings {
@@ -15,6 +18,8 @@ export interface Settings {
   sensitivity: number;
   /** Look speed while aiming down sights, as a multiplier of `sensitivity`. */
   adsSensitivity: number;
+  /** Touch look speed (drag to aim), a multiplier of the default. */
+  touchSensitivity: number;
   /** Base camera field of view in degrees. */
   fov: number;
   /** Master volume, 0 to 1. */
@@ -28,6 +33,8 @@ export interface GameSettings {
   sensitivity: number;
   /** Multiplier of `sensitivity` while aiming down sights. */
   adsSensitivity: number;
+  /** Touch look: radians per CSS pixel of drag (the `Controls.touchRadPerPx` unit). */
+  touchSensitivity: number;
   fov: number;
   volume: number;
   quality: Quality;
@@ -37,10 +44,12 @@ export const BASE_SENSITIVITY = 0.0022;
 export const LIMITS = {
   sensitivity: { min: 0.2, max: 3, step: 0.05 },
   adsSensitivity: { min: 0.2, max: 1.5, step: 0.05 },
+  touchSensitivity: { min: TOUCH_SENS.min, max: TOUCH_SENS.max, step: TOUCH_SENS.step },
   fov: { min: 60, max: 100, step: 1 },
   volume: { min: 0, max: 1, step: 0.01 },
 } as const;
-export const DEFAULTS: Readonly<Settings> = { sensitivity: 1, adsSensitivity: 0.8, fov: 75, volume: 0.7, quality: 'high' };
+/** Phones and tablets start on the low preset (no shadows, shorter draw distances); desktops on high. */
+export const DEFAULTS: Readonly<Settings> = { sensitivity: 1, adsSensitivity: 0.8, touchSensitivity: TOUCH_SENS.default, fov: 75, volume: 0.7, quality: coarsePointer() ? 'low' : 'high' };
 
 const KEY = 'qwakk.settings';
 const LEGACY_SENS_KEY = 'qwakk.sensitivity';
@@ -73,6 +82,7 @@ export function sanitize(raw: unknown): Settings {
   return {
     sensitivity: clamp(r.sensitivity, LIMITS.sensitivity.min, LIMITS.sensitivity.max, DEFAULTS.sensitivity),
     adsSensitivity: clamp(r.adsSensitivity, LIMITS.adsSensitivity.min, LIMITS.adsSensitivity.max, DEFAULTS.adsSensitivity),
+    touchSensitivity: clamp(r.touchSensitivity, LIMITS.touchSensitivity.min, LIMITS.touchSensitivity.max, DEFAULTS.touchSensitivity),
     fov: Math.round(clamp(r.fov, LIMITS.fov.min, LIMITS.fov.max, DEFAULTS.fov)),
     volume: clamp(r.volume, LIMITS.volume.min, LIMITS.volume.max, DEFAULTS.volume),
     quality: QUALITIES.includes(r.quality as Quality) ? (r.quality as Quality) : DEFAULTS.quality,
@@ -105,5 +115,5 @@ export function resetSettings(): Settings {
 }
 
 export function toGameSettings(s: Settings): GameSettings {
-  return { sensitivity: s.sensitivity * BASE_SENSITIVITY, adsSensitivity: s.adsSensitivity, fov: s.fov, volume: s.volume, quality: s.quality };
+  return { sensitivity: s.sensitivity * BASE_SENSITIVITY, adsSensitivity: s.adsSensitivity, touchSensitivity: s.touchSensitivity * TOUCH.lookRadPerPx, fov: s.fov, volume: s.volume, quality: s.quality };
 }

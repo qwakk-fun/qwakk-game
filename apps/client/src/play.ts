@@ -12,6 +12,9 @@ import { initPhysics } from '@qwakk/shared';
 import { MatchPhase } from '@qwakk/shared/net';
 import { config } from './config.ts';
 import { Game, type ExitReason, type ExitSummary } from './game.ts';
+import { coarsePointer, isTouchOnly } from './input/touch/device.ts';
+import { enterPlayScreen, leavePlayScreen, setTouchGame } from './input/touch/screen.ts';
+import { COPY } from './ui/menu/copy.ts';
 import { Session } from './net/session.ts';
 import { createRenderer, freshScene, type RenderContext } from './render/renderer.ts';
 import { buildWorld, MapMismatchError } from './world/worldHandle.ts';
@@ -23,9 +26,11 @@ export interface StartGameOptions {
   /** A room from the lobby list (battle royale or deathmatch), or a new battle royale room; neither is Quick Play. */
   roomId?: string;
   create?: boolean;
+  /** Battle royale team size for a new room or Quick Play (1 solo, 2 duo, 4 squad). */
+  team?: number;
   token?: string;
   name?: string;
-  settings: { sensitivity: number; adsSensitivity?: number; fov: number; volume: number; quality?: 'low' | 'medium' | 'high' };
+  settings: { sensitivity: number; adsSensitivity?: number; touchSensitivity?: number; fov: number; volume: number; quality?: 'low' | 'medium' | 'high' };
 }
 
 type ExitCallback = (reason: ExitReason, summary?: ExitSummary) => void;
@@ -43,6 +48,8 @@ let ctxPromise: Promise<RenderContext> | null = null;
 let exitCallback: ExitCallback | null = null;
 let current: { game: Game; session: Session; mode: 'br' | 'dm'; ended: boolean } | null = null;
 let leaveButton: HTMLButtonElement | null = null;
+/** The last pointer that touched the pause card: a finger starts touch play, a mouse locks the pointer. */
+let overlayPointer = '';
 
 export function onGameExit(cb: ExitCallback): void {
   exitCallback = cb;
@@ -69,6 +76,8 @@ function finish(reason: ExitReason, summary?: ExitSummary): void {
   if (document.pointerLockElement) document.exitPointerLock();
   cur.game.dispose();
   cur.session.leave();
+  leavePlayScreen();
+  setTouchGame(false);
   if (exitCallback) {
     overlay.classList.add('hidden');
     exitCallback(reason, summary ?? cur.game.br?.summary() ?? { mode: cur.mode });
@@ -105,11 +114,18 @@ function wireOnce(): void {
     location.reload();
   });
   ensureLeaveButton();
+  overlay.addEventListener('pointerdown', (e) => (overlayPointer = e.pointerType));
   overlay.addEventListener('click', () => {
     const cur = current;
     if (!cur || overlay.dataset.stopped === '1') return;
     cur.game.sound.unlock();
-    cur.game.controlsRef.requestLock();
+    if (cur.game.touch && (overlayPointer === 'touch' || overlayPointer === 'pen' || isTouchOnly())) startTouchPlay(cur.game);
+    else {
+      // A mouse on a touch laptop: the desktop layout and pointer lock.
+      cur.game.touch?.setActive(false);
+      if (!isTouchOnly()) setTouchGame(false);
+      cur.game.controlsRef.requestLock();
+    }
   });
   canvas.addEventListener('click', () => {
     const cur = current;
@@ -123,16 +139,38 @@ function wireOnce(): void {
     const cur = current;
     if (!cur || overlay.dataset.stopped === '1') return;
     const locked = document.pointerLockElement === canvas;
+    // Touch play shows its own pause card (the pause button); the mouse is not locked then.
+    if (cur.game.touch?.active) return;
     if (locked || config.autopilot !== '' || config.spectate || cur.game.br?.resultOpen || cur.game.br?.inventoryOpen) overlay.classList.add('hidden');
     else setOverlay('Click to play', { leave: true });
   });
   window.addEventListener('beforeunload', () => current?.session.leave());
 }
 
-/** Join a match and play. Resolves once the game is running. */
-export async function startGame(opts: StartGameOptions): Promise<void> {
+/** Touch play on: the touch layer, fullscreen and the landscape lock where the browser allows them (this runs in the tap). */
+function startTouchPlay(game: Game): void {
+  overlay.classList.add('hidden');
+  setTouchGame(true);
+  game.touch?.setActive(true);
+  void enterPlayScreen();
+}
+
+/** Join a match and play. Resolves once the game is running, with the room joined (the party leader passes it on). */
+export async function startGame(opts: StartGameOptions): Promise<{ roomId: string }> {
+  try {
+    return await joinAndPlay(opts);
+  } catch (err) {
+    // Back to the menu: no rotate screen over it.
+    if (!current) setTouchGame(false);
+    throw err;
+  }
+}
+
+async function joinAndPlay(opts: StartGameOptions): Promise<{ roomId: string }> {
   wireOnce();
   if (current) finish('left');
+  // Phones: the rotate screen covers portrait from the loading screen on.
+  setTouchGame(isTouchOnly());
   setOverlay('Loading the island...');
   const ctx = await renderer();
   await initPhysics();
@@ -140,7 +178,7 @@ export async function startGame(opts: StartGameOptions): Promise<void> {
   setOverlay(config.devtools ? `Joining ${config.server} ...` : opts.mode === 'br' ? 'Finding a match...' : 'Joining the island...');
   let session: Session;
   try {
-    session = await Session.join(config.server, { mode: opts.mode, roomId: opts.roomId, create: opts.create, name: opts.name, token: opts.token }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
+    session = await Session.join(config.server, { mode: opts.mode, roomId: opts.roomId, create: opts.create, team: opts.team, name: opts.name, token: opts.token }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
   } catch (err) {
     // The server refuses a second seat for the same player (another tab).
     if ((err as { code?: number }).code === ALREADY_IN_MATCH) {
@@ -150,12 +188,14 @@ export async function startGame(opts: StartGameOptions): Promise<void> {
     throw err;
   }
   const st = session.room.state;
+  // The menu's setting wins; `?quality=` only applies when the game starts without one.
+  const quality = opts.settings.quality ? (opts.settings.quality === 'low' ? 'low' : 'high') : config.quality;
   let world;
   try {
     world = await buildWorld(ctx, st.mapId || 'greybox', st.seed, st.mapHash, {
-      // The menu's setting wins; `?quality=` only applies when the game starts without one.
-      quality: opts.settings.quality ? (opts.settings.quality === 'low' ? 'low' : 'high') : config.quality,
-      shadows: config.shadows,
+      quality,
+      // Phones on the low preset skip the shadow map (every lit pixel samples it).
+      shadows: config.shadows && !(quality === 'low' && coarsePointer()),
       onProgress: (t) => setOverlay(t),
     });
   } catch (err) {
@@ -170,11 +210,25 @@ export async function startGame(opts: StartGameOptions): Promise<void> {
     mode: opts.mode,
     settings: opts.settings,
     exit: (reason, summary) => finish(reason, summary),
+    touch: {
+      pause: () => {
+        game.touch?.setActive(false, true);
+        setOverlay(COPY.touch.paused, { leave: true });
+      },
+      // A touch laptop's mouse clicked the touch layer: back to mouse play.
+      mouse: () => {
+        // A phone has no real mouse (some styluses report one): keep touch play.
+        if (isTouchOnly()) return;
+        game.touch?.setActive(false);
+        setTouchGame(false);
+        game.controlsRef.requestLock();
+      },
+    },
   });
   const entry = { game, session, mode: opts.mode, ended: false };
   current = entry;
   game.start();
-  setOverlay('Click to play', { leave: true });
+  setOverlay(isTouchOnly() ? COPY.touch.tapToPlay : 'Click to play', { leave: true });
   if (config.autopilot || config.spectate) overlay.classList.add('hidden');
 
   // Server closed the connection: a finished battle royale ends normally, anything else is a disconnect.
@@ -190,6 +244,7 @@ export async function startGame(opts: StartGameOptions): Promise<void> {
     finish('disconnected');
   });
   session.room.onError((code, message) => console.error('[room] error', code, message));
+  return { roomId: session.room.roomId };
 }
 
 /** Show a startup failure on the overlay (direct start without the menu). */

@@ -28,8 +28,9 @@ import {
   type ShotResult,
   type SimWorld,
 } from '@qwakk/shared';
-import { IslandState, KillWeapon, Msg, PlayerInput, PlayerState, Pose } from '@qwakk/shared/net';
-import type { Arena, Seat } from './arena.ts';
+import { IslandState, KillWeapon, Msg, PlayerInput, PlayerState, Pose, TeamMate } from '@qwakk/shared/net';
+import { KILL_BLEED, type Arena, type Seat } from './arena.ts';
+import { parties } from './party/registry.ts';
 import { RoomStats } from './stats.ts';
 import { InputPacer } from './inputPacer.ts';
 import { TickLoop } from './tickLoop.ts';
@@ -86,6 +87,8 @@ export interface NetSeat {
   frame: InputFrame;
   /** Scratch frame for stand-in steps (a repeat without the trigger, or idle). */
   idle: InputFrame;
+  /** The teammate entry (HUD health, knocked, revive) its allies get; null without a team. */
+  mate: TeamMate | null;
 }
 
 interface ShotFx {
@@ -144,10 +147,19 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   /** The rules object (deathmatch or battle royale). */
   protected abstract createMatch(options: GameRoomOptions): M;
   /** Seat for a joining human, or null when the match does not take players now. */
-  protected abstract addHuman(client: Client, name: string): Seat | null;
+  protected abstract addHuman(client: Client, name: string, auth: JoinAuth | undefined): Seat | null;
   protected abstract removeHuman(id: string): void;
   /** Run the match's end of tick (bots, timers). */
   protected abstract matchEndTick(): void;
+  /**
+   * Refuse a join before it takes a seat (onAuth), with a ServerError the
+   * menu explains: battle royale teams that cannot take the player's party.
+   */
+  protected checkAdmission(_auth: JoinAuth): void {}
+  /** Revive progress shown on a teammate's HUD entry (0..1) and who revives it. */
+  protected reviveOf(_seat: Seat): { progress: number; by: Seat | null } {
+    return { progress: 0, by: null };
+  }
   /** Mirror match-level state (phase, timers, zone) into the schema after each tick. */
   protected abstract writeMatchState(tick: number): void;
   /** Per-seat extras beyond the sim fields. */
@@ -171,6 +183,8 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     const who = await verifySession(token);
     if (!who) throw new Error('invalid session');
     const signed = token !== undefined && token !== '';
+    const auth: JoinAuth = { playerId: who.playerId, name: who.name, tag: who.tag, signed };
+    if (options.spectate !== true) this.checkAdmission(auth);
     // One seat per identity: a second tab with the same session is refused.
     if (signed) {
       const held = this.seatedIds.get(who.playerId);
@@ -179,7 +193,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
       }
       this.seatedIds.set(who.playerId, { sessionId: client.sessionId, at: Date.now() });
     }
-    return { playerId: who.playerId, name: who.name, tag: who.tag, signed };
+    return auth;
   }
 
   /** Signed identities holding (or about to take) a seat here: playerId to session. */
@@ -201,7 +215,8 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     this.state = state;
 
     this.vis = new Visibility(this.sim);
-    this.interest = new Interest({ enabled: options.interest !== false, cull: this.cullHidden() }, this.vis);
+    // Allies always get each other's pose (markers through walls); enemies stay culled.
+    this.interest = new Interest({ enabled: options.interest !== false, cull: this.cullHidden(), ally: (a, b) => this.match.alliesById(a, b) }, this.vis);
     this.match = this.createMatch(options);
 
     // Our own fixed-rate loop (see tickLoop.ts for why not setFixedTimestep).
@@ -287,11 +302,13 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     this.joinCount += 1;
     // A signed-in name wins over the one in the join options.
     const name = auth?.signed ? cleanName(auth.name, `Duck ${this.joinCount}`) : cleanName(options.name, auth?.name ?? `Duck ${this.joinCount}`);
-    const seat = this.addHuman(client, name);
+    const seat = this.addHuman(client, name, auth);
     if (!seat) {
       client.leave(4000, 'match already started');
       return;
     }
+    // The party sees this member as in a match (and the leader's next room does not pull it).
+    parties.setPlaying(auth?.playerId, this.roomId, true);
     this.syncSeats();
     // Owner-only fields (exact sim state, ammo, hp, inventory) reach this client and nobody else.
     const ns = this.net.get(seat.id);
@@ -306,8 +323,12 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     const auth = this.auths.get(client.sessionId);
     if (auth && this.seatedIds.get(auth.playerId ?? '')?.sessionId === client.sessionId) this.seatedIds.delete(auth.playerId ?? '');
     this.auths.delete(client.sessionId);
+    this.mateViews.delete(client.sessionId);
     if (this.spectators.delete(client.sessionId)) this.onSpectatorLeave();
-    else this.removeHuman(client.sessionId);
+    else {
+      if (this.match.seats.has(client.sessionId)) parties.setPlaying(auth?.playerId, this.roomId, false);
+      this.removeHuman(client.sessionId);
+    }
     this.syncSeats();
   }
 
@@ -343,7 +364,14 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
             maxDebt: NET.maxStandInDebt,
             lateMarginMs: NET.lateMarginMs,
           });
-      const ns: NetSeat = { state, pose, farPose, pacer, frame: emptyInput(), idle: emptyInput() };
+      state.team = seat.team;
+      let mate: TeamMate | null = null;
+      if (seat.team > 0) {
+        mate = new TeamMate();
+        mate.pid = seat.pid;
+        this.state.mates.set(id, mate);
+      }
+      const ns: NetSeat = { state, pose, farPose, pacer, frame: emptyInput(), idle: emptyInput(), mate };
       this.net.set(id, ns);
       this.writeSeat(seat, ns, true);
     }
@@ -353,9 +381,32 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
       this.state.players.delete(id);
       this.state.poses.delete(id);
       this.state.farPoses.delete(id);
+      this.state.mates.delete(id);
       this.interest.forget(id);
+      for (const set of this.mateViews.values()) set.delete(id);
     }
+    this.syncMateViews();
     this.updateInterest();
+  }
+
+  /** Teammate entries each viewer holds (seat ids). */
+  private readonly mateViews = new Map<string, Set<string>>();
+
+  /** Every human gets its teammates' HUD entries (and its own: revive progress), and nobody else's. */
+  private syncMateViews(): void {
+    for (const client of this.clients) {
+      const me = this.match.seats.get(client.sessionId);
+      if (!me || me.team === 0 || !client.view) continue;
+      let held = this.mateViews.get(client.sessionId);
+      if (!held) this.mateViews.set(client.sessionId, (held = new Set()));
+      for (const [id, ns] of this.net) {
+        if (!ns.mate || held.has(id)) continue;
+        const other = this.match.seats.get(id);
+        if (!other || (other !== me && !this.match.allies(me, other))) continue;
+        client.view.add(ns.mate);
+        held.add(id);
+      }
+    }
   }
 
   /**
@@ -462,6 +513,18 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     const armed = hasWeapon(sim, sim.weapon) ? 1 : 0;
     if (st.armed !== armed) st.armed = armed;
     this.writeSeatExtras(seat, st);
+    const mate = ns.mate;
+    if (mate) {
+      const hp = Math.max(0, Math.min(255, Math.ceil(sim.hp)));
+      if (mate.hp !== hp) mate.hp = hp;
+      if (mate.alive !== sim.alive) mate.alive = sim.alive;
+      if (mate.down !== sim.down) mate.down = sim.down;
+      const r = sim.down ? this.reviveOf(seat) : { progress: 0, by: null };
+      const rev = Math.round(Math.min(1, r.progress) * 255);
+      if (mate.rev !== rev) mate.rev = rev;
+      const rby = r.by?.pid ?? 0;
+      if (mate.rby !== rby) mate.rby = rby;
+    }
     const act = actionOf(sim);
     writePose(ns.pose, sim, act);
     if (writeFar) writePose(ns.farPose, sim, act);
@@ -528,8 +591,8 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   /** Kill event: the victim's position only to viewers who could see the victim. */
   protected sendKill(killer: Seat | null, victim: Seat, weapon: number, head: boolean): void {
     const s = victim.sim;
-    // Weapon codes on the wire: 0 rifle, 1 pistol, KillWeapon.Zone, KillWeapon.Left.
-    const w = weapon >= 0 ? weapon : weapon === -2 ? KillWeapon.Left : KillWeapon.Zone;
+    // Weapon codes on the wire: 0 rifle, 1 pistol, KillWeapon.Zone, KillWeapon.Left, KillWeapon.Bleed.
+    const w = weapon >= 0 ? weapon : weapon === -2 ? KillWeapon.Left : weapon === KILL_BLEED ? KillWeapon.Bleed : KillWeapon.Zone;
     const withPos = [killer?.pid ?? 0, victim.pid, w, head ? 1 : 0, 1, cm(s.x), cm(s.y), cm(s.z)];
     const noPos = [killer?.pid ?? 0, victim.pid, w, head ? 1 : 0, 0, 0, 0, 0];
     for (const client of this.clients) {
@@ -537,6 +600,12 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
       const sees = id === victim.id || this.viewerSees(id, victim.id);
       client.send(Msg.Kill, sees ? withPos : noPos);
     }
+  }
+
+  /** A duck was knocked (team modes): who, by whom, how. No position (the pose action shows it to those who see it). */
+  protected sendKnock(by: Seat | null, victim: Seat, weapon: number, head: boolean): void {
+    const w = weapon >= 0 ? weapon : KillWeapon.Zone;
+    this.broadcast(Msg.Knock, [by?.pid ?? 0, victim.pid, w, head ? 1 : 0]);
   }
 
   /** Damage taken: a direction toward the attacker, never its position. */

@@ -3,14 +3,18 @@
  * deathmatch), the live room lists, leaderboard, settings, how to play. Pure DOM and no game
  * imports, so it paints before the Three.js and Rapier bundle has loaded.
  */
+import { isTouchOnly } from '../../input/touch/device.ts';
 import { loadSettings, toGameSettings, type GameSettings } from '../../settings.ts';
 import { ApiError, fetchMe, type MeData } from './api.ts';
 import { COPY, LINKS } from './copy.ts';
 import { asset, h } from './dom.ts';
 import { HeroSlot, type HeroModule } from './heroSlot.ts';
 import { ensureSession, loadIdentity, NAME_RE, rememberName, suggestName } from './identity.ts';
-import { LOBBY_ERROR } from '@qwakk/shared/lobby';
+import { LOBBY_ERROR, partyCodeOf, pickQuickRoom, TEAM_ERROR, type PartyGo, type PartyView } from '@qwakk/shared/lobby';
 import { LeaderboardPanel } from './leaderboardPanel.ts';
+import { gameServer } from './api.ts';
+import type { PartyConnection } from './partyClient.ts';
+import { PartyPanel } from './partyPanel.ts';
 import { RoomsPanel } from './roomsPanel.ts';
 import { matchPoints } from './score.ts';
 import { SettingsPanel } from './settingsPanel.ts';
@@ -36,14 +40,16 @@ export interface StartOptions {
   roomId?: string;
   /** ... or open a new room (create). Neither: Quick Play (joinOrCreate). */
   create?: boolean;
+  /** Battle royale team size for a room we create or Quick Play into (1 solo, 2 duo, 4 squad). */
+  team?: number;
   token?: string;
   name?: string;
   settings: GameSettings;
 }
 
 export interface MenuHooks {
-  /** Load the game and join; resolves once the player is in. */
-  start(opts: StartOptions): Promise<void>;
+  /** Load the game and join; resolves once the player is in, with the room joined. */
+  start(opts: StartOptions): Promise<{ roomId: string } | void>;
   /** Warm the game bundle in the background after the menu has painted. */
   prefetch?(): void;
   /** Show the graphics preset (only when the game applies it). */
@@ -64,9 +70,12 @@ const JOIN_ERRORS: Record<number, string> = {
   522: 'room_closed',
   /** gameRoom.ts JOIN_ERROR.alreadyInMatch. */
   4409: 'already_in',
+  [TEAM_ERROR.partyTooBig]: 'party_too_big',
+  [TEAM_ERROR.noTeam]: 'no_team',
 };
 
-const isTouchOnly = (): boolean => !matchMedia('(any-pointer: fine)').matches;
+/** The party connection closes with this when the same player joined another party (server PartyRoom.PARTY_KICKED). */
+const PARTY_KICKED = 4001;
 
 export class Menu {
   readonly root: HTMLElement;
@@ -82,6 +91,11 @@ export class Menu {
   private readonly leaderboard = new LeaderboardPanel();
   private readonly settingsPanel: SettingsPanel;
   private readonly rooms: RoomsPanel;
+  private readonly partyPanel: PartyPanel;
+  private party: PartyConnection | null = null;
+  private partyView: PartyView | null = null;
+  /** A party code from the share link (?party=), joined once the menu shows. */
+  private pendingCode: string | null = null;
   private readonly hero: HeroSlot;
   private busy = false;
   private before: MeData | null = null;
@@ -95,6 +109,25 @@ export class Menu {
       create: () => void this.play('br', { create: true }),
       joinDm: (roomId) => void this.play('dm', { roomId }),
     });
+    this.partyPanel = new PartyPanel({
+      create: () => void this.createParty(),
+      join: (code) => void this.joinParty(code),
+      leave: () => this.leaveParty(),
+      copyLink: () => void this.copyPartyLink(),
+    });
+    // A share link: join that party once the menu is up, and keep the address clean.
+    try {
+      const params = new URLSearchParams(location.search);
+      const code = partyCodeOf(params.get('party') ?? '');
+      if (params.has('party')) {
+        params.delete('party');
+        const q = params.toString();
+        history.replaceState(history.state, '', `${location.pathname}${q ? `?${q}` : ''}${location.hash}`);
+      }
+      this.pendingCode = code;
+    } catch {
+      /* no history API: the link still works, the address keeps the code */
+    }
     const id = loadIdentity();
 
     this.nameInput = h('input', {
@@ -141,7 +174,6 @@ export class Menu {
     }
 
     const mobile = isTouchOnly();
-    if (mobile) for (const b of this.playButtons) b.disabled = true;
 
     const playPanel = h(
       'div',
@@ -149,20 +181,29 @@ export class Menu {
       h('p', { class: 'qm-kicker' }, h('span', { class: 'qm-prompt', 'aria-hidden': 'true' }, '>'), COPY.kicker, h('span', { class: 'qm-cursor', 'aria-hidden': 'true' })),
       h('h1', { class: 'qm-title' }, `${COPY.title} `, h('span', {}, COPY.titleAccent)),
       h('p', { class: 'qm-tagline' }, COPY.tagline),
-      mobile ? h('p', { class: 'qm-mobile', role: 'note' }, COPY.desktopOnly) : null,
+      mobile ? h('p', { class: 'qm-mobile', role: 'note' }, COPY.touch.menuNote) : null,
       nameForm,
       h('div', { class: 'qm-play' }, brButton, dmButton),
       this.status,
       this.result,
+      this.partyPanel.el,
       this.rooms.el,
       this.rooms.dmEl,
     );
 
+    const keyboardKeys = h('dl', { class: 'qm-keys' }, ...COPY.howto.keys.flatMap(([k, v]) => [h('dt', {}, ...k.split(' ').map((part) => (part === '/' ? ' / ' : h('kbd', {}, part)))), h('dd', {}, v)]));
+    const touchKeys = h(
+      'div',
+      { class: 'qm-howto-touch' },
+      h('div', { class: 'qm-panel-head' }, h('h3', {}, COPY.howto.touchHeading), h('p', { class: 'qm-sub' }, COPY.howto.touchIntro)),
+      h('dl', { class: 'qm-keys qm-keys-touch' }, ...COPY.howto.touch.flatMap(([k, v]) => [h('dt', {}, ...k.split(' / ').flatMap((part, i) => (i > 0 ? [' / ', h('kbd', {}, part)] : [h('kbd', {}, part)]))), h('dd', {}, v)])),
+    );
     const howto = h(
       'div',
       { class: 'qm-panel-inner qm-howto' },
       h('div', { class: 'qm-panel-head' }, h('h2', {}, COPY.howto.heading), h('p', { class: 'qm-sub' }, COPY.howto.intro)),
-      h('dl', { class: 'qm-keys' }, ...COPY.howto.keys.flatMap(([k, v]) => [h('dt', {}, ...k.split(' ').map((part) => (part === '/' ? ' / ' : h('kbd', {}, part)))), h('dd', {}, v)])),
+      // Phones and tablets see their controls first.
+      ...(isTouchOnly() ? [touchKeys, keyboardKeys] : [keyboardKeys, touchKeys]),
       h('p', { class: 'qm-fine' }, COPY.howto.fair),
     );
 
@@ -246,6 +287,12 @@ export class Menu {
     // Get or refresh the #tag quietly (no Turnstile prompt until Play).
     const id = loadIdentity();
     if (id.deviceToken && NAME_RE.test(this.nameInput.value.trim())) this.commitName(true).catch(() => {});
+    this.applyPartyLock();
+    if (this.pendingCode) {
+      const code = this.pendingCode;
+      this.pendingCode = null;
+      void this.joinParty(code);
+    }
   }
 
   hide(): void {
@@ -304,17 +351,161 @@ export class Menu {
   private setBusy(on: boolean): void {
     this.busy = on;
     this.root.classList.toggle('is-busy', on);
-    for (const b of this.playButtons) b.disabled = on || isTouchOnly();
-    this.rooms.setBusy(on || isTouchOnly());
+    this.applyPartyLock();
     this.nameInput.disabled = on;
+  }
+
+  /** A party member (not the leader) waits for the leader: no Play, no room picks. */
+  private get followsLeader(): boolean {
+    const v = this.partyView;
+    return !!v && v.members.length > 1 && !v.members.find((m) => m.you)?.leader;
+  }
+
+  private applyPartyLock(): void {
+    const off = this.busy || this.followsLeader;
+    for (const b of this.playButtons) b.disabled = off;
+    this.rooms.setBusy(off);
+    this.partyPanel.setBusy(this.busy);
+  }
+
+  /** Ducks that would come along: the party members not in a match (you included), or 1. */
+  private partySize(): number {
+    const v = this.partyView;
+    return v ? Math.max(1, v.members.filter((m) => m.you || !m.busy).length) : 1;
+  }
+
+  private partyHooks() {
+    return {
+      view: (v: PartyView) => {
+        this.partyView = v;
+        this.partyPanel.set(v);
+        this.rooms.setPartySize(this.partySize());
+        this.applyPartyLock();
+      },
+      go: (g: PartyGo) => {
+        // Follow the leader, only from the menu (in a match the server does not send it anyway).
+        if (this.root.hidden || this.busy) return;
+        const leader = this.partyView?.members[0]?.name ?? '';
+        this.partyPanel.message(COPY.party.following(leader));
+        void this.play(g.mode, { roomId: g.roomId }, true);
+      },
+      dropped: (code: number) => {
+        this.party = null;
+        this.partyView = null;
+        this.partyPanel.set(null);
+        this.rooms.setPartySize(1);
+        this.applyPartyLock();
+        this.partyPanel.message(code === PARTY_KICKED ? COPY.party.moved : COPY.party.closed, code !== PARTY_KICKED);
+      },
+    };
+  }
+
+  /** A session token for party actions (the name must be valid), or null with a message. */
+  private async partyToken(): Promise<string | null | undefined> {
+    try {
+      const t = await this.commitName();
+      if (!t) {
+        this.partyPanel.message(COPY.party.needName, true);
+        this.nameInput.focus();
+        return null;
+      }
+      return t.token;
+    } catch (err) {
+      // Dev without the meta API: the server hands out a guest identity.
+      if (import.meta.env.DEV && err instanceof ApiError && err.code === 'unreachable') return undefined;
+      return null;
+    }
+  }
+
+  private async createParty(): Promise<void> {
+    if (this.party) return;
+    this.partyPanel.setBusy(true);
+    this.partyPanel.message(COPY.party.creating);
+    try {
+      const token = await this.partyToken();
+      if (token === null) return;
+      const { createParty } = await import('./partyClient.ts');
+      this.party = await createParty(gameServer(), token, this.partyHooks());
+      this.partyPanel.message(null);
+    } catch (err) {
+      console.warn('[menu] party create failed', err);
+      const code = (err as { code?: number } | null)?.code ?? 0;
+      this.partyPanel.message(code === LOBBY_ERROR.createLimited ? COPY.party.limited : COPY.party.failed, true);
+    } finally {
+      this.partyPanel.setBusy(this.busy);
+    }
+  }
+
+  private async joinParty(raw: string): Promise<void> {
+    const code = partyCodeOf(raw);
+    if (!code) {
+      this.partyPanel.message(COPY.party.badCode, true);
+      return;
+    }
+    if (this.party?.code === code) return;
+    this.partyPanel.setBusy(true);
+    this.partyPanel.message(COPY.party.joining);
+    try {
+      const token = await this.partyToken();
+      if (token === null) return;
+      const { joinParty } = await import('./partyClient.ts');
+      const conn = await joinParty(gameServer(), code, token, this.partyHooks());
+      this.party?.leave();
+      this.party = conn;
+      this.partyPanel.message(null);
+    } catch (err) {
+      console.warn('[menu] party join failed', err);
+      const c = (err as { code?: number } | null)?.code ?? 0;
+      this.partyPanel.message(c === 522 ? COPY.party.notFound : c === LOBBY_ERROR.joinLimited ? COPY.party.limited : COPY.party.failed, true);
+    } finally {
+      this.partyPanel.setBusy(this.busy);
+    }
+  }
+
+  private leaveParty(): void {
+    this.party?.leave();
+    this.party = null;
+    this.partyView = null;
+    this.partyPanel.set(null);
+    this.partyPanel.message(null);
+    this.rooms.setPartySize(1);
+    this.applyPartyLock();
+  }
+
+  private async copyPartyLink(): Promise<void> {
+    const code = this.partyView?.code;
+    if (!code) return;
+    const link = `${location.origin}${location.pathname}?party=${code}`;
+    try {
+      await navigator.clipboard.writeText(link);
+      this.partyPanel.message(COPY.party.copied);
+    } catch {
+      this.partyPanel.message(COPY.party.copyFailed, true);
+    }
   }
 
   private setStatus(text: string): void {
     this.status.replaceChildren(h('span', { class: 'qm-spin', 'aria-hidden': 'true' }), h('span', {}, text));
   }
 
-  private async play(mode: GameMode, target: { roomId?: string; create?: boolean } = {}): Promise<void> {
-    if (this.busy || isTouchOnly()) return;
+  private async play(mode: GameMode, target: { roomId?: string; create?: boolean; team?: number } = {}, follow = false): Promise<void> {
+    if (this.busy) return;
+    if (this.followsLeader && !follow) {
+      this.status.replaceChildren(h('p', { class: 'qm-error' }, COPY.errors.party_lead!));
+      return;
+    }
+    // Battle royale: the room's team size, and Quick Play picks from the live list a room
+    // whose teams fit the whole party (else it opens one in the picked mode).
+    if (mode === 'br' && !target.roomId) {
+      const size = this.partySize();
+      const team = this.rooms.mode;
+      target = { ...target, team };
+      const { live, rooms } = this.rooms.list;
+      if (!target.create && live) {
+        const pick = pickQuickRoom(rooms, size, team) ?? pickQuickRoom(rooms, size);
+        target = pick ? { roomId: pick.roomId } : { create: true, team };
+      }
+    }
     this.lastMode = mode;
     this.setBusy(true);
     this.result.hidden = true;
@@ -348,7 +539,11 @@ export class Menu {
     // Free the 3D duck's renderer before the game makes its own.
     this.hero.stop();
     try {
-      await this.hooks.start({ mode, ...target, token, name: this.nameInput.value.trim(), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
+      const joined = await this.hooks.start({ mode, ...target, token, name: this.nameInput.value.trim(), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
+      // The leader tells the party where it went; the members in the menu follow.
+      const v = this.partyView;
+      if (joined && this.party && v && v.members.length > 1 && v.members.find((m) => m.you)?.leader) this.party.went({ mode, roomId: joined.roomId });
+      this.partyPanel.message(null);
       this.hide();
     } catch (err) {
       console.error('[menu] start failed', err);

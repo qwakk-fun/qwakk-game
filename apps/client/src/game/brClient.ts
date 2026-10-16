@@ -14,6 +14,7 @@ import {
   hasWeapon,
   HEAL,
   Item,
+  KNOCK,
   ARMOR,
   capacityOf,
   isStack,
@@ -40,6 +41,9 @@ import { LobbyPanel } from '../hud/br/lobbyPanel.ts';
 import { MapPainter, renderMapImage, type MapOverlay } from '../hud/br/mapCanvas.ts';
 import type { GameHud } from '../hud/gameHud.ts';
 import type { Controls } from '../input/controls.ts';
+import { hint } from '../input/touch/mode.ts';
+import type { TouchFrame } from '../input/touch/touchControls.ts';
+import { COPY } from '../ui/menu/copy.ts';
 import type { Session } from '../net/session.ts';
 import type { Avatar } from '../player/avatar.ts';
 import type { RenderContext } from '../render/renderer.ts';
@@ -59,6 +63,8 @@ export interface BrDeps {
   ghud: GameHud;
   remoteAvatar(id: string): Avatar | null;
   exit(summary: ExitSummary): void;
+  /** Who took us out (the kill feed's last word on our death). */
+  killerName(): string;
 }
 
 interface ItemEntry {
@@ -104,10 +110,12 @@ export class BrClient {
   private route: PlaneRoute | null = null;
   private routeKey = -1;
   private promptId: string | null = null;
-  private outcome: { placement: number; total: number; kills: number; damage: number; survivedMs: number } | null = null;
+  private outcome: { placement: number; total: number; kills: number; damage: number; survivedMs: number; teamSize: number } | null = null;
   private watching = false;
+  /** The prompt's key this frame ('E', 'F', 'Space', ...), for the touch buttons. */
+  private promptKey = '';
   /** Stats for the test hook. */
-  readonly stats = { picked: 0, denied: 0, itemsSeen: 0, jumped: false, landed: false, maxItems: 0, planeSeen: false, zoneWallSeen: false, placement: 0, resultShown: false, cratesOpened: 0, inventoryShown: false };
+  readonly stats = { picked: 0, denied: 0, itemsSeen: 0, jumped: false, landed: false, maxItems: 0, planeSeen: false, zoneWallSeen: false, placement: 0, resultShown: false, cratesOpened: 0, inventoryShown: false, revivePrompt: '' };
   private readonly tmp = new THREE.Vector3();
   private readonly half: number;
 
@@ -252,7 +260,7 @@ export class BrClient {
   private updatePrompt(myPos: THREE.Vector3): void {
     const s = this.mySim();
     this.promptId = null;
-    if (!s || !s.alive || s.mode !== Mode.Ground || this.state.phase !== MatchPhase.Playing) {
+    if (!s || !s.alive || s.down || s.mode !== Mode.Ground || this.state.phase !== MatchPhase.Playing) {
       this.items.highlight(null);
       return;
     }
@@ -291,7 +299,7 @@ export class BrClient {
       return;
     }
     const s = this.mySim();
-    if (!s || !s.alive || s.mode === Mode.Plane || this.state.phase !== MatchPhase.Playing || this.hudView.resultVisible) return;
+    if (!s || !s.alive || s.down || s.mode === Mode.Plane || this.state.phase !== MatchPhase.Playing || this.hudView.resultVisible) return;
     this.invOpen = true;
     this.stats.inventoryShown = true;
     this.d.controls.uiOpen = true;
@@ -366,25 +374,36 @@ export class BrClient {
     this.d.sound.deny();
   }
 
-  result(placement: number, total: number, kills: number, damage: number, survivedMs: number): void {
-    this.outcome = { placement, total, kills, damage, survivedMs };
+  result(placement: number, total: number, kills: number, damage: number, survivedMs: number, teamSize = 1): void {
+    this.outcome = { placement, total, kills, damage, survivedMs, teamSize };
     this.stats.placement = placement;
     this.stats.resultShown = true;
     this.closeInventory(false);
     if (document.pointerLockElement) document.exitPointerLock();
     const win = placement === 1;
-    const killerName = this.killerName();
+    const killerName = this.d.killerName();
     this.hudView.showResult(
-      { win, placement, total, kills, damage, survivedMs, killer: killerName },
+      { win, placement, total, kills, damage, survivedMs, killer: killerName, teamSize },
       win ? null : () => this.d.controls.requestLock(),
       () => this.d.exit({ mode: 'br', placement, players: total, kills }),
     );
     if (win) this.d.sound.victory();
   }
 
-  private killerName(): string {
-    const pid = this.d.session.mine?.watch ?? 0;
-    return pid ? (this.d.session.playerByPid(pid)?.name ?? '') : '';
+  /** The battle royale part of the touch layer's frame: context buttons and the screens that take taps. */
+  touchState(): Pick<TouchFrame, 'promptKey' | 'bandages' | 'medkits' | 'modal' | 'mapOpen' | 'canBag' | 'spectating'> {
+    const s = this.mySim();
+    const st = this.state;
+    const alive = !!s && s.alive === 1;
+    return {
+      promptKey: this.promptKey,
+      bandages: s?.bandages ?? 0,
+      medkits: s?.medkits ?? 0,
+      modal: this.invOpen || this.hudView.resultVisible,
+      mapOpen: this.hudView.mapVisible,
+      canBag: !!s && s.alive === 1 && !s.down && s.mode !== Mode.Plane && st.phase === MatchPhase.Playing,
+      spectating: !alive && this.watching && !this.hudView.resultVisible,
+    };
   }
 
   /** Summary when leaving without a result (left mid-match). */
@@ -461,19 +480,26 @@ export class BrClient {
       const p = planeAt(r, Math.max(0, t));
       const land = t >= 0 && overLand(this.d.world.map, p.x, p.z);
       const auto = Math.max(0, r.ejectS - Math.max(0, t));
-      banner = [t < 0 ? 'Boarding the plane' : land ? 'Over Sainte-Canard' : 'Over the sea', `Auto jump in ${clock(auto)}. Mouse to look around, M for the map.`];
+      banner = [t < 0 ? 'Boarding the plane' : land ? 'Over Sainte-Canard' : 'Over the sea', `Auto jump in ${clock(auto)}. ${hint('Mouse to look around, M for the map.', COPY.touch.hints.plane)}`];
       prompt = land ? { key: 'F', text: 'Jump' } : null;
     } else if (s && s.alive && s.mode === Mode.Freefall) {
-      prompt = { key: 'Space', text: 'Open the glider (W to dive)' };
+      prompt = { key: 'Space', text: hint('Open the glider (W to dive)', COPY.touch.hints.freefall) };
     } else if (s && s.alive && s.mode === Mode.Glide) {
       prompt = { key: 'W / S', text: 'Dive or brake' };
     } else if (s && !s.alive && this.watching && !this.hudView.resultVisible) {
       const pid = mine?.watch ?? 0;
+      const id = pid ? this.d.session.idOfPid(pid) : null;
       const name = pid ? (this.d.session.playerByPid(pid)?.name ?? '') : '';
-      banner = [`Watching ${name}`, 'Click for the next duck. Esc, then Back to the pond, to leave.'];
+      banner = id && this.d.session.isAlly(id) ? [`Watching your teammate ${name}`, hint('Your team is still in it. Click for the next teammate.', COPY.touch.hints.spectateMate)] : [`Watching ${name}`, hint('Click for the next duck. Esc, then Back to the pond, to leave.', COPY.touch.hints.spectate)];
+    } else if (s && s.alive && s.down) {
+      banner = ['Knocked!', `Bleeding out in ${Math.ceil((s.hp / KNOCK.hp) * KNOCK.bleedSeconds)} s. ${hint('Crawl to cover. A teammate holds E next to you to revive you.', COPY.touch.hints.knocked)}`];
     }
     let crate: CratePanelView | null = null;
-    if (!prompt && this.promptId && s && mine) {
+    const revive = this.reviveState(s);
+    this.stats.revivePrompt = revive.prompt ?? '';
+    // While our revive runs, its progress bar says it all.
+    if (!prompt && revive.prompt && !revive.bar) prompt = { key: 'E', text: revive.prompt };
+    else if (!prompt && !revive.prompt && this.promptId && s && mine) {
       const e = this.loot.entries.get(this.promptId);
       if (e && e.kind === Item.Crate && !e.open) prompt = { key: 'E', text: `Open the ${crateTitle(e).toLowerCase()}` };
       else if (e && e.kind === Item.Crate) {
@@ -485,7 +511,8 @@ export class BrClient {
       }
     }
 
-    const heal = s && s.heal > 0 ? { name: s.healKind === 2 ? 'Medkit' : 'Bandage', progress: 1 - s.heal / (s.healKind === 2 ? HEAL.medkitTicks : HEAL.bandageTicks) } : null;
+    this.promptKey = prompt?.key ?? '';
+    const heal = revive.bar ?? (s && s.heal > 0 ? { name: s.healKind === 2 ? 'Medkit' : 'Bandage', progress: 1 - s.heal / (s.healKind === 2 ? HEAL.medkitTicks : HEAL.bandageTicks) } : null);
     const inv = this.inventory();
     const myX = s && s.mode !== Mode.Plane ? s.x : r ? planeAt(r, Math.max(0, t)).x : 0;
     const myZ = s && s.mode !== Mode.Plane ? s.z : r ? planeAt(r, Math.max(0, t)).z : 0;
@@ -495,6 +522,7 @@ export class BrClient {
     const showPlane = r && pp && Number.isFinite(t) && (s?.mode === Mode.Plane || t < r.ejectS + 5);
     const overlay: MapOverlay = {
       me: s ? { x: myX, z: myZ, yaw: this.d.controls.yaw } : null,
+      allies: this.allyDots(),
       zone: current,
       next,
       plane: showPlane ? { fx: r.fromX, fz: r.fromZ, tx: r.fromX + r.dirX * r.length, tz: r.fromZ + r.dirZ * r.length, px: pp.x, pz: pp.z } : null,
@@ -505,6 +533,7 @@ export class BrClient {
         zoneText,
         outside,
         alive: st.alive,
+        teams: st.teamSize > 1 && st.phase !== MatchPhase.Warmup ? st.teams : 0,
         kills: mine?.kills ?? 0,
         yaw: this.d.controls.yaw,
         zoneAngle,
@@ -520,9 +549,49 @@ export class BrClient {
     this.hudView.showInventory(this.invOpen && s && mine ? inventoryScreen(s, mine, this.inReach(s)) : null);
     if (showBoard && !this.invOpen) {
       const rows: BoardRow[] = [];
-      for (const [id, p] of st.players) rows.push({ name: p.name, kills: p.kills, alive: p.alive === 1, placement: p.placement, me: id === this.d.session.sessionId, bot: p.bot });
+      for (const [id, p] of st.players) rows.push({ name: p.name, kills: p.kills, alive: p.alive === 1, placement: p.placement, me: id === this.d.session.sessionId, bot: p.bot, ally: this.d.session.isAlly(id) });
       this.hudView.showBoard(rows, inv);
     } else this.hudView.showBoard(null, null);
+  }
+
+  /**
+   * Revives: a knocked teammate in reach gets a prompt (hold E) and our
+   * progress on it; while we are knocked, the teammate reviving us. All from
+   * the server's team entries (state.mates) and the allies' poses.
+   */
+  private reviveState(s: PlayerSim | null): { prompt: string | null; bar: { name: string; progress: number } | null } {
+    const session = this.d.session;
+    const st = this.state;
+    if (!s || !s.alive || st.teamSize <= 1 || st.phase !== MatchPhase.Playing) return { prompt: null, bar: null };
+    const myPid = session.mine?.pid ?? -1;
+    if (s.down) {
+      const me = session.mate(session.sessionId);
+      if (me && me.rev > 0) return { prompt: null, bar: { name: `${session.playerByPid(me.rby)?.name ?? 'A teammate'} is reviving you`, progress: me.rev / 255 } };
+      return { prompt: null, bar: null };
+    }
+    if (s.mode !== Mode.Ground) return { prompt: null, bar: null };
+    for (const [id, m] of st.mates) {
+      if (id === session.sessionId || !m.alive || !m.down) continue;
+      const p = session.pose(id);
+      if (!p || Math.hypot(p.x - s.x, p.y + 0.45 - (s.y + 0.9), p.z - s.z) > KNOCK.reviveRange) continue;
+      const name = st.players.get(id)?.name ?? 'your teammate';
+      const mine = m.rby === myPid && m.rev > 0;
+      return { prompt: `Hold to revive ${name}`, bar: mine ? { name: `Reviving ${name}`, progress: m.rev / 255 } : null };
+    }
+    return { prompt: null, bar: null };
+  }
+
+  /** Teammates on the map and minimap (their poses always reach us). */
+  private allyDots(): { x: number; z: number; down: boolean; out: boolean; name: string }[] {
+    const session = this.d.session;
+    const out: { x: number; z: number; down: boolean; out: boolean; name: string }[] = [];
+    for (const [id, m] of this.state.mates) {
+      if (id === session.sessionId) continue;
+      const p = session.pose(id);
+      if (!p) continue;
+      out.push({ x: p.x, z: p.z, down: m.down === 1, out: m.alive === 0, name: this.state.players.get(id)?.name ?? '' });
+    }
+    return out;
   }
 
   /** Dev autopilot input. */
@@ -568,8 +637,8 @@ export class BrClient {
     const players = [...st.players.entries()]
       .filter(([, p]) => !p.bot)
       .sort(([, a], [, b]) => a.pid - b.pid)
-      .map(([id, p]) => ({ name: p.name, tag: p.tag, me: id === me }));
-    this.lobby.update({ label: st.label, shortId: shortRoomId(this.d.session.room.roomId), cap: BR.players, players });
+      .map(([id, p]) => ({ name: p.name, tag: p.tag, me: id === me, ally: this.d.session.isAlly(id) }));
+    this.lobby.update({ label: st.label, shortId: shortRoomId(this.d.session.room.roomId), cap: BR.players, players, teamSize: st.teamSize || 1 });
   }
 
   dispose(): void {

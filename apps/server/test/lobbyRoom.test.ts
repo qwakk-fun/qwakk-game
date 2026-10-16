@@ -1,6 +1,6 @@
 /**
  * Lobby rooms over real WebSockets (in-process server, meta mocked): the
- * lobby lists battle royale rooms live; three humans join one room from the
+ * lobby lists battle royale rooms live; two humans join one room from the
  * list, the countdown starts, resets when one leaves, and when it ends bots
  * fill the seats and the match starts; a room in progress cannot be joined;
  * creation is limited per IP and capped; join options cannot tune a room.
@@ -105,41 +105,38 @@ const failCode = async (p: Promise<{ leave(c?: boolean): Promise<unknown> }>): P
 };
 
 describe('lobby rooms', () => {
-  it('three humans from the list start the countdown; a leave resets it; then bots fill and the match starts', async () => {
+  it('two humans from the list start the countdown; a leave resets it; then bots fill and the match starts', async () => {
     const lobby = await openLobby();
     const a = await new Client(url).create<IslandState>(BR.roomName, { token: 'tok-1' }, IslandState);
     const id = a.roomId;
     const listing = () => lobby.rooms.get(id)?.metadata;
-    await waitUntil('listed, waiting for 2', () => listing()?.stage === 'waiting' && listing()?.need === 2 && listing()?.humans === 1);
+    await waitUntil('listed, waiting for 1', () => listing()?.stage === 'waiting' && listing()?.need === 1 && listing()?.humans === 1);
     expect(listing()?.label).toBeTruthy();
     expect(listing()?.cap).toBe(BR.players);
     // Nothing private in the listing.
     expect(JSON.stringify(lobby.rooms.get(id))).not.toMatch(/tok-|Duck1|10\.0\.0\.1|0000-4000/);
-
-    const b = await join(id, 2);
-    await waitUntil('2 humans, waiting for 1', () => listing()?.humans === 2 && listing()?.need === 1);
-    await waitUntil('room state says need 1', () => b.state.need === 1 && b.state.phase === MatchPhase.Warmup);
-    expect(b.state.timeLeft).toBe(0);
+    await waitUntil('room state says need 1', () => a.state.need === 1 && a.state.phase === MatchPhase.Warmup);
+    expect(a.state.timeLeft).toBe(0);
     await sleep(COUNTDOWN_S * 1000 + 300);
     expect(listing()?.stage).toBe('waiting');
 
-    const c = await join(id, 3);
+    const b = await join(id, 2);
     await waitUntil('countdown', () => listing()?.stage === 'countdown' && listing()?.need === 0);
-    expect(c.state.need).toBe(0);
+    expect(b.state.need).toBe(0);
     // Names and tags are in the room state for the waiting room panel.
-    await waitUntil('roster', () => c.state.players.size === 3);
-    expect([...c.state.players.values()].map((p) => `${p.name}#${p.tag}`).sort()).toEqual(['Duck1#1001', 'Duck2#1002', 'Duck3#1003']);
+    await waitUntil('roster', () => b.state.players.size === 2);
+    expect([...b.state.players.values()].map((p) => `${p.name}#${p.tag}`).sort()).toEqual(['Duck1#1001', 'Duck2#1002']);
 
-    await c.leave(true);
+    await b.leave(true);
     await waitUntil('reset to waiting', () => listing()?.stage === 'waiting' && listing()?.need === 1);
     await sleep(COUNTDOWN_S * 1000 + 300);
     expect(a.state.phase).toBe(MatchPhase.Warmup);
 
-    const c2 = await join(id, 4);
+    const b2 = await join(id, 3);
     await waitUntil('countdown again', () => listing()?.stage === 'countdown');
     await waitUntil('match started', () => a.state.phase === MatchPhase.Playing, COUNTDOWN_S * 1000 + 3000);
     await waitUntil('bots fill the seats', () => a.state.total === BR.players && a.state.players.size === BR.players);
-    expect([...a.state.players.values()].filter((p) => !p.bot).length).toBe(3);
+    expect([...a.state.players.values()].filter((p) => !p.bot).length).toBe(2);
     await waitUntil('listed as in progress', () => listing()?.stage === 'playing' && lobby.rooms.get(id)?.locked === true);
 
     // In progress: not joinable.
@@ -148,7 +145,7 @@ describe('lobby rooms', () => {
     const q = await new Client(url).joinOrCreate<IslandState>(BR.roomName, { token: 'tok-6' }, IslandState);
     expect(q.roomId).not.toBe(id);
 
-    for (const r of [a, b, c2, q, lobby.room]) await r.leave(true);
+    for (const r of [a, b2, q, lobby.room]) await r.leave(true);
   }, 40_000);
 
   it('join options cannot tune a room', async () => {
@@ -198,7 +195,7 @@ describe('lobby rooms', () => {
     // Quick Play again: the room with the most humans.
     const b = await new Client(url).joinOrCreate<IslandState>(ROOM.name, { token: 'tok-31' }, IslandState);
     expect(b.roomId).toBe(a.roomId);
-    await waitUntil('2 humans, 30 bots', () => [...b.state.players.values()].filter((p) => p.bot).length === MATCH.players - 2 && b.state.players.size === MATCH.players);
+    await waitUntil('2 humans, the rest bots', () => [...b.state.players.values()].filter((p) => p.bot).length === MATCH.players - 2 && b.state.players.size === MATCH.players);
     await waitUntil('listed with 2 humans', () => lobby.rooms.get(a.roomId)?.metadata.humans === 2);
 
     // A pick from the list by id.

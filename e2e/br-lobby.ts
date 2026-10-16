@@ -1,5 +1,5 @@
 /**
- * Lobby rooms end to end: the real server (default start rule: 3 humans, a
+ * Lobby rooms end to end: the real server (start rule pinned to 3 humans, a
  * short countdown for the test), `vite preview` of the test bundle, one
  * headless Chrome player and two Node players (npm run build:test first).
  *
@@ -12,7 +12,7 @@
  *      room is listed as in progress and a late join by id is refused.
  *   5. The three static deathmatch rooms are listed (name, 0/32) in the lobby
  *      and the menu; a menu clicks Join on one: the lobby lists 1 human there
- *      and the player is in a 32-duck room (31 bots).
+ *      and the player is in a full room (MATCH.players ducks, the rest bots).
  *
  * Saves screenshots: room list, waiting room, countdown, list during the
  * countdown, list with the room in progress.
@@ -95,6 +95,8 @@ async function main(): Promise<void> {
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
     QWAKK_BR_COUNTDOWN: String(COUNTDOWN_S),
+    // Three humans (the default is 2), so the menu's waiting states get a step of their own.
+    QWAKK_BR_MIN_HUMANS: '3',
     QWAKK_BR_SEED: '7',
   });
   const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);

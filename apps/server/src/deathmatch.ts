@@ -3,7 +3,7 @@
  * respawns, rounds and the score limit. The room feeds it human inputs;
  * bots think here and go through the very same `applyInput` path.
  *
- * Seats: humans plus bots are always `players` (32) while anyone plays or
+ * Seats: humans plus bots are always `players` (24) while anyone plays or
  * watches. A joining human takes a bot's seat (a dead bot first, else the bot
  * farthest from every human, so nobody sees a duck vanish mid-fight); a
  * leaving human's seat goes back to a new bot. With no humans and no
@@ -59,9 +59,10 @@ export class Deathmatch extends Arena {
     return this.seats.size === 0;
   }
 
-  addHuman(id: string, name: string): Seat {
+  /** A human takes a seat; `team` makes party members allies (no damage between them, always in view). */
+  addHuman(id: string, name: string, team = 0): Seat {
     if (this.idle) this.freshRound();
-    const seat = this.addSeat(id, name, null);
+    const seat = this.addSeat(id, name, null, team);
     this.fillBots();
     return seat;
   }
@@ -122,8 +123,8 @@ export class Deathmatch extends Arena {
     return `Duck ${this.botCount} (bot)`;
   }
 
-  private addSeat(id: string, name: string, bot: BotLike | null): Seat {
-    const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0));
+  private addSeat(id: string, name: string, bot: BotLike | null, team = 0): Seat {
+    const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0), team);
     this.spawn(seat);
     return seat;
   }
@@ -139,7 +140,7 @@ export class Deathmatch extends Arena {
     const map = this.sim.map;
     const fromArena = map.arenaSpawns.length > 0;
     const pts = fromArena ? map.arenaSpawns : map.spawns;
-    const enemies = [...this.seats.values()].filter((s) => s !== seat && s.sim.alive && s.respawnAt < 0);
+    const enemies = [...this.seats.values()].filter((s) => s !== seat && s.sim.alive && s.respawnAt < 0 && !this.allies(seat, s));
     for (const [i, t] of this.usedSpawns) if (this.tick - t > MATCH.spawnReuseTicks || t > this.tick) this.usedSpawns.delete(i);
     const scored = pts.map((p, i) => {
       let d = Infinity;

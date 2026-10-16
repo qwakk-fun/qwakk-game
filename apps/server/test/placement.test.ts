@@ -45,7 +45,7 @@ describe('battle royale placements', () => {
     br.remove('a');
     expect(br.phase).toBe('ended');
     expect(br.winner?.id).toBe('c');
-    const rows = brResults(br);
+    const rows = brResults(br).rows;
     const places = rows.map((r) => r.placement).sort();
     expect(places).toEqual([1, 2, 3, 4]);
     expect(rows.filter((r) => r.placement === 1).map((r) => r.seat.id)).toEqual(['c']);
@@ -60,7 +60,7 @@ describe('battle royale placements', () => {
     br.beginTick(1, 4000);
     br.seats.get('b')!.kills = 2;
     br.remove('c');
-    const rows = brResults(br);
+    const rows = brResults(br).rows;
     expect(rows.map((r) => r.placement).sort()).toEqual([1, 2, 3]);
     // B (more kills) is ranked above A; only one duck holds 1st.
     expect(rows.find((r) => r.seat.id === 'b')?.placement).toBe(1);

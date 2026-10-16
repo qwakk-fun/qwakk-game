@@ -4,8 +4,8 @@
  * one or more of the static deathmatch rooms, and collect server tick time,
  * patch time, CPU and per-client bandwidth. Prints a Markdown table.
  *
- * Scenarios (default): 32 network clients in one room; 1 client plus 31
- * server bots in one room; the same two with all three rooms full at once.
+ * Scenarios (default): a full room of network clients (ROOM.maxClients, 32);
+ * 1 client plus server bots (MATCH.players) in one room; the same two with all three rooms full at once.
  * Network clients send random inputs (move, sprint, crouch, jump, fire a third
  * of the time); server bots are the real navmesh bots.
  *
@@ -16,7 +16,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
-import { MATCH } from '@qwakk/shared';
+import { MATCH, ROOM } from '@qwakk/shared';
 import { DM_ROOM_CATALOG } from '@qwakk/shared/lobby';
 import { runBots } from './bots.ts';
 import { dmMapId } from '../src/maps.ts';
@@ -117,14 +117,16 @@ async function benchOnce(s: Scenario) {
 }
 
 const INTEREST_ON = !process.argv.includes('--no-interest');
+/** The worst case: every human seat taken (more than MATCH.players, so no bots). */
+const FULL_ROOM = Math.max(MATCH.players, ROOM.maxClients);
 const counts = process.argv.slice(2).map(Number).filter((n) => n > 0);
 const plan: Scenario[] =
   counts.length > 0
     ? counts.map((n) => ({ clients: n, rooms: 1, serverBots: false }))
     : [
-        { clients: MATCH.players, rooms: 1, serverBots: false },
+        { clients: FULL_ROOM, rooms: 1, serverBots: false },
         { clients: 1, rooms: 1, serverBots: true },
-        { clients: MATCH.players, rooms: DM_ROOM_CATALOG.length, serverBots: false },
+        { clients: FULL_ROOM, rooms: DM_ROOM_CATALOG.length, serverBots: false },
         { clients: 1, rooms: DM_ROOM_CATALOG.length, serverBots: true },
       ];
 const rows = [];

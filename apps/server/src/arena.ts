@@ -18,6 +18,7 @@ import {
   NET,
   Button,
   DT,
+  KNOCK,
   weaponStats,
   type InputFrame,
   type PlayerSim,
@@ -32,6 +33,8 @@ export interface BotTarget {
   y: number;
   z: number;
   alive: boolean;
+  /** Team number (0: none). A bot is never handed its own teammates as targets. */
+  team: number;
 }
 
 /** What drives a bot seat: one input frame per tick, through the same path as a human's. */
@@ -66,12 +69,22 @@ export interface Seat {
   life: number;
   spawnYaw: number;
   spawnTick: number;
+  /** Team (battle royale) or party ally group (deathmatch); 0: none. Same nonzero team: no damage, always in view. */
+  team: number;
+  /** Knocked: who knocked it (the kill is theirs if it bleeds out) and the tick it went down. */
+  knockedBy: string | null;
+  downTick: number;
+  /** The knocked teammate this duck is reviving (holding Use), and for how many ticks. */
+  reviveOf: string | null;
+  reviveTicks: number;
 }
 
 /** Everything the room needs to tell clients. */
 export interface ArenaEvents {
   shot(shooter: Seat, weapon: number, r: ShotResult): void;
-  hit(shooter: Seat, victim: Seat, damage: number, head: boolean, killed: boolean): void;
+  hit(shooter: Seat, victim: Seat, damage: number, head: boolean, killed: boolean, knocked: boolean): void;
+  /** A duck was knocked (team modes). `by` null: the zone. */
+  knock?(by: Seat | null, victim: Seat, weapon: number, head: boolean): void;
   /** `from` is null for zone damage. */
   damaged(victim: Seat, from: Seat | null, damage: number): void;
   /** `killer` is null for the zone (or a duck that left). */
@@ -87,6 +100,9 @@ export interface ArenaOptions {
 }
 
 const PLAYER_RADIUS = 0.35;
+
+/** Kill event "weapon" for a knocked duck that bled out or whose team has nobody standing. */
+export const KILL_BLEED = -3;
 
 export function randomSecret(): number {
   return crypto.getRandomValues(new Uint32Array(1))[0] as number;
@@ -142,8 +158,27 @@ export abstract class Arena {
     return raw;
   }
 
-  protected makeSeat(id: string, name: string, bot: BotLike | null, sim: PlayerSim): Seat {
-    const seat: Seat = { id, pid: this.nextPid++, name, bot, sim, kills: 0, deaths: 0, dealt: 0, protect: 0, respawnAt: -1, side: 1, viewLagMs: 0, rttMs: -1, life: 0, spawnYaw: 0, spawnTick: 0 };
+  /** May this duck be knocked instead of killed right now? Only the battle royale team modes say yes. */
+  protected canKnock(_victim: Seat): boolean {
+    return false;
+  }
+
+  /** Teammates (the same nonzero team), never yourself. Teammates cannot hurt each other and always see each other. */
+  allies(a: Seat, b: Seat): boolean {
+    return a !== b && a.team > 0 && a.team === b.team;
+  }
+
+  alliesById(a: string, b: string): boolean {
+    const sa = this.seats.get(a);
+    const sb = this.seats.get(b);
+    return !!sa && !!sb && this.allies(sa, sb);
+  }
+
+  protected makeSeat(id: string, name: string, bot: BotLike | null, sim: PlayerSim, team = 0): Seat {
+    const seat: Seat = {
+      id, pid: this.nextPid++, name, bot, sim, kills: 0, deaths: 0, dealt: 0, protect: 0, respawnAt: -1, side: 1, viewLagMs: 0, rttMs: -1, life: 0, spawnYaw: 0, spawnTick: 0,
+      team, knockedBy: null, downTick: 0, reviveOf: null, reviveTicks: 0,
+    };
     this.seats.set(id, seat);
     return seat;
   }
@@ -177,23 +212,57 @@ export abstract class Arena {
     const isFar = this.ao.isFar;
     const extra = this.ao.farExtraDelayMs ?? 0;
     const rtt = Math.max(0, seat.rttMs);
-    const targets = this.history.sample(viewTime, isFar ? (id, t) => (isFar(seat.id, id, this.now, rtt) ? Math.max(this.now - COMBAT.maxRewindMs, t - extra) : t) : undefined);
+    let targets = this.history.sample(viewTime, isFar ? (id, t) => (isFar(seat.id, id, this.now, rtt) ? Math.max(this.now - COMBAT.maxRewindMs, t - extra) : t) : undefined);
+    // No friendly fire: shots pass through teammates (the client predicts the same).
+    if (seat.team > 0) targets = targets.filter((t) => !this.alliesById(seat.id, t.id));
     const r = resolveShot(this.sim, seat.sim, seat.id, seat.side, shot, spreadSeed(this.secret, seat.pid), targets);
     this.ev.shot(seat, shot.weapon, r);
     if (r.outcome !== ShotOutcome.Body && r.outcome !== ShotOutcome.Head) return;
     const victim = this.seats.get(r.targetId);
-    if (!victim || !victim.sim.alive || victim.protect > 0 || !this.damageOn()) return;
+    if (!victim || !victim.sim.alive || victim.protect > 0 || !this.damageOn() || this.allies(seat, victim)) return;
     const head = r.outcome === ShotOutcome.Head;
     const raw = damageAt(weaponStats(shot.weapon), r.distance, head);
-    const dmg = Math.min(victim.sim.hp, this.adjustDamage(victim, raw, head));
+    const down = victim.sim.down === 1;
+    // A knocked duck has no armor left to speak of: its bleed meter takes the raw hit, scaled.
+    const dmg = Math.min(victim.sim.hp, down ? raw * KNOCK.damageScale : this.adjustDamage(victim, raw, head));
     victim.sim.hp -= dmg;
     seat.dealt += dmg;
-    const killed = victim.sim.hp <= 0;
-    this.ev.hit(seat, victim, dmg, head, killed);
+    const out = victim.sim.hp <= 0;
+    const knocked = out && !down && this.canKnock(victim);
+    const killed = out && !knocked;
+    this.ev.hit(seat, victim, dmg, head, killed, knocked);
     this.ev.damaged(victim, seat, dmg);
     // Bots read the damage indicator: a rough direction, not the exact spot.
     victim.bot?.damagedFrom(seat.sim.x + (Math.random() - 0.5) * 8, seat.sim.z + (Math.random() - 0.5) * 8);
-    if (killed) this.kill(seat, victim, shot.weapon, head);
+    if (knocked) this.knock(seat, victim, shot.weapon, head);
+    else if (killed) this.kill(seat, victim, shot.weapon, head);
+  }
+
+  /**
+   * Knock a duck down instead of killing it (team modes): it crawls with a
+   * bleed meter as its health until a teammate revives it, it bleeds out, or
+   * it is finished. Server rule; the sim only reads `down` for the crawl.
+   */
+  protected knock(by: Seat | null, victim: Seat, weapon: number, head: boolean): void {
+    const s = victim.sim;
+    s.down = 1;
+    s.hp = KNOCK.hp;
+    s.heal = 0;
+    s.healKind = 0;
+    s.reload = 0;
+    s.aim = 0;
+    victim.knockedBy = by?.id ?? null;
+    victim.downTick = this.tick;
+    victim.reviveOf = null;
+    victim.reviveTicks = 0;
+    this.ev.knock?.(by, victim, weapon, head);
+  }
+
+  /** Back up from a knock with a little health. */
+  protected revive(seat: Seat): void {
+    seat.sim.down = 0;
+    seat.sim.hp = KNOCK.reviveHp;
+    seat.knockedBy = null;
   }
 
   /** Hooks around the sim step (battle royale: plane ejection before, pickups after). */
@@ -203,15 +272,22 @@ export abstract class Arena {
   /** Damage from the world (the zone): no armor, no attacker. */
   worldDamage(victim: Seat, amount: number): void {
     if (!victim.sim.alive || amount <= 0) return;
+    const down = victim.sim.down === 1;
     const dmg = Math.min(victim.sim.hp, amount);
     victim.sim.hp -= dmg;
     this.ev.damaged(victim, null, dmg);
-    if (victim.sim.hp <= 0) this.kill(null, victim, -1, false);
+    if (victim.sim.hp > 0) return;
+    if (down) this.kill(this.seats.get(victim.knockedBy ?? '') ?? null, victim, KILL_BLEED, false);
+    else if (this.canKnock(victim)) this.knock(null, victim, -1, false);
+    else this.kill(null, victim, -1, false);
   }
 
   protected kill(killer: Seat | null, victim: Seat, weapon: number, head: boolean): void {
     victim.sim.alive = 0;
     victim.sim.hp = 0;
+    victim.sim.down = 0;
+    victim.reviveOf = null;
+    victim.reviveTicks = 0;
     victim.sim.heal = 0;
     victim.sim.healKind = 0;
     victim.deaths++;
@@ -242,10 +318,11 @@ export abstract class Arena {
   protected thinkBots(): void {
     const view = this.botView;
     view.length = 0;
-    for (const s of this.seats.values()) view.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, alive: s.sim.alive === 1 && s.sim.mode !== Mode.Plane });
+    for (const s of this.seats.values()) view.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, alive: s.sim.alive === 1 && s.sim.mode !== Mode.Plane, team: s.team });
     for (const s of this.seats.values()) {
       if (!s.bot) continue;
-      const others = view.filter((o) => o.id !== s.id);
+      // Teammates are never targets.
+      const others = view.filter((o) => o.id !== s.id && (s.team === 0 || o.team !== s.team));
       this.applyInput(s, s.bot.think(s.sim, others, this.tick), this.now);
     }
   }

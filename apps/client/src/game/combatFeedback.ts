@@ -36,6 +36,8 @@ export interface CombatStats {
   predictedHits: number;
   confirmedHits: number;
   kills: number;
+  /** Ducks we knocked (team modes). */
+  knocks: number;
   deaths: number;
   tracers: number;
   featherBursts: number;
@@ -47,7 +49,7 @@ export interface CombatStats {
 const WEAPON_NAMES = ['Rifle', 'Pistol'];
 
 export class CombatFeedback {
-  readonly stats: CombatStats = { shotsFired: 0, predictedHits: 0, confirmedHits: 0, kills: 0, deaths: 0, tracers: 0, featherBursts: 0, lastMarkerAt: 0, lastFeatherAt: 0, lastTracerAt: 0 };
+  readonly stats: CombatStats = { shotsFired: 0, predictedHits: 0, confirmedHits: 0, kills: 0, knocks: 0, deaths: 0, tracers: 0, featherBursts: 0, lastMarkerAt: 0, lastFeatherAt: 0, lastTracerAt: 0 };
   /** When the local player died (performance.now ms), or -1. */
   diedAt = -1;
   killerName = '';
@@ -82,9 +84,15 @@ export class CombatFeedback {
       shots: (list) => {
         for (const s of list) this.remoteShot(s.pid, s.weapon, s.outcome, s.from, s.to);
       },
-      hitConfirm: (_victim, _damage, head, killed) => {
+      hitConfirm: (_victim, _damage, head, killed, knocked) => {
         this.stats.confirmedHits++;
-        if (killed) {
+        if (knocked) {
+          // Knocked, not out yet: the kill marker without the quack.
+          this.stats.knocks++;
+          this.hud.hitMarker('kill');
+          this.sound.kill();
+          this.stats.lastMarkerAt = performance.now();
+        } else if (killed) {
           this.stats.kills++;
           this.hud.hitMarker('kill');
           this.sound.kill();
@@ -107,6 +115,13 @@ export class CombatFeedback {
         this.sound.hurt();
         this.views.localAvatar.hitReact();
       },
+      knock: (byPid, victimPid, weapon, head) => {
+        const by = this.session.playerByPid(byPid);
+        const victim = this.session.playerByPid(victimPid);
+        const myPid = this.session.mine?.pid ?? -1;
+        this.hud.killFeed(byPid === 0 ? 'The zone' : (by?.name ?? '?'), victim?.name ?? '?', `knocked${byPid === 0 ? '' : ` (${WEAPON_NAMES[weapon] ?? ''})`}`, head, byPid === myPid || victimPid === myPid);
+        if (victimPid === myPid) this.sound.hurt();
+      },
       kill: (killerPid, victimPid, weapon, head, at) => {
         const killer = this.session.playerByPid(killerPid);
         const victim = this.session.playerByPid(victimPid);
@@ -114,7 +129,9 @@ export class CombatFeedback {
         const victimId = this.session.idOfPid(victimPid);
         const zone = killerPid === 0;
         const left = weapon === KillWeapon.Left;
+        const bled = weapon === KillWeapon.Bleed;
         if (left) this.hud.killFeed(victim?.name ?? '?', '', 'left the pond', false, false);
+        else if (bled) this.hud.killFeed(victim?.name ?? '?', '', 'bled out', false, victimPid === myPid || killerPid === myPid);
         else this.hud.killFeed(zone ? 'The zone' : (killer?.name ?? '?'), victim?.name ?? '?', zone ? 'zone' : (WEAPON_NAMES[weapon] ?? ''), head, killerPid === myPid || victimPid === myPid);
         // The splat goes where the victim is drawn, not where the server had it.
         // No position (we could not see the victim) and nothing drawn: no splat.
@@ -132,7 +149,7 @@ export class CombatFeedback {
         if (victimPid === myPid) {
           this.diedAt = performance.now();
           this.stats.deaths++;
-          this.killerName = zone ? 'the zone' : (killer?.name ?? '');
+          this.killerName = zone && !bled ? 'the zone' : (killer?.name ?? '');
           this.killerId = zone ? null : this.session.idOfPid(killerPid);
           this.sound.quack(undefined, 0.4);
         }
@@ -155,7 +172,8 @@ export class CombatFeedback {
     const playing = this.session.room.state.phase === MatchPhase.Playing;
     const targets: HitTarget[] = [];
     for (const [id, p] of this.session.remotes) {
-      if (!p.alive || p.protect === 1 || !playing) continue;
+      // Teammates: no friendly fire, the shot passes through them (as on the server).
+      if (!p.alive || p.protect === 1 || !playing || this.session.isAlly(id)) continue;
       const pose = this.session.pose(id);
       if (pose) targets.push({ id, x: pose.x, y: pose.y, z: pose.z, crouch: pose.crouch > 0.5 ? 1 : 0 });
     }

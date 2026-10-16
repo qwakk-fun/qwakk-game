@@ -23,4 +23,6 @@ export interface BrBotContext {
   /** Can this be taken right now (a crate: open, done opening, not empty)? Anyone looking at it can tell. */
   lootable(item: LootEntity): boolean;
   armorOf(seatId: string): Armor;
+  /** The nearest knocked teammate within `range` meters (team modes), or null. Teammates always know where their own are. */
+  downedMate(seatId: string, range: number): { id: string; x: number; y: number; z: number } | null;
 }

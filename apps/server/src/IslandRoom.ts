@@ -16,8 +16,9 @@ import { recordMatch } from './meta/index.ts';
 import { GameMode, MatchPhase, Msg } from '@qwakk/shared/net';
 import type { BotLike } from './arena.ts';
 import { Deathmatch, DEFAULT_DM, type Seat } from './deathmatch.ts';
-import { GameRoom, type GameRoomOptions } from './gameRoom.ts';
+import { GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
 import { dmMapId, GREYBOX, loadMap, type ServerMap } from './maps.ts';
+import { parties } from './party/registry.ts';
 import type { SimWorld } from '@qwakk/shared';
 
 export interface IslandRoomOptions extends GameRoomOptions {
@@ -107,7 +108,7 @@ export class IslandRoom extends GameRoom<Deathmatch> {
       },
       {
         shot: (shooter, weapon, r) => this.queueShot(shooter, weapon, r),
-        hit: (shooter, victim, damage, head, killed) => this.clients.getById(shooter.id)?.send(Msg.HitConfirm, [victim.pid, damage, head ? 1 : 0, killed ? 1 : 0]),
+        hit: (shooter, victim, damage, head, killed) => this.clients.getById(shooter.id)?.send(Msg.HitConfirm, [victim.pid, damage, head ? 1 : 0, killed ? 1 : 0, 0]),
         damaged: (victim, from, damage) => this.sendDamaged(victim, from, damage),
         kill: (killer, victim, weapon, head) => this.sendKill(killer, victim, weapon, head),
         roundEnd: () => this.recordRound(),
@@ -116,12 +117,36 @@ export class IslandRoom extends GameRoom<Deathmatch> {
     );
   }
 
-  protected addHuman(client: Client, name: string): Seat {
-    return this.match.addHuman(client.sessionId, name);
+  /** Party id to its ally group in this room (the seats' `team`). */
+  private readonly partyTeams = new Map<string, number>();
+
+  /**
+   * Free for all, except a party: its members (by verified player id, from
+   * the party registry) share an ally group, so they cannot hurt each other
+   * and always see each other.
+   */
+  protected addHuman(client: Client, name: string, auth: JoinAuth | undefined): Seat {
+    const party = parties.partyOf(auth?.playerId);
+    let team = 0;
+    if (party) {
+      team = this.partyTeams.get(party.id) ?? 0;
+      if (team === 0) {
+        // The smallest group number no seat or party holds now: a counter would
+        // wrap in a room that never closes and ally two unrelated parties.
+        const used = new Set([...this.partyTeams.values(), ...[...this.match.seats.values()].map((s) => s.team)]);
+        team = 1;
+        while (used.has(team)) team++;
+        this.partyTeams.set(party.id, team);
+      }
+    }
+    return this.match.addHuman(client.sessionId, name, team);
   }
 
   protected removeHuman(id: string): void {
     this.match.remove(id);
+    // Forget ally groups nobody in the room belongs to any more.
+    const used = new Set([...this.match.seats.values()].map((s) => s.team));
+    for (const [party, team] of this.partyTeams) if (!used.has(team)) this.partyTeams.delete(party);
   }
 
   protected override onSpectatorJoin(): void {

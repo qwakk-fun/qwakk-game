@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { TOUCH } from '../../src/input/touch/constants.ts';
 import { BASE_SENSITIVITY, DEFAULTS, loadSettings, resetSettings, sanitize, saveSettings, toGameSettings } from '../../src/settings.ts';
 
 class MemoryStorage {
@@ -30,13 +31,13 @@ describe('settings', () => {
   });
 
   it('persists and reloads, mirroring the in-game sensitivity key', () => {
-    saveSettings({ sensitivity: 1.5, adsSensitivity: 0.6, fov: 90, volume: 0.25, quality: 'low' });
-    expect(loadSettings()).toEqual({ sensitivity: 1.5, adsSensitivity: 0.6, fov: 90, volume: 0.25, quality: 'low' });
+    saveSettings({ sensitivity: 1.5, adsSensitivity: 0.6, touchSensitivity: 1.4, fov: 90, volume: 0.25, quality: 'low' });
+    expect(loadSettings()).toEqual({ sensitivity: 1.5, adsSensitivity: 0.6, touchSensitivity: 1.4, fov: 90, volume: 0.25, quality: 'low' });
     expect(Number(store.getItem('qwakk.sensitivity'))).toBeCloseTo(1.5 * BASE_SENSITIVITY, 10);
   });
 
   it('clamps garbage', () => {
-    expect(sanitize({ sensitivity: 99, adsSensitivity: 0, fov: -5, volume: 'loud', quality: 'medium' })).toEqual({ sensitivity: 3, adsSensitivity: 0.2, fov: 60, volume: DEFAULTS.volume, quality: DEFAULTS.quality });
+    expect(sanitize({ sensitivity: 99, adsSensitivity: 0, touchSensitivity: -1, fov: -5, volume: 'loud', quality: 'medium' })).toEqual({ sensitivity: 3, adsSensitivity: 0.2, touchSensitivity: 0.3, fov: 60, volume: DEFAULTS.volume, quality: DEFAULTS.quality });
     store.setItem('qwakk.settings', '{broken json');
     expect(loadSettings()).toEqual(DEFAULTS);
   });
@@ -47,7 +48,7 @@ describe('settings', () => {
   });
 
   it('resets', () => {
-    saveSettings({ sensitivity: 2, adsSensitivity: 1.2, fov: 100, volume: 0, quality: 'low' });
+    saveSettings({ sensitivity: 2, adsSensitivity: 1.2, touchSensitivity: 2, fov: 100, volume: 0, quality: 'low' });
     expect(resetSettings()).toEqual(DEFAULTS);
     expect(loadSettings()).toEqual(DEFAULTS);
   });
@@ -66,6 +67,14 @@ describe('settings', () => {
   });
 
   it('converts to the game unit', () => {
-    expect(toGameSettings({ sensitivity: 1, adsSensitivity: 0.8, fov: 75, volume: 0.7, quality: 'high' })).toEqual({ sensitivity: BASE_SENSITIVITY, adsSensitivity: 0.8, fov: 75, volume: 0.7, quality: 'high' });
+    expect(toGameSettings({ sensitivity: 1, adsSensitivity: 0.8, touchSensitivity: 2, fov: 75, volume: 0.7, quality: 'high' })).toEqual({ sensitivity: BASE_SENSITIVITY, adsSensitivity: 0.8, touchSensitivity: 2 * TOUCH.lookRadPerPx, fov: 75, volume: 0.7, quality: 'high' });
+  });
+
+  it('starts phones on the low preset and keeps a saved setting', () => {
+    expect(DEFAULTS.touchSensitivity).toBe(1);
+    // No matchMedia in Node: a desktop default here; the browser picks low on a coarse pointer (settings.ts).
+    expect(DEFAULTS.quality).toBe('high');
+    saveSettings({ ...DEFAULTS, quality: 'high' });
+    expect(loadSettings().quality).toBe('high');
   });
 });

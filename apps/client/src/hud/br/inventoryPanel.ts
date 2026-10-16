@@ -6,6 +6,8 @@
  * button is a request; the server decides and the screen shows the result.
  * Plain DOM, rebuilt only when its data changes.
  */
+import { hint } from '../../input/touch/mode.ts';
+import { COPY } from '../../ui/menu/copy.ts';
 
 export type InvAction = { t: 'drop'; kind: number; amount: number } | { t: 'take'; num: number; index: number; kind: number };
 
@@ -87,7 +89,7 @@ export class InventoryPanel {
     fill.classList.toggle('full', share >= 0.999);
     fill.classList.toggle('high', share >= 0.85 && share < 0.999);
     el('span', 'br-inv-cap-num', cap, `${num(d.load)} / ${num(d.capacity)}`);
-    const close = el('button', 'br-inv-close', head, 'Close (I)');
+    const close = el('button', 'br-inv-close', head, hint('Close (I)', COPY.touch.hints.inventoryClose));
     close.type = 'button';
     close.dataset.close = '1';
 

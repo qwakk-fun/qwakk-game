@@ -10,7 +10,7 @@
  * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { actionOf, aimBlend, Button, COMBAT, inaccuracy, Mode, weaponStats } from '@qwakk/shared';
+import { Act, actionOf, aimBlend, Button, COMBAT, hasWeapon, inaccuracy, Mode, weaponStats } from '@qwakk/shared';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
 import { TpsCamera } from './camera/tpsCamera.ts';
@@ -20,9 +20,13 @@ import type { Autopilot } from './game/autopilot.ts';
 import { BrClient } from './game/brClient.ts';
 import { CombatFeedback } from './game/combatFeedback.ts';
 import { FrameTimer, MotionProbe } from './game/metrics.ts';
+import { NameTags, type TagDuck } from './game/nameTags.ts';
 import { GameHud, type ScoreRow } from './hud/gameHud.ts';
+import { TeamPanel, type MateRow } from './hud/teamPanel.ts';
 import { Hud } from './hud/hud.ts';
 import { Controls } from './input/controls.ts';
+import { hasTouch } from './input/touch/device.ts';
+import { TouchControls, type TouchFrame, type TouchHooks } from './input/touch/touchControls.ts';
 import type { Session } from './net/session.ts';
 import { loadClips } from './player/animations.ts';
 import { Avatar, type AvatarPose } from './player/avatar.ts';
@@ -44,9 +48,11 @@ export interface ExitSummary {
 
 export interface GameOptions {
   mode: 'br' | 'dm';
-  settings: { sensitivity: number; adsSensitivity?: number; fov: number; volume: number };
+  settings: { sensitivity: number; adsSensitivity?: number; touchSensitivity?: number; fov: number; volume: number };
   /** The player chose to leave (results screen or the pause card). */
   exit(reason: ExitReason, summary: ExitSummary): void;
+  /** Touch screens: the pause button and a switch to the mouse (play.ts shows the pause card). */
+  touch?: TouchHooks;
 }
 
 interface RemoteView {
@@ -61,6 +67,9 @@ export class Game {
   private readonly session: Session;
   private readonly world: WorldHandle;
   private readonly controls: Controls;
+  /** Touch controls on devices with a touch screen (shown only while touch play is on). */
+  readonly touch: TouchControls | null;
+  private readonly touchFrame: TouchFrame = { alive: false, down: false, mode: 0, br: false, spectating: false, promptKey: '', bandages: 0, medkits: 0, armed: false, otherWeapon: '', modal: false, mapOpen: false, canBag: false };
   private readonly cam: TpsCamera;
   private readonly hud: Hud;
   private readonly ghud: GameHud;
@@ -68,6 +77,10 @@ export class Game {
   readonly sound = new Sound();
   private readonly combat: CombatFeedback;
   readonly br: BrClient | null;
+  /** Name tags (allies always, an enemy under the crosshair) and the team panel. */
+  readonly tags: NameTags;
+  private readonly teamPanel: TeamPanel;
+  private readonly tagList: TagDuck[] = [];
   private readonly opts: GameOptions;
   /** Dev builds only (loaded on demand, absent from public bundles). */
   private autopilot: Autopilot | null = null;
@@ -93,7 +106,7 @@ export class Game {
   private forced = 0;
   private forcedMz = 0;
   private forcedUntil = 0;
-  private readonly pose: AvatarPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, alive: true, weapon: 0, act: 0, fly: 0, vest: 0, helmet: 0, pack: 0 };
+  private readonly pose: AvatarPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, alive: true, weapon: 0, act: 0, fly: 0, vest: 0, helmet: 0, pack: 0, down: false };
 
   constructor(ctx: RenderContext, session: Session, world: WorldHandle, canvas: HTMLCanvasElement, hudEl: HTMLElement, opts: GameOptions) {
     this.ctx = ctx;
@@ -110,12 +123,17 @@ export class Game {
 
     this.controls = new Controls(canvas);
     this.controls.sensitivity = opts.settings.sensitivity;
+    if (opts.settings.touchSensitivity) this.controls.touchRadPerPx = opts.settings.touchSensitivity;
     this.adsSensitivity = opts.settings.adsSensitivity ?? 0.8;
     this.cam = new TpsCamera(ctx.camera, sim);
     this.cam.setBaseFov(opts.settings.fov);
     this.sound.setVolume(opts.settings.volume);
     this.hud = new Hud(hudEl, config.hud);
-    this.ghud = new GameHud(document.getElementById('app') as HTMLElement);
+    const app = document.getElementById('app') as HTMLElement;
+    this.ghud = new GameHud(app);
+    this.tags = new NameTags(app, sim);
+    this.teamPanel = new TeamPanel(app);
+    this.touch = hasTouch() && opts.touch ? new TouchControls(app, this.controls, opts.touch) : null;
     // The condition is spelled out (not the DEVTOOLS import) so the bundler folds it to a constant here and drops the import from public builds.
     if ((import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') && config.autopilot) void import('./game/autopilot.ts').then((m) => (this.autopilot = new m.Autopilot(sim)));
     this.lagIndex = Math.max(0, LAG_PRESETS.indexOf(config.latencyMs));
@@ -133,6 +151,7 @@ export class Game {
           ghud: this.ghud,
           remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
           exit: (summary) => opts.exit('ended', summary),
+          killerName: () => this.combat?.killerName ?? '',
         })
       : null;
 
@@ -171,7 +190,7 @@ export class Game {
         shotHint: (weapon, angle, loud) => this.br?.shotHint(weapon, angle, loud, this.myPos),
         picked: (kind, amount) => this.br?.picked(kind, amount),
         denied: (reason, kind) => this.br?.denied(reason, kind),
-        result: (placement, total, kills, damage, survivedMs) => this.br?.result(placement, total, kills, damage, survivedMs),
+        result: (placement, total, kills, damage, survivedMs, teamSize) => this.br?.result(placement, total, kills, damage, survivedMs, teamSize),
       },
       (id, state, local) => {
         if (local) {
@@ -226,9 +245,12 @@ export class Game {
   /** Stop and remove everything this game added (the next game gets a fresh scene). */
   dispose(): void {
     this.stop();
+    this.touch?.dispose();
     this.controls.dispose();
     this.ctx.renderer.domElement.removeEventListener('mousedown', this.onSpectatorClick);
     this.br?.dispose();
+    this.tags.dispose();
+    this.teamPanel.dispose();
     this.ghud.dispose();
     this.hud.dispose();
     for (const r of this.remotes.values()) r.avatar.dispose();
@@ -304,7 +326,9 @@ export class Game {
       p.crouch = st.crouch;
       p.grounded = st.grounded === 1;
       p.alive = alive;
-      p.weapon = mine.armed ? st.weapon : 2;
+      // Knocked: no gun up, crawling low.
+      p.down = st.down === 1;
+      p.weapon = mine.armed && !p.down ? st.weapon : 2;
       p.act = actionOf(st as never);
       p.fly = mode;
       p.vest = mine.vest;
@@ -336,6 +360,8 @@ export class Game {
 
     // Other players: interpolated poses.
     const camPos = this.ctx.camera.position;
+    const tags = this.tagList;
+    tags.length = 0;
     for (const [id, r] of this.remotes) {
       const s = r.state;
       const p = session.pose(id);
@@ -344,6 +370,9 @@ export class Game {
         r.motion.gap();
         continue;
       }
+      const ally = session.isAlly(id);
+      const down = p.act === Act.Down;
+      tags.push({ id, name: s.name, ally, alive: s.alive === 1, down: ally ? session.mate(id)?.down === 1 || down : down, x: p.x, y: p.y, z: p.z, crouch: p.crouch });
       const a = this.pose;
       a.x = p.x;
       a.y = p.y;
@@ -353,7 +382,8 @@ export class Game {
       a.crouch = p.crouch;
       a.grounded = p.grounded;
       a.alive = s.alive === 1;
-      a.weapon = s.armed ? s.weapon : 2;
+      a.down = down;
+      a.weapon = s.armed && !down ? s.weapon : 2;
       a.act = p.act;
       a.aim = undefined;
       a.fly = p.fly;
@@ -368,6 +398,7 @@ export class Game {
       r.lastAct = p.act;
     }
 
+    this.tags.update(this.ctx.camera, tags, performance.now());
     this.br?.frame(dt, this.myPos);
     this.world.update(this.ctx.camera, dt);
     this.fx.update(dt, this.ctx.camera);
@@ -412,8 +443,11 @@ export class Game {
       else g.ammoInfo('Unarmed', 0, 0, 0);
       g.crosshair(inaccuracy(w, s as never, Math.floor(s.spray)), this.ctx.camera.fov, window.innerHeight);
       g.protection(mine.protect === 1);
-      g.crosshairVisible(mine.alive === 1 && s.mode === Mode.Ground);
+      g.crosshairVisible(mine.alive === 1 && s.mode === Mode.Ground && s.down === 0);
+      g.knocked(s.down === 1 && mine.alive === 1);
     }
+    this.teamPanel.update(this.mateRows());
+    this.updateTouch();
     if (this.br) {
       this.br.hud(dt, this.showBoard);
       return;
@@ -440,6 +474,47 @@ export class Game {
     } else {
       g.message(null);
     }
+  }
+
+  /** The touch layer's buttons for this frame (which show, heal counts, the other weapon). */
+  private updateTouch(): void {
+    const touch = this.touch;
+    if (!touch?.active) return;
+    const f = this.touchFrame;
+    const me = this.session.me;
+    const mine = this.session.mine;
+    const s = me?.state;
+    f.alive = !!s && mine?.alive === 1;
+    f.down = s?.down === 1;
+    f.mode = s?.mode ?? Mode.Ground;
+    f.br = this.br !== null;
+    f.armed = mine?.armed === 1;
+    const other = s && s.weapon === 0 ? 1 : 0;
+    f.otherWeapon = s && mine?.armed === 1 && hasWeapon(s as never, other) ? weaponStats(other).name : '';
+    if (this.br) Object.assign(f, this.br.touchState());
+    else {
+      f.promptKey = '';
+      f.bandages = 0;
+      f.medkits = 0;
+      f.modal = false;
+      f.mapOpen = false;
+      f.canBag = false;
+      f.spectating = false;
+    }
+    touch.update(f);
+  }
+
+  /** Teammates for the team panel (the server sends only our own team's entries). */
+  private mateRows(): MateRow[] {
+    const st = this.session.room.state;
+    const rows: MateRow[] = [];
+    for (const [id, m] of st.mates) {
+      if (id === this.session.sessionId) continue;
+      const p = st.players.get(id);
+      if (!p) continue;
+      rows.push({ name: p.name, hp: m.hp, alive: m.alive === 1, down: m.down === 1, revive: m.rev / 255 });
+    }
+    return rows;
   }
 
   private renderHud(): void {
@@ -491,6 +566,7 @@ export class Game {
         this.forcedUntil = performance.now() + ms;
       },
       camera: this.cam,
+      tags: this.tags,
     };
   }
 }

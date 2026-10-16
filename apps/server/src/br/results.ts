@@ -1,9 +1,10 @@
 /**
- * Battle royale results for the leaderboard: one row per duck with a correct,
- * unique placement. A duck that died or left keeps the place it had at that
- * moment (alive count then); the winner is 1. Should a match be recorded with
- * ducks still standing (it is not today, but never let a missing place count
- * as a win), they share the places above the fallen, best kills first.
+ * Battle royale results for the leaderboard: one row per duck with its
+ * team's place (solo: every duck is its own team, so the places are unique).
+ * A team that went out keeps the place it had at that moment (teams still in
+ * then, plus one); the winners are 1. Should a match be recorded with teams
+ * still standing (the last human left before the end), they share the places
+ * above the fallen, best kills first, so a missing place never counts as a win.
  */
 import type { Seat } from '../arena.ts';
 import type { BattleRoyale } from './battleRoyale.ts';
@@ -14,23 +15,45 @@ export interface ResultRow {
   kills: number;
   damage: number;
   survivedMs: number;
+  /** Died in this match (a winner who fell before the end counts). */
+  died: boolean;
 }
 
-export function brResults(m: BattleRoyale): ResultRow[] {
+export interface BrResults {
+  rows: ResultRow[];
+  /** Teams in the match (the field the places are out of). */
+  field: number;
+}
+
+export function brResults(m: BattleRoyale): BrResults {
   const seats = [...m.seats.values()];
-  const placed = new Set<number>();
+  const teamOf = (s: Seat): number => s.team || -s.pid;
+  const teams = new Map<number, Seat[]>();
   for (const s of seats) {
-    const p = m.placement.get(s.id);
-    if (p) placed.add(p);
+    const list = teams.get(teamOf(s)) ?? [];
+    list.push(s);
+    teams.set(teamOf(s), list);
   }
-  // Ducks without a place (still alive when recorded): the free places from the top, best kills first.
+  const field = teams.size;
+  const placeOf = new Map<number, number>();
+  const taken = new Set<number>();
+  for (const [t, list] of teams) {
+    const p = list.map((s) => m.placement.get(s.id) ?? 0).find((x) => x > 0);
+    if (p) {
+      placeOf.set(t, p);
+      taken.add(p);
+    }
+  }
   const free: number[] = [];
-  for (let p = 1; p <= seats.length; p++) if (!placed.has(p)) free.push(p);
-  const unplaced = seats.filter((s) => !m.placement.get(s.id)).sort((a, b) => b.kills - a.kills || b.dealt - a.dealt);
-  const fallback = new Map<string, number>();
-  unplaced.forEach((s, i) => fallback.set(s.id, free[i] ?? seats.length));
-  return seats.map((s) => {
+  for (let p = 1; p <= field; p++) if (!taken.has(p)) free.push(p);
+  const sum = (list: Seat[], f: (s: Seat) => number): number => list.reduce((n, s) => n + f(s), 0);
+  const unplaced = [...teams.entries()]
+    .filter(([t]) => !placeOf.has(t))
+    .sort(([, a], [, b]) => sum(b, (s) => s.kills) - sum(a, (s) => s.kills) || sum(b, (s) => s.dealt) - sum(a, (s) => s.dealt));
+  unplaced.forEach(([t], i) => placeOf.set(t, free[i] ?? field));
+  const rows = seats.map((s) => {
     const r = m.resultOf(s);
-    return { seat: s, placement: m.placement.get(s.id) ?? fallback.get(s.id) ?? seats.length, kills: r.kills, damage: r.dealt, survivedMs: Math.round(r.survivedMs) };
+    return { seat: s, placement: placeOf.get(teamOf(s)) ?? field, kills: r.kills, damage: r.dealt, survivedMs: Math.round(r.survivedMs), died: s.sim.alive === 0 };
   });
+  return { rows, field };
 }

@@ -18,6 +18,8 @@ export interface MapOverlay {
   next: { x: number; z: number; r: number } | null;
   /** Plane path while it matters (from, to) and the plane position. */
   plane: { fx: number; fz: number; tx: number; tz: number; px: number; pz: number } | null;
+  /** Teammates: green dots (orange when knocked, grey when out), named on the big map. */
+  allies?: { x: number; z: number; down: boolean; out: boolean; name: string }[];
 }
 
 /** Render the base map picture (size x size pixels, north up). */
@@ -171,6 +173,24 @@ export class MapPainter {
         g.lineTo(toX(o.next.x), toY(o.next.z));
         g.stroke();
         g.setLineDash([]);
+      }
+    }
+    for (const a of o.allies ?? []) {
+      const r = Math.max(4, W / 70);
+      g.fillStyle = a.out ? '#8a8f98' : a.down ? '#ff8a3d' : '#3ddc84';
+      g.strokeStyle = '#151619';
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(toX(a.x), toY(a.z), r, 0, Math.PI * 2);
+      g.fill();
+      g.stroke();
+      if (labels && a.name) {
+        g.font = `600 ${Math.round(W / 60)}px ui-sans-serif, system-ui, sans-serif`;
+        g.textAlign = 'center';
+        g.fillStyle = 'rgba(21,22,25,0.75)';
+        g.fillText(a.name, toX(a.x) + 1, toY(a.z) - r - 3);
+        g.fillStyle = '#3ddc84';
+        g.fillText(a.name, toX(a.x), toY(a.z) - r - 4);
       }
     }
     if (o.me) {

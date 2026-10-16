@@ -11,7 +11,7 @@ export type { ExitReason, GameMode, MatchSummary, StartOptions } from './menu.ts
 
 /** What the game module exports (game.ts / play.ts). */
 export interface GameEntry {
-  startGame(opts: { mode: GameMode; roomId?: string; create?: boolean; token?: string; name?: string; settings: GameSettings }): Promise<void>;
+  startGame(opts: { mode: GameMode; roomId?: string; create?: boolean; team?: number; token?: string; name?: string; settings: GameSettings }): Promise<{ roomId: string } | void>;
   onGameExit(cb: (reason: ExitReason, summary?: MatchSummary) => void): void;
 }
 
@@ -19,11 +19,13 @@ export interface GameEntry {
  * Dev and test builds can skip the menu: `?mode=br` or `?mode=dm` (`&room=paris`
  * picks a room by id), and the
  * dev tools (`?autopilot=`, `?spectate=1`) start the game directly, as the
- * e2e scripts expect. Public builds always show the menu.
+ * e2e scripts expect, unless `?menu=1` asks for the menu. Public builds always show the menu.
  */
 export function directStart(devtools: boolean, search = location.search): StartOptions | null {
   if (!devtools) return null;
   const p = new URLSearchParams(search);
+  // `?menu=1` keeps the menu even with dev tools in the URL (the party e2e plays through it with an autopilot).
+  if (p.has('menu')) return null;
   const mode = p.get('mode');
   const tool = p.has('autopilot') || (p.get('spectate') ?? '0') !== '0';
   if (mode !== 'br' && mode !== 'dm' && !tool) return null;
@@ -51,7 +53,7 @@ export function bootMenu(load: () => Promise<GameEntry>, hero?: () => Promise<He
         hooked = true;
         game.onGameExit((reason, summary) => menu.show({ reason, summary }));
       }
-      await game.startGame(opts);
+      return game.startGame(opts);
     },
     prefetch: () => void get().catch(() => {}),
     showQuality: true,

@@ -16,6 +16,8 @@ export const Act = {
   Heal: 3,
   /** Aiming down sights (more than half way in). */
   Aim: 4,
+  /** Knocked (team modes): drawn crawling, no gun up. */
+  Down: 5,
 } as const;
 
 /** 0 (hip) to 1 (full aim). */
@@ -25,7 +27,7 @@ export function aimBlend(s: PlayerSim): number {
 
 /** Can the duck aim right now? Armed, not reloading and not healing. */
 export function canAim(s: PlayerSim): boolean {
-  return s.alive === 1 && hasWeapon(s, s.weapon) && s.reload === 0 && s.heal === 0;
+  return s.alive === 1 && s.down === 0 && hasWeapon(s, s.weapon) && s.reload === 0 && s.heal === 0;
 }
 
 /** One tick of the aim ramp (ground mode only; the drop resets it). */
@@ -41,6 +43,7 @@ export function aimScale(s: PlayerSim, scale: number): number {
 
 /** The pose action for other players: reload, equip, heal, aiming or idle. */
 export function actionOf(s: PlayerSim): number {
+  if (s.down) return Act.Down;
   if (s.reload > 0) return Act.Reload;
   if (s.equip > 0) return Act.Equip;
   if (s.heal > 0) return Act.Heal;

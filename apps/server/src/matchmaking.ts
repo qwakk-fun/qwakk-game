@@ -15,13 +15,17 @@
  *     `joinOrCreate` becomes a plain `join` (the open room with the most
  *     players, by the room type's sort; an error when every one is full);
  *   - limit new rooms per IP (`create`, or a joinOrCreate that finds no open
- *     room) and cap the rooms open per room type (BR.maxRooms).
+ *     room) and cap the rooms open per room type (BR.maxRooms);
+ *   - parties (party/PartyRoom.ts): created under their own per-IP limit,
+ *     joined by code only (`joinById`, rate-limited per IP so codes cannot be
+ *     guessed quickly), never by `join` or Quick Play.
  *
  * The IP comes from the AuthContext, whose X-Real-IP the meta layer rewrites
  * on every request (guardJoinIps), so it is our own answer, not the client's.
  */
 import { ServerError } from '@colyseus/core';
-import { LOBBY_ERROR } from '@qwakk/shared/lobby';
+import { TEAM_SIZES } from '@qwakk/shared';
+import { isPartyCode, LOBBY_ERROR } from '@qwakk/shared/lobby';
 
 /** The part of `matchMaker.controller` we wrap (A: Colyseus' AuthContext). */
 export interface MatchmakingController<A extends { ip?: string | undefined }> {
@@ -43,6 +47,8 @@ export interface GuardOptions {
   allowCreate(ip: string): boolean;
   /** IP from the auth context (meta joinIp). */
   ipOf(auth: { ip?: string | undefined } | undefined): string;
+  /** Party rooms: their name and per-IP limits for creating one and for joining by code. */
+  party?: { roomName: string; allowCreate(ip: string): boolean; allowJoin(ip: string): boolean };
 }
 
 /** The join options rooms read; anything else is dropped. */
@@ -53,6 +59,8 @@ export function cleanClientOptions(roomName: string, lobbyName: string, raw: unk
   if (typeof o.name === 'string') out.name = o.name.slice(0, 32);
   if (typeof o.token === 'string') out.token = o.token.slice(0, 1024);
   if (o.spectate === true) out.spectate = true;
+  // Battle royale team size at creation (solo, duo, squad); other rooms ignore it.
+  if (typeof o.team === 'number' && (TEAM_SIZES as readonly number[]).includes(o.team)) out.team = o.team;
   return out;
 }
 
@@ -61,6 +69,15 @@ export function cleanClientOptions(roomName: string, lobbyName: string, raw: unk
  * LOBBY_ERROR code when it would open a room over a limit.
  */
 export async function checkCreate(method: string, roomName: string, ip: string, o: GuardOptions): Promise<void> {
+  if (o.party) {
+    // joinById names a room id: a party code is limited per IP (no guessing codes at speed).
+    if (method === 'joinById' && isPartyCode(roomName) && !o.party.allowJoin(ip)) throw new ServerError(LOBBY_ERROR.joinLimited, 'too many party codes tried, wait a moment');
+    if (roomName === o.party.roomName) {
+      if (method === 'join' || method === 'joinOrCreate') throw new ServerError(LOBBY_ERROR.codeOnly, 'parties are joined by code');
+      if (method === 'create' && !o.party.allowCreate(ip)) throw new ServerError(LOBBY_ERROR.createLimited, 'too many new parties, try again in a minute');
+      return;
+    }
+  }
   if (method !== 'create' && method !== 'joinOrCreate') return;
   if (o.joinOnly?.includes(roomName)) {
     if (method === 'create') throw new ServerError(LOBBY_ERROR.roomsFull, 'rooms of this kind cannot be created');

@@ -35,8 +35,14 @@ export const PlayerState = schema(
     helmet: t.uint8(),
     /** Backpack level worn (drawn on the duck; sets the owner's carrying capacity). */
     pack: t.uint8(),
-    /** Battle royale: finishing place once out (1 = winner), 0 while alive. */
+    /** Battle royale: finishing place once out (1 = winner), 0 while alive. Team modes: the team's place. */
     placement: t.uint8(),
+    /**
+     * Team number (0: none). Battle royale team modes: the duck's team; a
+     * deathmatch: the party's ally group. Public (who plays with whom is no
+     * secret); where a duck is stays culled for enemies.
+     */
+    team: t.uint8(),
     // Owner only from here on.
     /** Armor durability left. */
     vestDur: t.uint8().view(),
@@ -79,6 +85,8 @@ export const PlayerState = schema(
     medkits: t.uint8().view(),
     /** Aim down sights ramp (ticks), owner only: others see it as the pose action. */
     aim: t.uint8().view(),
+    /** 1 while knocked (owner only: teammates read it from `mates`, enemies see the pose action). */
+    down: t.uint8().view(),
   },
   'PlayerState',
 );
@@ -107,6 +115,25 @@ export const Pose = schema(
   'Pose',
 );
 export type Pose = SchemaType<typeof Pose>;
+
+/**
+ * A teammate as the HUD shows it: health (or the bleed meter while knocked)
+ * and the revive in progress. One entry per duck that has a team, added only
+ * to the views of its teammates (StateView), never to enemies.
+ */
+export const TeamMate = schema(
+  {
+    pid: t.uint16(),
+    hp: t.uint8(),
+    alive: t.uint8(),
+    down: t.uint8(),
+    /** Revive progress 0..255 while a teammate revives it, and that teammate's pid. */
+    rev: t.uint8(),
+    rby: t.uint16(),
+  },
+  'TeamMate',
+);
+export type TeamMate = SchemaType<typeof TeamMate>;
 
 export const MatchPhase = {
   Playing: 0,
@@ -208,6 +235,11 @@ export const IslandState = schema(
     planeEnd: t.uint32(),
     zone: Zone,
     items: t.map(LootItem).view(),
+    /** Battle royale team size (1 solo, 2 duo, 4 squad) and teams still in the match. */
+    teamSize: t.uint8(),
+    teams: t.uint8(),
+    /** Teammates for the HUD, keyed by seat id: each client gets only its own team's entries. */
+    mates: t.map(TeamMate).view(),
   },
   'IslandState',
 );
@@ -236,13 +268,15 @@ export type PlayerInput = SchemaType<typeof PlayerInput>;
 export const KillWeapon = {
   Zone: 3,
   Left: 4,
+  /** A knocked duck whose team has nobody standing, or that bled out. */
+  Bleed: 5,
 } as const;
 
 /** Server to client messages. Arrays keep them small on the wire. */
 export const Msg = {
   /** Batched shot effects for everyone but the shooter: [pid, weapon, outcome, mx,my,mz, ex,ey,ez][] */
   Shots: 'shots',
-  /** To the shooter: [victimPid, damage, head(0/1), killed(0/1)] */
+  /** To the shooter: [victimPid, damage, head(0/1), killed(0/1), knocked(0/1)] */
   HitConfirm: 'hit',
   /** To the victim: [directionMilliRad, damage, source] (source 0 a duck, 1 the zone; direction is the world angle toward the attacker). No position. */
   Damaged: 'dmg',
@@ -255,8 +289,13 @@ export const Msg = {
   ShotHint: 'sh',
   /** To the picker: [itemKind, amount] (feedback). */
   Picked: 'pk',
-  /** To a player who is out or won: [placement, total, kills, damage, survivedMs]. */
+  /**
+   * To a player who is out or won: [placement, total, kills, damage, survivedMs, teamSize].
+   * Team modes: the team's place among `total` teams, sent once the team is out (or won).
+   */
   Result: 'res',
+  /** To everyone: [attackerPid, victimPid, weapon, head(0/1)]: a duck was knocked (team modes). No position. */
+  Knock: 'knk',
   /** Client to server: watch the next (1) or previous (-1) living duck while dead. */
   Spectate: 'spec',
   /** To the picker: [Deny reason, itemKind] when a Use press or an inventory request did nothing. */

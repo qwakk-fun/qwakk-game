@@ -13,6 +13,12 @@ export interface MatchResult {
   mapId: string;
   startedAt: number;
   endedAt: number;
+  /**
+   * Sides that competed, when not every player is one: the number of teams in
+   * a team battle royale. Placements are then team places (1 to field) and
+   * points use this field. Default: one side per player.
+   */
+  field?: number;
   players: Array<{
     playerId: string | null;
     name: string;
@@ -66,7 +72,7 @@ export function normalizeMatch(r: MatchResult, nowMs = Date.now()): NormalizedMa
   if (!Number.isFinite(r.startedAt) || !Number.isFinite(r.endedAt) || r.endedAt < r.startedAt) return null;
   if (r.endedAt > nowMs + 3600_000 || r.endedAt - r.startedAt > DAY_MS) return null;
   if (!Array.isArray(r.players) || r.players.length === 0 || r.players.length > MAX_PLAYERS) return null;
-  const field = r.players.length;
+  const field = typeof r.field === 'number' && Number.isFinite(r.field) ? int(r.field, 1, r.players.length) : r.players.length;
   const rows: MatchRow[] = r.players.map((p, slot) => {
     const isBot = p.isBot === true;
     const placement = int(p.placement, 1, field);

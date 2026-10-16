@@ -2,8 +2,14 @@
  * Keyboard and mouse: pointer lock, mouse look and the move/button state the
  * game samples once per fixed step. Look angles update on every mouse event,
  * so the camera (and the crosshair) never wait for the sim.
+ *
+ * Touch controls (input/touch) feed the same state: stick axes, held and
+ * latched buttons and look drags, merged in sample(). They are an input
+ * device only; the frame sent is the same as from the keys.
  */
 import { Button, NET, wrapAngle } from '@qwakk/shared';
+import { TOUCH } from './touch/constants.ts';
+import { applyLook } from './touch/stick.ts';
 
 const SENS_KEY = 'qwakk.sensitivity';
 const DEFAULT_SENS = 0.0022; // rad per mouse count
@@ -57,6 +63,20 @@ export class Controls {
    * from a fight with its inventory open. Mouse look and the trigger do not.
    */
   uiOpen = false;
+  /**
+   * Touch controls are driving (input/touch): there is no pointer lock, the
+   * touch layer feeds the state below and requestLock() does nothing.
+   */
+  touchActive = false;
+  /** Touch: radians of look per CSS pixel of drag (the touch sensitivity setting). */
+  touchRadPerPx: number = TOUCH.lookRadPerPx;
+  /** Touch stick axes, used when no movement key is down. */
+  private touchMx = 0;
+  private touchMz = 0;
+  /** Touch: buttons held down (fire, aim, crouch, use, sprint from the stick). */
+  private touchHeld = 0;
+  /** Touch: buttons tapped since the last sample, so a tap shorter than a tick still counts. */
+  private touchLatched = 0;
   private readonly abort = new AbortController();
 
   /** Remove every listener (the game ends; a new game makes new controls). */
@@ -96,7 +116,7 @@ export class Controls {
     }, opts);
     // Right click aims: no browser menu while playing.
     document.addEventListener('contextmenu', (e) => {
-      if (this.locked || this.uiOpen) e.preventDefault();
+      if (this.locked || this.uiOpen || this.touchActive) e.preventDefault();
     }, opts);
     document.addEventListener(
       'wheel',
@@ -122,6 +142,7 @@ export class Controls {
   }
 
   requestLock(): void {
+    if (this.touchActive) return;
     const el = this.element as HTMLElement & { requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void };
     // Raw mouse input where supported (no OS acceleration), plain lock otherwise.
     try {
@@ -140,11 +161,59 @@ export class Controls {
     for (const fn of this.listeners) fn(a);
   }
 
+  /** A touch button that maps to an action (map, inventory, scoreboard, spectate). */
+  action(a: ControlAction): void {
+    this.emit(a);
+  }
+
+  /** Touch stick axes (-1..1 each; the server normalizes the length too). */
+  setTouchMove(mx: number, mz: number): void {
+    this.touchMx = Number.isFinite(mx) ? Math.max(-1, Math.min(1, mx)) : 0;
+    this.touchMz = Number.isFinite(mz) ? Math.max(-1, Math.min(1, mz)) : 0;
+  }
+
+  /** Hold or release touch buttons (Button bits). A press also latches, so it counts even if released before the next tick. */
+  setTouchHeld(bits: number, on: boolean): void {
+    if (on) {
+      this.touchHeld |= bits;
+      this.touchLatched |= bits;
+    } else this.touchHeld &= ~bits;
+  }
+
+  /** Is this touch button held (toggles like crouch and aim read their state from here)? */
+  touchHeldHas(bits: number): boolean {
+    return (this.touchHeld & bits) !== 0;
+  }
+
+  /** A tap on a touch button: the bits go out with the next fixed step. */
+  tapTouch(bits: number): void {
+    this.touchLatched |= bits;
+  }
+
+  /** Touch weapon swap: the other slot. */
+  swapWeapon(): void {
+    this.slotLatch = this.currentSlot === 0 ? 1 : 0;
+  }
+
+  /** Touch look: a drag of (dx, dy) CSS pixels, scaled like the mouse by `lookScale` (aiming). */
+  lookBy(dx: number, dy: number, share = 1): void {
+    const r = applyLook(this.yaw, this.pitch, dx, dy, this.touchRadPerPx * share, this.lookScale);
+    this.yaw = r.yaw;
+    this.pitch = r.pitch;
+  }
+
+  /** Let go of everything touch holds (pause, a screen opened, the page hidden). */
+  clearTouch(): void {
+    this.touchMx = 0;
+    this.touchMz = 0;
+    this.touchHeld = 0;
+  }
+
   private onKey(e: KeyboardEvent, down: boolean): void {
     const code = e.code;
     if (code === 'AltLeft' || code === 'AltRight' || code === 'Space' || code === 'Tab') e.preventDefault();
     // Playing: the mouse is locked, or a game screen (the inventory) is open.
-    const live = this.locked || this.uiOpen;
+    const live = this.locked || this.uiOpen || this.touchActive;
     if (down && !e.repeat) {
       if (code === 'KeyI') this.emit('inventory');
       if (code === 'Escape' && this.uiOpen) this.emit('inventory-close');
@@ -188,9 +257,14 @@ export class Controls {
   /** Move axes and buttons for one fixed step. */
   sample(): { mx: number; mz: number; buttons: number } {
     const k = this.keys;
-    const mx = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
-    const mz = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
-    let buttons = 0;
+    const kx = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
+    const kz = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);
+    // Keys win over the touch stick when both are in use (a touch laptop).
+    const keyed = kx !== 0 || kz !== 0;
+    const mx = keyed ? kx : this.touchMx;
+    const mz = keyed ? kz : this.touchMz;
+    let buttons = this.touchHeld | this.touchLatched;
+    this.touchLatched = 0;
     if (k.has('Space') || this.jumpLatch) buttons |= Button.Jump;
     if (k.has('ShiftLeft') || k.has('ShiftRight')) buttons |= Button.Sprint;
     if (k.has('KeyC')) buttons |= Button.Crouch;

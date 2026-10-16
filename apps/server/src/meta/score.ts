@@ -3,14 +3,18 @@
  * (with the raw stats, so a new formula can be recomputed later); the season
  * score is the sum.
  *
- *   field     = everyone in the match, bots included (at least 2)
- *   placement = 50 * (field - place) / (field - 1), rounded   (winner 50, last 0)
+ *   field     = everyone in the match, bots included (at least 2); in a team
+ *               battle royale the teams in the match (8 duos, 4 squads)
+ *   placement = 50 * (field - place) / (field - 1), rounded   (winner 50, last 0);
+ *               team modes: the team's place, the same for every member
  *   win bonus = 50 for first place
  *   kills     = 10 per kill, counting at most 20 kills per match
  *   points    = (placement + win bonus + kills) * mode weight
  *   weight    = 1 for battle royale, 0.5 for deathmatch (warm-up mode)
  *
  * Example: winning a 32-duck royale with 6 kills = 50 + 50 + 60 = 160 points.
+ * A duo that wins with 3 kills of your own: 50 + 50 + 30 = 130 points each
+ * (kills count per duck).
  * Bots never score (they are stored but excluded from the leaderboard).
  */
 export const SCORE = {

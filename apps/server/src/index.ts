@@ -12,10 +12,12 @@
  *   QWAKK_INTEREST=0  turn interest management off (benchmark baseline)
  *   QWAKK_SPECTATORS=1 allow { spectate: true } joins (tests)
  *   QWAKK_BR_COUNTDOWN battle royale start countdown seconds (default 30; tests use less)
- *   QWAKK_BR_MIN_HUMANS humans a room needs before the countdown starts (default 3;
+ *   QWAKK_BR_MIN_HUMANS humans a room needs before the countdown starts (default 2;
  *                     e2e and benchmarks with fewer browsers use 1 or 2)
  *   QWAKK_BR_SEED     battle royale match seed (default: random per match)
  *   QWAKK_ZONE_SCALE  zone timeline speed-up for tests (0.2 = five times faster)
+ *   QWAKK_TEST_HOOKS=1 tests only, refused in production: a client may hurt its own
+ *                     battle royale duck (the party e2e knocks a duck to revive it)
  *   COLYSEUS_LATENCY  Colyseus built-in simulated round-trip latency in ms (dev only)
  *   QWAKK_CLIENT_DIR  serve the built client from this folder on the same port
  *                     (the server image sets it; unset in dev, where Vite serves it)
@@ -25,7 +27,7 @@
 import { matchMaker, Server } from '@colyseus/core';
 import { createServer } from 'node:http';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import { BR, NET, ROOM } from '@qwakk/shared';
+import { BR, NET, PARTY, ROOM } from '@qwakk/shared';
 import { IslandRoom, type IslandRoomOptions } from './IslandRoom.ts';
 import { BrRoom, type BrRoomOptions } from './BrRoom.ts';
 import { createBrBot } from './br/brBot.ts';
@@ -33,7 +35,8 @@ import { BotNav } from './nav/botNav.ts';
 import { loadOrBuildInBackground } from './nav/navmesh.ts';
 import { dmMapId, GREYBOX, loadMapV1, SAINTE_CANARD } from './maps.ts';
 import { createDmBot } from './dmBot.ts';
-import { allowCreateRoom, applyMatchmakingCors, checkUpgradeOrigin, guardJoinIps, joinIp, metaHttpHandler, startMeta } from './meta/index.ts';
+import { allowCreateRoom, allowPartyCreate, allowPartyJoin, applyMatchmakingCors, checkUpgradeOrigin, guardJoinIps, joinIp, metaHttpHandler, startMeta } from './meta/index.ts';
+import { PartyRoom } from './party/PartyRoom.ts';
 import { QwakkLobby } from './lobby.ts';
 import { installMatchmakingGuard } from './matchmaking.ts';
 import { DM_OPEN_ROOMS, DM_ROOM_CATALOG, LOBBY_ROOM } from '@qwakk/shared/lobby';
@@ -118,11 +121,14 @@ const brOptions: BrRoomOptions = {
   seed: process.env.QWAKK_BR_SEED ? Number(process.env.QWAKK_BR_SEED) : undefined,
   zoneTimeScale: process.env.QWAKK_ZONE_SCALE ? Number(process.env.QWAKK_ZONE_SCALE) : undefined,
   createBot: (ctx, id) => createBrBot(ctx, id, navOf(SAINTE_CANARD)),
+  testHooks: process.env.QWAKK_TEST_HOOKS === '1' && process.env.NODE_ENV !== 'production',
 };
 // Lobby rooms: the built-in LobbyRoom lists battle royale and deathmatch rooms live (lobby.ts);
 // battle royale Quick Play (joinOrCreate) picks the open room with the most players.
 server.define(BR.roomName, BrRoom, brOptions).enableRealtimeListing().sortBy({ clients: -1 });
 server.define(LOBBY_ROOM, QwakkLobby);
+// Parties: private rooms joined by code (party/PartyRoom.ts); never listed.
+server.define(PARTY.roomName, PartyRoom);
 // Room creation limits and join option filtering on every matchmaking request (matchmaking.ts).
 installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
   maxRooms: { [BR.roomName]: envNumber('QWAKK_BR_MAX_ROOMS') ?? BR.maxRooms },
@@ -132,6 +138,7 @@ installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
   hasOpenRoom: async (name) => Boolean(await matchMaker.findOneRoomAvailable(name, {})),
   allowCreate: allowCreateRoom,
   ipOf: (auth) => joinIp(auth),
+  party: { roomName: PARTY.roomName, allowCreate: allowPartyCreate, allowJoin: allowPartyJoin },
 });
 
 await server.listen(port);

@@ -12,6 +12,7 @@ import type { CombatFeedback } from './combatFeedback.ts';
 import type { FrameTimer, MotionProbe } from './metrics.ts';
 import type { BrClient } from './brClient.ts';
 import type { WorldHandle } from '../world/worldHandle.ts';
+import type { NameTags } from './nameTags.ts';
 
 export interface TestView {
   session: Session;
@@ -28,6 +29,7 @@ export interface TestView {
   hold(ms: number): void;
   press(buttons: number, ms: number, mz?: number): void;
   camera: { aimBlend: number };
+  tags: NameTags;
 }
 
 function renderStats(v: TestView): { drawCalls: number; triangles: number; world: { drawCalls: number; triangles: number } | null } {
@@ -58,6 +60,9 @@ export function exposeTestHook(v: TestView): void {
         serverTick: s.room.state.tick,
         players: s.room.state.players.size,
         me: me ? { x: me.state.x, y: me.state.y, z: me.state.z, grounded: me.state.grounded, alive: me.state.alive } : null,
+        /** The server's own numbers for the local duck (the decoded state, not the prediction). */
+        server: s.mine ? { x: s.mine.x, y: s.mine.y, z: s.mine.z, yaw: s.mine.yaw, mode: s.mine.mode, weapon: s.mine.weapon, mag0: s.mine.mag0, mag1: s.mine.mag1, res0: s.mine.res0, res1: s.mine.res1, reload: s.mine.reload, alive: s.mine.alive } : null,
+        controls: { yaw: v.controls.yaw, pitch: v.controls.pitch },
         remotes,
         prediction: { ...s.prediction, avgErrM: s.prediction.reconciles ? s.prediction.sumErrM / s.prediction.reconciles : 0, driftEma: me?.drift.ema ?? 0, driftPeak: me?.drift.peak ?? 0 },
         pendingInputs: me?.pendingCount ?? 0,
@@ -76,7 +81,24 @@ export function exposeTestHook(v: TestView): void {
         mine: me ? { mode: me.state.mode, hp: me.state.hp, arms: me.state.arms, weapon: me.state.weapon, res0: me.state.res0, res1: me.state.res1, bandages: me.state.bandages, medkits: me.state.medkits } : null,
         br: v.br ? { ...v.br.stats, items: v.br.autopilotView().items.length } : null,
         render: renderStats(v),
+        team: {
+          myTeam: s.myTeam,
+          teamSize: s.room.state.teamSize,
+          teams: s.room.state.teams,
+          down: me?.state.down ?? 0,
+          hp: me?.state.hp ?? 0,
+          allies: [...s.room.state.players.entries()].filter(([id]) => s.isAlly(id)).map(([id, p]) => ({ id, name: p.name, alive: p.alive, pose: s.pose(id) !== null, mate: s.mate(id) ? { hp: s.mate(id)!.hp, down: s.mate(id)!.down, rev: s.mate(id)!.rev } : null })),
+          tags: { ...v.tags.stats },
+          revivePrompt: v.br?.stats.revivePrompt ?? '',
+        },
       };
+    },
+    /** Test servers only (QWAKK_TEST_HOOKS=1): hurt our own battle royale duck (knock it for the revive e2e). */
+    devHurt: (n: number) => v.session.room.send('dev:hurt', n),
+    /** Where a player is drawn (pose) by session id, or null when not sent. */
+    poseOf: (id: string) => {
+      const p = v.session.pose(id);
+      return p ? { x: p.x, y: p.y, z: p.z, act: p.act } : null;
     },
     /**
      * The local duck's orientation: root yaw, controls, and the world up axis

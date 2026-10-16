@@ -1,4 +1,5 @@
 /** Settings tab: sliders saved on every change (settings.ts). */
+import { hasTouch } from '../../input/touch/device.ts';
 import { DEFAULTS, LIMITS, loadSettings, resetSettings, saveSettings, type Quality, type Settings } from '../../settings.ts';
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
@@ -6,7 +7,7 @@ import { h } from './dom.ts';
 const S = COPY.settings;
 
 interface SliderSpec {
-  key: 'sensitivity' | 'adsSensitivity' | 'fov' | 'volume';
+  key: 'sensitivity' | 'adsSensitivity' | 'touchSensitivity' | 'fov' | 'volume';
   label: string;
   min: number;
   max: number;
@@ -17,6 +18,7 @@ interface SliderSpec {
 const SLIDERS: SliderSpec[] = [
   { key: 'sensitivity', label: S.sensitivity, ...LIMITS.sensitivity, format: (v) => `${v.toFixed(2)}x` },
   { key: 'adsSensitivity', label: S.adsSensitivity, ...LIMITS.adsSensitivity, format: (v) => `${v.toFixed(2)}x` },
+  { key: 'touchSensitivity', label: S.touchSensitivity, ...LIMITS.touchSensitivity, format: (v) => `${v.toFixed(2)}x` },
   { key: 'fov', label: S.fov, ...LIMITS.fov, format: (v) => `${Math.round(v)}°` },
   { key: 'volume', label: S.volume, ...LIMITS.volume, format: (v) => `${Math.round(v * 100)}%` },
 ];
@@ -31,7 +33,8 @@ export class SettingsPanel {
 
   constructor(showQuality: boolean) {
     this.saved = h('span', { class: 'qm-saved', role: 'status' });
-    const rows = SLIDERS.map((spec) => {
+    // Touch look speed only where there is a touch screen.
+    const rows = SLIDERS.filter((spec) => spec.key !== 'touchSensitivity' || hasTouch()).map((spec) => {
       const id = `qm-set-${spec.key}`;
       const input = h('input', { id, type: 'range', min: spec.min, max: spec.max, step: spec.step });
       const out = h('output', { for: id, class: 'qm-val' });

@@ -31,6 +31,8 @@ import {
   TICK_RATE,
   Button,
   Item,
+  KNOCK,
+  PARTY,
   WeaponId,
   weaponStats,
   zoneAt,
@@ -43,10 +45,11 @@ import {
   type ZoneNow,
   type ZonePhase,
 } from '@qwakk/shared';
-import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from '../arena.ts';
+import { Arena, KILL_BLEED, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from '../arena.ts';
 import { BOT_NAMES } from '../bots.ts';
 import type { BrBotContext } from './context.ts';
 import { isEmptyCrate, LootWorld, type LootEntity, type LootEvents, type LootResult } from './loot.ts';
+import { TeamBook, type TeamGroup, type TeamRefusal } from './teams.ts';
 
 export interface BrEvents extends ArenaEvents {
   /** The pickup went through: what the duck got. */
@@ -55,8 +58,10 @@ export interface BrEvents extends ArenaEvents {
   denied?(seat: Seat, reason: number, kind: number): void;
   /** A duck changed the loot around it (opened a crate, took or dropped something). */
   looted?(seat: Seat): void;
-  /** A duck is out (or won): its final place. */
+  /** A duck is out (or won): its final place (team modes: the team's, once the team is out or won). */
   result(seat: Seat, placement: number): void;
+  /** A knocked duck is back up, thanks to `by`. */
+  revived?(seat: Seat, by: Seat): void;
   /** The room locked and the match started (plane boarding). */
   started(): void;
   ended(winner: Seat | null): void;
@@ -78,6 +83,8 @@ export interface BrOptions extends ArenaOptions {
   createBot: (ctx: BrBotContext, seatId: string) => BotLike;
   /** Zone timeline speed-up for tests (0.2: five times faster). Default 1. */
   zoneTimeScale?: number;
+  /** Ducks per team: 1 solo (default), 2 duo, 4 squad. */
+  teamSize?: number;
 }
 
 export const DEFAULT_BR: Omit<BrOptions, 'bots' | 'createBot'> = {
@@ -93,6 +100,11 @@ export const KILL_LEFT = -2;
 
 /** Seconds of boarding before the plane reaches its path start. */
 const BOARDING_S = 3;
+/** A knocked duck loses one point of its bleed meter every this many ticks (KNOCK.hp over KNOCK.bleedSeconds). */
+const BLEED_EVERY = Math.max(1, Math.round((KNOCK.bleedSeconds * TICK_RATE) / KNOCK.hp));
+const REVIVE_TICKS = Math.round(KNOCK.reviveSeconds * TICK_RATE);
+/** Chest height above the feet, standing (revive reach is measured chest to chest, the knocked duck lies low). */
+const CHEST = 0.9;
 
 export class BattleRoyale extends Arena {
   phase: 'warmup' | 'playing' | 'ended' = 'warmup';
@@ -120,12 +132,18 @@ export class BattleRoyale extends Arena {
   private readonly o: BrOptions;
   private readonly bev: BrEvents;
   readonly botContext: BrBotContext;
+  /** Teams (solo is teams of one) and the seats held for party members on their way in. */
+  readonly teams: TeamBook;
+  /** Teams that are out (nobody standing), and how many teams the match started with. */
+  private readonly teamsOut = new Set<number>();
+  field = 0;
 
   constructor(sim: SimWorld, options: BrOptions, events: BrEvents) {
     super(sim, options, events);
     this.o = options;
     this.bev = events;
     this.seed = (options.seed ?? randomSecret()) >>> 0;
+    this.teams = new TeamBook(options.players, options.teamSize ?? 1);
     this.loot = new LootWorld(sim, events.loot, () => this.tick);
     const k = options.zoneTimeScale ?? 1;
     this.phases = ZONE.phases.map((p) => ({ ...p, waitS: p.waitS * k, shrinkS: p.shrinkS * k }));
@@ -139,7 +157,48 @@ export class BattleRoyale extends Arena {
       canReach: (s, e) => this.loot.reachable(s, e) && Math.hypot(e.x - s.x, e.y - s.y - 0.9, e.z - s.z) < 2.6,
       lootable: (e) => e.kind !== Item.Crate || (this.loot.lootable(e) && !isEmptyCrate(e)),
       armorOf: (id) => this.armorFor(id),
+      downedMate: (id, range) => this.downedMateOf(id, range),
     };
+  }
+
+  /** Ducks per team (1: solo). */
+  get teamSize(): number {
+    return this.teams.size;
+  }
+
+  /** The nearest knocked teammate of a seat within `range` (bots revive their own, like players do). */
+  private downedMateOf(seatId: string, range: number): { id: string; x: number; y: number; z: number } | null {
+    const me = this.seats.get(seatId);
+    if (!me || me.team === 0) return null;
+    let best: Seat | null = null;
+    let bestD = range;
+    for (const s of this.seats.values()) {
+      if (!this.allies(me, s) || !s.sim.alive || !s.sim.down) continue;
+      const d = Math.hypot(s.sim.x - me.sim.x, s.sim.z - me.sim.z);
+      if (d < bestD) {
+        best = s;
+        bestD = d;
+      }
+    }
+    return best ? { id: best.id, x: best.sim.x, y: best.sim.y, z: best.sim.z } : null;
+  }
+
+  /** Is anyone on this team standing (alive and not knocked)? */
+  private standing(team: number, except?: Seat): boolean {
+    for (const s of this.seats.values()) if (s !== except && s.team === team && s.sim.alive && !s.sim.down) return true;
+    return false;
+  }
+
+  /** Teams still in the match (someone standing). */
+  get teamsIn(): number {
+    const t = new Set<number>();
+    for (const s of this.seats.values()) if (s.sim.alive && !s.sim.down && !this.teamsOut.has(s.team)) t.add(s.team);
+    return t.size;
+  }
+
+  /** Team modes: a duck at 0 health is knocked while a teammate still stands. Solo: never. */
+  protected override canKnock(victim: Seat): boolean {
+    return this.teams.size > 1 && this.phase === 'playing' && victim.sim.mode === Mode.Ground && this.standing(victim.team, victim);
   }
 
   protected damageOn(): boolean {
@@ -182,10 +241,19 @@ export class BattleRoyale extends Arena {
     return this.phase !== 'warmup';
   }
 
-  /** A human joins: only during the warm-up (the room is locked after). */
-  addHuman(id: string, name: string): Seat | null {
+  /** Could this group (a duck, or a party's first arrival) get a seat now? The team, or why not. */
+  admit(g: TeamGroup | null): number | TeamRefusal {
+    if (this.phase !== 'warmup') return 'no-team';
+    return this.teams.place(g ?? { playerId: null, partyId: null, followers: [] }, this.tick);
+  }
+
+  /** A human joins: only during the warm-up (the room is locked after), on a team with room for its party. */
+  addHuman(id: string, name: string, g: TeamGroup | null = null): Seat | null {
     if (this.phase !== 'warmup') return null;
-    const seat = this.makeSeat(id, name, null, createPlayerSim(0, -100, 0));
+    const team = this.admit(g);
+    if (typeof team !== 'number') return null;
+    const seat = this.makeSeat(id, name, null, createPlayerSim(0, -100, 0), team);
+    this.teams.assign(id, team, g, this.tick + PARTY.reserveSeconds * TICK_RATE);
     this.armorFor(id);
     this.spawnWarmup(seat);
     this.updateCountdown();
@@ -225,6 +293,7 @@ export class BattleRoyale extends Arena {
     if (this.phase === 'warmup') {
       this.seats.delete(id);
       this.armor.delete(id);
+      this.teams.remove(id);
       this.updateCountdown();
       return;
     }
@@ -251,14 +320,20 @@ export class BattleRoyale extends Arena {
     if (this.phase !== 'warmup') return;
     this.phase = 'playing';
     this.secret = randomSecret();
+    this.teams.expire(this.tick, true);
     if (this.o.bots) {
-      while (this.seats.size < this.o.players) {
-        this.botCount++;
-        const id = `bot-${this.botCount}`;
-        const name = `${BOT_NAMES[(this.botCount - 1) % BOT_NAMES.length]} (bot)`;
-        this.makeSeat(id, name, this.o.createBot(this.botContext, id), createPlayerSim(0, -100, 0));
+      // Bots fill every empty seat: the humans' teams first, then whole bot teams.
+      for (let team = 1; team <= this.teams.count; team++) {
+        while (this.teams.members(team).length < this.teams.size && this.seats.size < this.o.players) {
+          this.botCount++;
+          const id = `bot-${this.botCount}`;
+          const name = `${BOT_NAMES[(this.botCount - 1) % BOT_NAMES.length]} (bot)`;
+          this.makeSeat(id, name, this.o.createBot(this.botContext, id), createPlayerSim(0, -100, 0), team);
+          this.teams.assign(id, team, null, 0);
+        }
       }
     }
+    this.field = this.teams.used;
     this.route = planeRoute(this.sim.map, planePathIndex(this.sim.map, this.seed));
     this.plan = planCircles(this.sim.map, this.seed);
     this.startMs = this.now + BOARDING_S * 1000;
@@ -325,10 +400,62 @@ export class BattleRoyale extends Arena {
     if (overLand(this.sim.map, p.x, p.z)) this.eject(seat);
   }
 
-  protected override afterStep(seat: Seat, _f: InputFrame): void {
-    if (!this.useEdge || !seat.sim.alive || seat.sim.mode !== Mode.Ground || this.phase !== 'playing') return;
+  protected override afterStep(seat: Seat, f: InputFrame): void {
+    if (this.teams.size > 1) this.stepRevive(seat, f);
+    // A Use press next to a knocked teammate is a revive, not a pickup.
+    if (!this.useEdge || seat.reviveOf || !seat.sim.alive || seat.sim.down || seat.sim.mode !== Mode.Ground || this.phase !== 'playing') return;
     const r = this.loot.tryPickup(seat.sim, this.armorFor(seat.id));
     if (r) this.report(seat, r);
+  }
+
+  /**
+   * Reviving: hold Use within KNOCK.reviveRange of a knocked teammate for
+   * KNOCK.reviveSeconds. Letting go, moving away, firing, being knocked
+   * yourself or a stalled connection (stand-in steps drop Use) start it over.
+   */
+  private stepRevive(seat: Seat, f: InputFrame): void {
+    const s = seat.sim;
+    const holding = (f.buttons & Button.Use) !== 0 && (f.buttons & Button.Fire) === 0 && s.alive === 1 && s.down === 0 && s.mode === Mode.Ground && this.phase === 'playing';
+    let target = holding && seat.reviveOf ? (this.seats.get(seat.reviveOf) ?? null) : null;
+    if (target && !this.inReviveReach(seat, target)) target = null;
+    if (!target && holding) {
+      for (const o of this.seats.values()) {
+        if (this.inReviveReach(seat, o)) {
+          target = o;
+          break;
+        }
+      }
+    }
+    if (!target) {
+      seat.reviveOf = null;
+      seat.reviveTicks = 0;
+      return;
+    }
+    if (seat.reviveOf !== target.id) {
+      seat.reviveOf = target.id;
+      seat.reviveTicks = 0;
+    }
+    if (++seat.reviveTicks < REVIVE_TICKS) return;
+    seat.reviveOf = null;
+    seat.reviveTicks = 0;
+    this.revive(target);
+    this.bev.revived?.(target, seat);
+  }
+
+  private inReviveReach(seat: Seat, o: Seat): boolean {
+    if (!this.allies(seat, o) || !o.sim.alive || !o.sim.down) return false;
+    const a = seat.sim;
+    const b = o.sim;
+    if (Math.hypot(b.x - a.x, b.y + CHEST * 0.5 - (a.y + CHEST), b.z - a.z) > KNOCK.reviveRange) return false;
+    // Same sight rule as a pickup: no reviving through a wall or a fence.
+    return this.loot.clearLine(a, b.x, b.y + CHEST * 0.5, b.z);
+  }
+
+  /** Revive progress on a knocked duck (0..1) and who is reviving it (the furthest along). */
+  reviveProgress(seat: Seat): { progress: number; by: Seat | null } {
+    let best: Seat | null = null;
+    for (const o of this.seats.values()) if (o.reviveOf === seat.id && (!best || o.reviveTicks > best.reviveTicks)) best = o;
+    return { progress: best ? best.reviveTicks / REVIVE_TICKS : 0, by: best };
   }
 
   private report(seat: Seat, r: LootResult): void {
@@ -348,7 +475,7 @@ export class BattleRoyale extends Arena {
    */
   inventoryOp(seatId: string, op: 'drop' | 'take', a: number, b: number, c: number): boolean {
     const seat = this.seats.get(seatId);
-    if (!seat || !seat.sim.alive || seat.sim.mode !== Mode.Ground || this.phase !== 'playing') return false;
+    if (!seat || !seat.sim.alive || seat.sim.down || seat.sim.mode !== Mode.Ground || this.phase !== 'playing') return false;
     const second = Math.floor(this.tick / TICK_RATE);
     let budget = this.invBudget.get(seatId);
     if (!budget || budget.second !== second) this.invBudget.set(seatId, (budget = { left: LOOT.invOpsPerSecond, second }));
@@ -375,8 +502,6 @@ export class BattleRoyale extends Arena {
 
   protected onKilled(killer: Seat | null, victim: Seat): void {
     if (this.phase !== 'playing') return;
-    const place = this.alive + 1;
-    this.placement.set(victim.id, place);
     this.outAtMs.set(victim.id, this.matchMs());
     const s = victim.sim;
     if (s.mode !== Mode.Plane) {
@@ -384,23 +509,46 @@ export class BattleRoyale extends Arena {
       this.loot.dropCrate(s.x, y + 0.05, s.z, dropsOf(s, this.armorFor(victim.id)));
     }
     s.mode = Mode.Ground;
-    this.bev.result(victim, place);
+    for (const o of this.seats.values()) if (o.reviveOf === victim.id) o.reviveOf = null;
     void killer;
+    // The team is out once nobody on it stands (solo: right away). Its ducks share the place.
+    if (!this.standing(victim.team)) this.eliminate(victim.team);
+  }
+
+  /**
+   * A team has nobody standing: its knocked ducks are out too (nobody can
+   * revive them), and every duck on it gets the team's place.
+   */
+  private eliminate(team: number): void {
+    if (this.teamsOut.has(team) || this.phase !== 'playing') return;
+    this.teamsOut.add(team);
+    const mates = [...this.seats.values()].filter((o) => o.team === team);
+    for (const o of mates) if (o.sim.alive) this.kill(this.seats.get(o.knockedBy ?? '') ?? null, o, KILL_BLEED, false);
+    const place = this.teamsIn + 1;
+    for (const o of mates) {
+      this.placement.set(o.id, place);
+      this.bev.result(o, place);
+    }
     this.checkEnd();
   }
 
   private checkEnd(): void {
     if (this.phase !== 'playing') return;
-    const alive = [...this.seats.values()].filter((s) => s.sim.alive);
-    if (alive.length > 1) return;
-    const winner = alive[0] ?? null;
+    const standing = new Map<number, Seat>();
+    for (const s of this.seats.values()) if (s.sim.alive && !s.sim.down && !this.teamsOut.has(s.team) && !standing.has(s.team)) standing.set(s.team, s);
+    if (standing.size > 1) return;
+    const winner = [...standing.values()][0] ?? null;
     this.phase = 'ended';
     this.endTicks = this.o.endSeconds * TICK_RATE;
     this.winner = winner;
     if (winner) {
-      this.placement.set(winner.id, 1);
-      this.outAtMs.set(winner.id, this.matchMs());
-      this.bev.result(winner, 1);
+      // The whole team wins, the fallen too.
+      for (const o of this.seats.values()) {
+        if (o.team !== winner.team) continue;
+        this.placement.set(o.id, 1);
+        if (!this.outAtMs.has(o.id)) this.outAtMs.set(o.id, this.matchMs());
+        this.bev.result(o, 1);
+      }
     }
     this.bev.ended(winner);
   }
@@ -414,9 +562,12 @@ export class BattleRoyale extends Arena {
         if (s.sim.res0 < 60) s.sim.res0 = weaponStats(WeaponId.Rifle).reserve;
         if (s.sim.res1 < 24) s.sim.res1 = weaponStats(WeaponId.Pistol).reserve;
       }
+      // Seats held for party members who never came free up again.
+      if (this.tick % TICK_RATE === 0) this.teams.expire(this.tick);
       if (this.warmupTicks > 0 && --this.warmupTicks === 0) this.lock();
     } else if (this.phase === 'playing') {
       this.thinkBots();
+      this.bleed();
       const t = this.planeTime();
       if (this.route && t >= this.route.ejectS) for (const s of this.seats.values()) if (s.sim.mode === Mode.Plane && s.sim.alive) this.eject(s);
       this.zone = zoneAt(this.plan, this.matchMs(), this.phases);
@@ -452,6 +603,16 @@ export class BattleRoyale extends Arena {
     }
     this.separate();
     this.recordHistory();
+  }
+
+  /** Knocked ducks bleed out over KNOCK.bleedSeconds (the knocker gets the kill). */
+  private bleed(): void {
+    for (const s of this.seats.values()) {
+      if (!s.sim.alive || !s.sim.down || (this.tick - s.downTick) % BLEED_EVERY !== 0 || this.tick === s.downTick) continue;
+      s.sim.hp = Math.max(0, s.sim.hp - 1);
+      if (s.sim.hp <= 0) this.kill(this.seats.get(s.knockedBy ?? '') ?? null, s, KILL_BLEED, false);
+      if (this.phase !== 'playing') return;
+    }
   }
 
   /** Seconds until the next thing happens (countdown end, zone wait or shrink end); 0 while waiting for players. */

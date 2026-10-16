@@ -1105,3 +1105,134 @@ body {
   text-shadow: none;
   letter-spacing: 0.08em;
 }
+
+/* Teams: name tags, ally markers, the team panel, knocked. */
+:root {
+  --ally: #3ddc84;
+}
+.nt-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+.nt {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(21, 22, 25, 0.62);
+  font: 600 12px/1.3 ui-sans-serif, system-ui, sans-serif;
+  color: var(--ink);
+  white-space: nowrap;
+  will-change: transform;
+}
+.nt[hidden] {
+  display: none;
+}
+.nt-mark {
+  display: none;
+  width: 8px;
+  height: 8px;
+  transform: rotate(45deg);
+  background: var(--ally);
+  border: 1px solid var(--dark);
+}
+.nt.ally {
+  color: var(--ally);
+  border: 1px solid rgba(61, 220, 132, 0.55);
+}
+.nt.ally .nt-mark {
+  display: inline-block;
+}
+.nt.enemy {
+  color: var(--ink);
+  border: 1px solid rgba(229, 56, 59, 0.6);
+}
+.nt.down .nt-mark {
+  background: var(--beak);
+}
+.nt-meta {
+  font-weight: 500;
+  color: rgba(244, 241, 232, 0.75);
+}
+.nt.down .nt-meta {
+  color: var(--beak);
+}
+.team-panel {
+  position: absolute;
+  left: 24px;
+  bottom: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 200px;
+  pointer-events: none;
+  z-index: 2;
+}
+.team-panel[hidden] {
+  display: none;
+}
+.team-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  background: rgba(21, 22, 25, 0.62);
+  border-left: 3px solid var(--ally);
+  font: 600 12px/1.25 ui-sans-serif, system-ui, sans-serif;
+}
+.team-name {
+  color: var(--ally);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-state {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.team-bar {
+  grid-column: 1 / -1;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(244, 241, 232, 0.15);
+  overflow: hidden;
+}
+.team-fill {
+  height: 100%;
+  background: var(--ally);
+}
+.team-row.down {
+  border-left-color: var(--beak);
+}
+.team-row.down .team-state,
+.team-row.down .team-name {
+  color: var(--beak);
+}
+.team-row.down .team-fill {
+  background: var(--beak);
+}
+.team-row.out {
+  opacity: 0.5;
+  border-left-color: #8a8f98;
+}
+.team-row.out .team-name {
+  color: #8a8f98;
+  text-decoration: line-through;
+}
+.ghud-knocked .ghud-hpfill {
+  background: var(--beak);
+}
+.br-board-row.ally .n {
+  color: var(--ally);
+}
+.br-lobby-list li.ally {
+  color: var(--ally);
+}

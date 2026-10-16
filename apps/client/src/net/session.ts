@@ -27,7 +27,7 @@ import {
   type ShotFired,
   type SimWorld,
 } from '@qwakk/shared';
-import { IslandState, Msg, PlayerInput, type LootItem, type PlayerState, type Pose } from '@qwakk/shared/net';
+import { IslandState, Msg, PlayerInput, type LootItem, type PlayerState, type Pose, type TeamMate } from '@qwakk/shared/net';
 import { config } from '../config.ts';
 import { FarInterp } from './farInterp.ts';
 import { NetSim, type NetSimSettings } from './netsim.ts';
@@ -45,19 +45,21 @@ export interface PredictionStats {
 export interface SessionHandlers {
   /** Another player's shot: shooter pid, weapon, outcome, muzzle and end points (m). */
   shots(list: { pid: number; weapon: number; outcome: number; from: [number, number, number]; to: [number, number, number] }[]): void;
-  hitConfirm(victimPid: number, damage: number, head: boolean, killed: boolean): void;
+  hitConfirm(victimPid: number, damage: number, head: boolean, killed: boolean, knocked: boolean): void;
   /** Damage taken: world angle toward the attacker (null: the zone) and the amount. */
   damaged(angle: number | null, damage: number): void;
   /** `at` is null when the server did not tell us where (we could not see the victim). killerPid 0: the zone. */
   kill(killerPid: number, victimPid: number, weapon: number, head: boolean, at: [number, number, number] | null): void;
+  /** A duck was knocked (team modes): attacker pid (0: the zone), victim pid, weapon, headshot. */
+  knock(byPid: number, victimPid: number, weapon: number, head: boolean): void;
   /** A shot we cannot see: weapon, world angle toward it, loudness 0..2. */
   shotHint(weapon: number, angle: number, loud: number): void;
   /** Our pickup went through. */
   picked(kind: number, amount: number): void;
   /** A pickup or an inventory request did nothing: the reason (Deny.*) and the item kind. */
   denied(reason: number, kind: number): void;
-  /** We are out (or won): placement, players in the match, kills, damage, survived ms. */
-  result(placement: number, total: number, kills: number, damage: number, survivedMs: number): void;
+  /** We are out (or won): placement, players (teams in team modes) in the match, kills, damage, survived ms, team size. */
+  result(placement: number, total: number, kills: number, damage: number, survivedMs: number, teamSize: number): void;
   /** The local sim fired (live step only, never on replay). `state` is the post-step state. */
   localShot(shot: ShotFired, state: PlayerSim, buttons: number): void;
 }
@@ -116,10 +118,11 @@ export class Session {
    * with the most players, or opens one). Deathmatch Quick Play joins the open
    * room with the most humans; deathmatch rooms are never created by a client.
    */
-  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
+  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; team?: number; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
     const roomName = opts.mode === 'br' ? BR.roomName : ROOM.name;
-    const joinOpts = { name: opts.name ?? '', token: opts.token, spectate };
+    // `team`: the battle royale team size a new room gets (the server ignores it when joining).
+    const joinOpts = { name: opts.name ?? '', token: opts.token, spectate, ...(opts.mode === 'br' && opts.team ? { team: opts.team } : {}) };
     const room = opts.roomId
       ? await client.joinById<IslandState>(opts.roomId, joinOpts, IslandState)
       : opts.mode === 'br' && opts.create
@@ -203,7 +206,8 @@ export class Session {
         })),
       );
     });
-    this.room.onMessage(Msg.HitConfirm, (d: number[]) => handlers.hitConfirm(d[0] ?? 0, d[1] ?? 0, d[2] === 1, d[3] === 1));
+    this.room.onMessage(Msg.HitConfirm, (d: number[]) => handlers.hitConfirm(d[0] ?? 0, d[1] ?? 0, d[2] === 1, d[3] === 1, d[4] === 1));
+    this.room.onMessage(Msg.Knock, (d: number[]) => handlers.knock(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1));
     this.room.onMessage(Msg.Damaged, (d: number[]) => handlers.damaged(d[2] === 1 ? null : (d[0] ?? 0) / 1000, d[1] ?? 0));
     this.room.onMessage(Msg.Kill, (d: number[]) => handlers.kill(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1, d[4] === 1 ? [m(d[5] ?? 0), m(d[6] ?? 0), m(d[7] ?? 0)] : null));
     this.room.onMessage(Msg.ShotHint, (list: number[][]) => {
@@ -211,7 +215,7 @@ export class Session {
     });
     this.room.onMessage(Msg.Picked, (d: number[]) => handlers.picked(d[0] ?? 0, d[1] ?? 0));
     this.room.onMessage(Msg.Denied, (d: number[]) => handlers.denied(d[0] ?? 0, d[1] ?? 0));
-    this.room.onMessage(Msg.Result, (d: number[]) => handlers.result(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] ?? 0, d[4] ?? 0));
+    this.room.onMessage(Msg.Result, (d: number[]) => handlers.result(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] ?? 0, d[4] ?? 0, d[5] ?? 1));
   }
 
   /** Loot items in our view (battle royale): added, changed (amount), removed. */
@@ -367,6 +371,22 @@ export class Session {
     b.z = o.z;
     b.t = now;
     return o;
+  }
+
+  /** Our team (0: none). */
+  get myTeam(): number {
+    return this.mine?.team ?? 0;
+  }
+
+  /** Is this player on our side (same nonzero team)? */
+  isAlly(id: string): boolean {
+    const t = this.myTeam;
+    return t > 0 && id !== this.room.sessionId && this.room.state.players.get(id)?.team === t;
+  }
+
+  /** A teammate's HUD entry (health, knocked, revive), only ever sent for our own team. */
+  mate(id: string): TeamMate | undefined {
+    return this.room.state.mates.get(id);
   }
 
   /** Session id for a player's pid. */

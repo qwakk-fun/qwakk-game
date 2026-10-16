@@ -201,7 +201,7 @@ Build cost on the server: about 2.5 minutes, most of it the navmesh bake (about 
 curl -s https://play.qwakk.fun/health
 #   {"ok":true,"db":"up"}   ("off" without DATABASE_URL)
 npm run smoke -- wss://play.qwakk.fun
-#   health, session, "lobby lists ... deathmatch istanbul", "joined istanbul ... 32 ducks seated",
+#   health, session, "lobby lists ... deathmatch istanbul", "joined istanbul ... 24 ducks seated",
 #   "joined battle royale", then "OK wss://play.qwakk.fun".
 #   With Turnstile on it stops after the session check ("joins skipped"). For the full run,
 #   play once at play.qwakk.fun, copy `token` from localStorage `qwakk.identity`, then:

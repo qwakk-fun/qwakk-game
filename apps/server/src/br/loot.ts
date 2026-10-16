@@ -179,10 +179,15 @@ export class LootWorld {
 
   /** Is the item in line of sight from the duck's eye (nothing opaque in between)? */
   reachable(s: PlayerSim, e: LootEntity): boolean {
+    return this.clearLine(s, e.x, e.y + 0.2, e.z);
+  }
+
+  /** Nothing opaque between the duck's eye and this point (pickups, revives). */
+  clearLine(s: PlayerSim, x: number, y: number, z: number): boolean {
     const ey = s.y + (s.crouch ? 1.0 : 1.55);
-    const tx = e.x - s.x;
-    const ty = e.y + 0.2 - ey;
-    const tz = e.z - s.z;
+    const tx = x - s.x;
+    const ty = y - ey;
+    const tz = z - s.z;
     const d = Math.sqrt(tx * tx + ty * ty + tz * tz);
     if (d < 0.05) return true;
     const hit = this.sim.world.castRay(new this.sim.rapier.Ray({ x: s.x, y: ey, z: s.z }, { x: tx / d, y: ty / d, z: tz / d }), d, true, undefined, OPAQUE_QUERY_GROUPS);

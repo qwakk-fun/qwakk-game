@@ -14,6 +14,9 @@ What the Qwakk game (`qwakk.fun/game`) stores about players, where, and for how 
 | First and last seen time | Game database (`players.created_at`, `last_seen`) | Clean-up of inactive guests | Same as the nickname |
 | Settings (mouse sensitivity, field of view, volume) | The player's browser only (`qwakk.settings`, `qwakk.sensitivity`) | Comfort | Until the player clears site data |
 | IP address | Game server memory only | Rate limits on joins, guest creation and leaderboard reads | Not written to disk or the database. An entry is dropped once its limit has refilled (seconds to minutes) and on every server restart |
+| Party membership (who is in which party, its leader) | Game server memory only | Lets friends land in the same match on one team | Not written to disk or the database. Gone when the player leaves the party or closes the page, and on every server restart |
+
+In Duo and Squad matches the stored placement is the team's place (the same for every member) and points use the number of teams; no new data is stored for it.
 
 Not stored: email, real names, passwords, wallet addresses, payment data, device fingerprints, chat (there is no chat). The game sets no cookies.
 

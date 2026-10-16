@@ -5,15 +5,17 @@
  *
  *   plane    pick a landing spot near the route, jump when the plane is close
  *   drop     freefall, open the glider when the spot is far, glide, brake over it
- *   ground   in order: fight what it sees, get back into the zone, heal when
+ *   ground   in order: fight what it sees, revive a knocked teammate when no
+ *            fight is on (team modes), get back into the zone, heal when
  *            safe, loot what it sees, chase the last sighting, rotate into the
  *            announced circle early, else roam between loot spots in the zone
+ *   knocked  stays put, low, and waits for a teammate
  *
  * Movement follows navmesh paths (recast), re-planned only on a new goal or
  * every few seconds, with stuck detection (hop, re-plan, new goal).
  * Server only, so Math.random and Math.atan2 are fine here.
  */
-import { Button, Item, Mode, planeAt, type InputFrame, type PlayerSim } from '@qwakk/shared';
+import { Button, Item, KNOCK, Mode, planeAt, type InputFrame, type PlayerSim } from '@qwakk/shared';
 import type { BotLike, BotTarget } from '../arena.ts';
 import { BotBrain, SKILL, type BotSkill } from '../bots.ts';
 import { PathFollower, type BotNav, type P3 } from '../nav/botNav.ts';
@@ -25,7 +27,7 @@ import type { LootEntity } from './loot.ts';
 /** Counters for tests and tuning. */
 export const BOT_STATS = { skipUse: 0, skipArrived: 0, skipGiveUp: 0, uses: 0 };
 
-type Goal = 'none' | 'loot' | 'zone' | 'chase' | 'roam';
+type Goal = 'none' | 'loot' | 'zone' | 'chase' | 'roam' | 'assist';
 
 /** Re-plan a path at most this often while the goal stays the same (ticks). */
 const REPATH_TICKS = 90;
@@ -148,6 +150,8 @@ export class BrBot implements BotLike {
   }
 
   private onGround(self: PlayerSim, others: readonly BotTarget[], f: InputFrame): InputFrame {
+    // Knocked: it cannot fight or loot; it stays where it fell and waits for a teammate.
+    if (self.down) return this.face(f);
     const armed = (self.arms & 3) !== 0;
     const fighting = this.fighter.engage(self, others, this.tick);
     const out = this.fighter.output;
@@ -185,6 +189,18 @@ export class BrBot implements BotLike {
     }
     const chores = out.buttons & (Button.Reload | Button.Slot1 | Button.Slot2);
     f.buttons = chores;
+
+    // A knocked teammate nearby and no fight for a moment: go to it and hold Use, like a player.
+    const mate = this.tick - this.lastFightTick > 60 ? this.ctx.downedMate(this.seatId, 40) : null;
+    if (mate) {
+      if (Math.hypot(mate.x - self.x, mate.y - self.y, mate.z - self.z) < KNOCK.reviveRange - 0.6) {
+        this.look(Math.atan2(-(mate.x - self.x), -(mate.z - self.z)), -0.4);
+        f.buttons |= Button.Use;
+        return this.face(f);
+      }
+      if (this.goal !== 'assist' || !this.goalPos || Math.hypot(this.goalPos.x - mate.x, this.goalPos.z - mate.z) > 2) this.setGoal(self, 'assist', { x: mate.x, y: mate.y, z: mate.z });
+      return this.move(self, f, 'assist', 1.2);
+    }
 
     const zone = this.ctx.zone();
     const now = zone.now;
@@ -371,7 +387,7 @@ export class BrBot implements BotLike {
     }
     this.look(Math.atan2(-(wp.x - self.x), -(wp.z - self.z)), -0.05);
     f.mz = 1;
-    const urgent = goal === 'zone' || goal === 'chase' || (goal === 'roam' && dGoal > 30);
+    const urgent = goal === 'zone' || goal === 'chase' || goal === 'assist' || (goal === 'roam' && dGoal > 30);
     if (urgent && dGoal > 8 && Math.abs(this.turnLeft(wp, self)) < 0.5) f.buttons |= Button.Sprint;
     this.unstick(self, f, dGoal);
     return this.face(f);

@@ -151,18 +151,18 @@ try {
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${out}/result.png` });
 
-  // Phone: browsable, Play disabled with a note.
+  // Phone: browsable, Play on (touch controls), with a note.
   const phone = await browser.newContext({ ...devices['iPhone 13'] });
   const pp = await phone.newPage();
   await pp.goto(url);
   await pp.waitForSelector('.qm-mobile');
   const disabled = await pp.locator('.qm-btn-play').isDisabled();
-  if (!disabled) fail('Play should be disabled on touch-only devices');
+  if (disabled) fail('Play should be on for touch-only devices');
   await pp.waitForTimeout(700);
   await pp.screenshot({ path: `${out}/mobile.png`, fullPage: false });
 
   await browser.close();
-  const report = { paintMs, blockedMsg, lbRows, settingsPersisted: { fov, vol }, start: { mode: start.mode, hasToken: true, settings: start.settings }, mobilePlayDisabled: disabled, errors };
+  const report = { paintMs, blockedMsg, lbRows, settingsPersisted: { fov, vol }, start: { mode: start.mode, hasToken: true, settings: start.settings }, mobilePlayEnabled: !disabled, errors };
   console.log(JSON.stringify(report, null, 2));
   if (errors.length) fail(`page errors: ${errors.join(' | ')}`);
   console.log(`menu check passed, screenshots in ${out}`);

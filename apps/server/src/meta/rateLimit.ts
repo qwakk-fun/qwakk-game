@@ -113,13 +113,17 @@ export class ConnectionCounter {
  * 20 s. Leaderboard and profile reads: a burst of 40, then 2 per second.
  * New game rooms: a burst of 3, then one a minute. Lobby (room list)
  * connections: a burst of 20, then one every 3 s (the menu reconnects after
- * every match). Open WebSockets (game rooms plus the lobby, see
+ * every match). New parties: a burst of 4, then one every 30 s. Party joins
+ * by code (right or wrong): a burst of 8, then one every 5 s, so guessing a
+ * code (about 887 million) is hopeless. Open WebSockets (game rooms plus the lobby, see
  * `CONNECTIONS_PER_IP`) are capped separately.
  */
 export const LIMITS = {
   join: { capacity: 10, refillPerSec: 1 / 4 },
   createRoom: { capacity: 3, refillPerSec: 1 / 60 },
   lobby: { capacity: 20, refillPerSec: 1 / 3 },
+  partyCreate: { capacity: 4, refillPerSec: 1 / 30 },
+  partyJoin: { capacity: 8, refillPerSec: 1 / 5 },
   session: { capacity: 8, refillPerSec: 1 / 20 },
   read: { capacity: 40, refillPerSec: 2 },
 } as const satisfies Record<string, BucketOptions>;
