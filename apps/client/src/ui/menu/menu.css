@@ -191,14 +191,35 @@
   align-self: stretch;
   min-height: 360px;
 }
-.qm-art img {
+/* The image, and the 3D duck (menuHero) that fades in over it in the same box. */
+.qm-art-duck {
   position: relative;
   width: min(100%, 560px);
-  height: auto;
+  aspect-ratio: 1;
   mask-image: radial-gradient(closest-side, #000 72%, transparent 100%);
   animation: qm-bob 4.8s ease-in-out infinite;
   user-select: none;
+}
+.qm-art-duck img {
+  display: block;
+  width: 100%;
+  height: auto;
   -webkit-user-drag: none;
+  transition: opacity 0.5s ease 0.1s;
+}
+.qm-hero3d {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity 0.45s ease;
+}
+.qm-art-duck.is-3d .qm-hero3d {
+  opacity: 1;
+}
+.qm-art-duck.is-3d img {
+  opacity: 0;
 }
 .qm-art-glow {
   position: absolute;
@@ -958,7 +979,7 @@ body.qm-open #overlay {
     order: -1;
     min-height: 0;
   }
-  .qm-art img {
+  .qm-art-duck {
     width: min(44vw, 200px);
   }
   .qm-screen {

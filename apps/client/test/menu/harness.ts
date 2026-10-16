@@ -1,4 +1,4 @@
-/** Menu with a fake game: records startGame calls, then ends the round with a summary. */
+/** Menu with a fake game (records startGame calls, then ends the round with a summary) and the real 3D duck. */
 import { bootMenu, type ExitReason, type MatchSummary, type StartOptions } from '../../src/ui/menu/index.ts';
 
 const w = window as unknown as { __menuTest: { starts: StartOptions[]; loads: number } };
@@ -18,4 +18,4 @@ bootMenu(async () => {
       exit = cb;
     },
   };
-});
+}, () => import('../../src/menuHero/index.ts'));

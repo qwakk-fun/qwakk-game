@@ -4,6 +4,7 @@
  * up in the background, and Play awaits it.
  */
 import { loadSettings, toGameSettings, type GameSettings } from '../../settings.ts';
+import type { HeroModule } from './heroSlot.ts';
 import { Menu, type ExitReason, type GameMode, type MatchSummary, type StartOptions } from './menu.ts';
 
 export type { ExitReason, GameMode, MatchSummary, StartOptions } from './menu.ts';
@@ -29,8 +30,11 @@ export function directStart(devtools: boolean, search = location.search): StartO
   return { mode: mode === 'br' ? 'br' : 'dm', roomId: p.get('room') ?? undefined, name: p.get('name') ?? undefined, settings: toGameSettings(loadSettings()) };
 }
 
-/** Show the menu; Play loads the game module on demand. */
-export function bootMenu(load: () => Promise<GameEntry>): Menu {
+/**
+ * Show the menu; Play loads the game module on demand. `hero` loads the 3D
+ * duck for the Play tab after the menu has painted (optional: the image stays).
+ */
+export function bootMenu(load: () => Promise<GameEntry>, hero?: () => Promise<HeroModule>): Menu {
   let entry: Promise<GameEntry> | null = null;
   let hooked = false;
   const get = (): Promise<GameEntry> => {
@@ -51,6 +55,7 @@ export function bootMenu(load: () => Promise<GameEntry>): Menu {
     },
     prefetch: () => void get().catch(() => {}),
     showQuality: true,
+    hero,
   });
   menu.show();
   return menu;

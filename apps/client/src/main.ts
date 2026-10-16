@@ -22,5 +22,9 @@ if (direct) {
     }
   });
 } else {
-  bootMenu(() => import('./play.ts'));
+  // Both are dynamic imports: the menu chunk stays free of Three.js and paints first.
+  bootMenu(
+    () => import('./play.ts'),
+    () => import('./menuHero/index.ts'),
+  );
 }

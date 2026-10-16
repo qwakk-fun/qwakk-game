@@ -68,6 +68,7 @@ qwakk-game/
     src/player/        Duck avatar: clips, procedural layers, hand IK, weapons, the reload's magazine (reloadMag.ts)
     src/world/         Greybox terrain and props; world/sainte: the map_v1 world by map id (instanced props with LODs, terrain, water, sky, plane, zone wall, loot)
     src/ui/menu/       The menu: name and tag, Play, live room lists (battle royale, deathmatch), leaderboard, settings
+    src/menuHero/      The Play tab's 3D duck that aims at the cursor (its own chunk, loaded after the menu paints)
     public/models/     Art from the art workstream (duck, animations, weapons, props, openable crates)
   e2e/two-clients.ts Two real headless browsers in one deathmatch room (map hash, prediction, culling)
   e2e/br-two-clients.ts Two real headless browsers in one battle royale (plane, drop, loot, culling, victory)
@@ -195,6 +196,7 @@ The menu is the first screen at `/game/`. Guests pick a nickname, the server giv
 - `apps/server/src/meta/`: `index.ts` (the contract the rooms use), `service.ts` (sessions, limits, recording, reads), `http.ts` (routes), `token.ts` (HMAC tokens), `names.ts` with `blocked-names.json` (name rules and word filter), `rateLimit.ts`, `ip.ts`, `turnstile.ts`, `score.ts`, `matches.ts`, `leaderboard.ts`, `players.ts`, `migrate.ts`, `config.ts`.
 - `apps/server/db/migrations/`: plain SQL, applied in order at server start.
 - `apps/client/src/ui/menu/`: the menu (pure DOM, no game imports, so it paints before the game bundle loads), `apps/client/src/settings.ts` (saved settings), `apps/client/public/ui/` (menu art).
+- `apps/client/src/menuHero/`: the Play tab's duck in 3D. `public/ui/duck-rifle.webp` paints with the menu and stays as the fallback; after paint, `main.ts` hands the menu a dynamic import of this module (`ui/menu/heroSlot.ts` runs it, so the menu chunk carries no Three.js; it shares the Three.js chunk with the game). It renders `duck.glb` with the rifle in `Rifle_Aim` (legs from `Idle`), framed, shaded and outlined like the image (the art's `hold_rifle_three_quarter` render recipe), and fades in over the image after its first frame. The duck turns its body, head and rifle toward the cursor within natural limits (`AIM` in `aim.ts`, critically damped easing), relaxes back to the image pose when the cursor leaves the window, and gives a small recoil and a quack when clicked. Touch screens get a lazy glance now and then and follow a tap. It stays on the image with reduced motion, data saver, no WebGL2 or a load error. Light: WebGL2 at a pixel ratio of at most 1.5, frames only while something moves, nothing on other tabs or a hidden page, and it frees its renderer, geometry and textures before the game starts (it comes back on the menu after the round).
 
 ### Contract for the game rooms (`apps/server/src/meta/index.ts`)
 

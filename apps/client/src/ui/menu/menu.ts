@@ -7,6 +7,7 @@ import { loadSettings, toGameSettings, type GameSettings } from '../../settings.
 import { ApiError, fetchMe, type MeData } from './api.ts';
 import { COPY, LINKS } from './copy.ts';
 import { asset, h } from './dom.ts';
+import { HeroSlot, type HeroModule } from './heroSlot.ts';
 import { ensureSession, loadIdentity, NAME_RE, rememberName, suggestName } from './identity.ts';
 import { LOBBY_ERROR } from '@qwakk/shared/lobby';
 import { LeaderboardPanel } from './leaderboardPanel.ts';
@@ -47,6 +48,8 @@ export interface MenuHooks {
   prefetch?(): void;
   /** Show the graphics preset (only when the game applies it). */
   showQuality?: boolean;
+  /** Load the 3D duck for the Play tab (src/menuHero); without it the image stays. */
+  hero?(): Promise<HeroModule>;
 }
 
 type Tab = 'play' | 'leaderboard' | 'settings' | 'howto';
@@ -79,6 +82,7 @@ export class Menu {
   private readonly leaderboard = new LeaderboardPanel();
   private readonly settingsPanel: SettingsPanel;
   private readonly rooms: RoomsPanel;
+  private readonly hero: HeroSlot;
   private busy = false;
   private before: MeData | null = null;
   private lastMode: GameMode = 'br';
@@ -193,12 +197,10 @@ export class Menu {
       this.tabs.get(order[j]!)!.button.focus();
     });
 
-    const art = h(
-      'div',
-      { class: 'qm-art', 'aria-hidden': 'true' },
-      h('div', { class: 'qm-art-glow' }),
-      h('img', { src: asset('ui/duck-rifle.webp'), alt: '', width: 800, height: 800, decoding: 'async', fetchpriority: 'high' }),
-    );
+    // The image paints first; the 3D duck that aims at the cursor fades in over it (heroSlot.ts).
+    const duck = h('div', { class: 'qm-art-duck' }, h('img', { src: asset('ui/duck-rifle.webp'), alt: '', width: 800, height: 800, decoding: 'async', fetchpriority: 'high' }));
+    this.hero = new HeroSlot(duck, hooks.hero?.bind(hooks));
+    const art = h('div', { class: 'qm-art', 'aria-hidden': 'true' }, h('div', { class: 'qm-art-glow' }), duck);
 
     this.root = h(
       'div',
@@ -233,12 +235,14 @@ export class Menu {
     if (exit) void this.showResult(exit.reason, exit.summary);
     this.select('play');
     if (!isTouchOnly()) this.playButtons[0]?.focus({ preventScroll: true });
-    if (this.hooks.prefetch) {
-      const warm = this.hooks.prefetch;
-      const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-      if (idle) idle(() => warm(), { timeout: 1500 });
-      else setTimeout(warm, 300);
-    }
+    // After paint: the 3D duck, then the game bundle (they share the Three.js chunk).
+    const later = (): void => {
+      if (!this.root.hidden && !this.busy) this.hero.start();
+      this.hooks.prefetch?.();
+    };
+    const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (idle) idle(later, { timeout: 1500 });
+    else setTimeout(later, 300);
     // Get or refresh the #tag quietly (no Turnstile prompt until Play).
     const id = loadIdentity();
     if (id.deviceToken && NAME_RE.test(this.nameInput.value.trim())) this.commitName(true).catch(() => {});
@@ -246,6 +250,7 @@ export class Menu {
 
   hide(): void {
     this.rooms.stop();
+    this.hero.stop();
     this.root.hidden = true;
     document.body.classList.remove('qm-open');
   }
@@ -258,6 +263,7 @@ export class Menu {
       panel.hidden = !on;
     }
     this.root.dataset.tab = tab;
+    this.hero.setActive(tab === 'play');
     if (tab === 'leaderboard') void this.leaderboard.load();
   }
 
@@ -320,6 +326,7 @@ export class Menu {
         this.setBusy(false);
         this.status.replaceChildren();
         this.nameInput.focus();
+        this.hero.start(); // Play may have beaten the idle start of the 3D duck
         return;
       }
     } catch (err) {
@@ -328,6 +335,7 @@ export class Menu {
       if (!devFallback) {
         this.setBusy(false);
         this.status.replaceChildren();
+        this.hero.start(); // Play may have beaten the idle start of the 3D duck
         return;
       }
     }
@@ -337,12 +345,15 @@ export class Menu {
       void fetchMe(t, 'all').then((me) => (this.before = me), () => {});
     }
     this.setStatus(COPY.loadingGame);
+    // Free the 3D duck's renderer before the game makes its own.
+    this.hero.stop();
     try {
       await this.hooks.start({ mode, ...target, token, name: this.nameInput.value.trim(), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
       this.hide();
     } catch (err) {
       console.error('[menu] start failed', err);
       this.setBusy(false);
+      this.hero.start();
       const code = (err as { code?: number } | null)?.code ?? 0;
       // A deathmatch room never closes: a refused join by id means it is full.
       const known = mode === 'dm' && code === 522 ? 'dm_room_full' : JOIN_ERRORS[code];
