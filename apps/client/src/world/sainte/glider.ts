@@ -5,7 +5,7 @@
 import * as THREE from 'three/webgpu';
 import { toonMaterial, outlineMaterial } from '../../render/materials.ts';
 import { BRAND } from '../../render/palette.ts';
-export { createHelmetMesh, createVestMesh } from './itemMeshes.ts';
+export { createBackpackMesh, createHelmetMesh, createVestMesh } from './itemMeshes.ts';
 
 /**
  * A duck-wing glider: a wide yellow canopy with orange tips and a dark rim,

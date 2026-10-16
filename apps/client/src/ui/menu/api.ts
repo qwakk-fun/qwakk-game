@@ -63,6 +63,20 @@ export function apiBase(): string {
   return `${location.protocol}//${location.hostname}:2567`;
 }
 
+/**
+ * Game server WebSocket endpoint for the lobby (room list): the same default
+ * as the game (config.ts): VITE_GAME_SERVER, else the page host on port 2567;
+ * `?server=` only in dev and test builds.
+ */
+export function gameServer(): string {
+  const env = import.meta.env as Record<string, string | undefined>;
+  if (import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') {
+    const fromUrl = new URLSearchParams(location.search).get('server');
+    if (fromUrl) return fromUrl;
+  }
+  return env.VITE_GAME_SERVER ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:2567`;
+}
+
 async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 8000): Promise<T> {
   let res: Response;
   try {

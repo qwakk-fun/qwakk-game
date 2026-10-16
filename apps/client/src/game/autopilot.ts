@@ -24,6 +24,8 @@ export class Autopilot {
   private goalId: string | null = null;
   private lastPos = { x: 0, z: 0 };
   private readonly skip = new Set<string>();
+  private usePresses = 0;
+  private useId: string | null = null;
 
   /** A straight walk at knee and chest height is free (no wall in the way). */
   private walkable(me: PlayerSim, x: number, z: number): boolean {
@@ -130,7 +132,20 @@ export class Autopilot {
       // Glide on (S brakes when overhead), dive once close.
       return { mx: 0, mz: d < 40 ? 1 : d < 90 ? -0.5 : 0, buttons: 0 };
     }
-    if (v.promptId) return { mx: 0, mz: 0, buttons: toggle ? Button.Use : 0 };
+    // Press E on the prompt's item, unless it does not fit or nothing happens after a few presses
+    // (a crate takes two: open, then take, with the lid in between).
+    if (v.holdOpen) return { mx: 0, mz: 0, buttons: 0 };
+    if (v.promptId && v.promptId !== this.useId) {
+      this.useId = v.promptId;
+      this.usePresses = 0;
+    }
+    if (v.promptId && !this.skip.has(v.promptId)) {
+      if (v.promptBlocked || this.usePresses > 12) this.skip.add(v.promptId);
+      else {
+        if (toggle) this.usePresses++;
+        return { mx: 0, mz: 0, buttons: toggle ? Button.Use : 0 };
+      }
+    }
     // Stuck for a second and a half: give up on that item.
     if (this.t % 45 === 0) {
       if (this.goalId && Math.hypot(me.x - this.lastPos.x, me.z - this.lastPos.z) < 1) this.skip.add(this.goalId);
@@ -138,8 +153,9 @@ export class Autopilot {
     }
     let best: { id: string; x: number; z: number } | null = null;
     let bestD = 40;
-    for (const it of v.items) {
-      if (this.skip.has(it.id)) continue;
+    const focus = v.focus ? v.items.find((it) => it.id === v.focus) : undefined;
+    for (const it of focus ? [focus] : v.items) {
+      if (this.skip.has(it.id) && it !== focus) continue;
       const d = Math.hypot(it.x - me.x, it.z - me.z);
       if (d < bestD && Math.abs(it.y - me.y) < 1.5 && this.walkable(me, it.x, it.z)) {
         best = it;

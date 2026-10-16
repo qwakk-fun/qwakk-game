@@ -25,7 +25,7 @@ const STAGES = ['on foot', 'plane', 'freefall', 'glide'];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], {
   cwd: root,
   stdio: 'ignore',
-  env: { ...process.env, PORT: '2567', QWAKK_BR_WARMUP: '4', QWAKK_BR_SEED: '7', QWAKK_ZONE_SCALE: '0.5' },
+  env: { ...process.env, PORT: '2567', QWAKK_BR_COUNTDOWN: '4', QWAKK_BR_MIN_HUMANS: '1', QWAKK_BR_SEED: '7', QWAKK_ZONE_SCALE: '0.5' },
 });
 const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', '5173', '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
 try {

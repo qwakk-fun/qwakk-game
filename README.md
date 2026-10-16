@@ -20,6 +20,7 @@ qwakk-game/
     src/rng.ts         Seeded RNG and value noise
     src/weapons.ts     Every weapon number: damage, fire rate, ammo, spread, spray patterns
     src/combat.ts      Weapon state machine (fire rate, ammo, reload, switching), stepped with movement
+    src/ads.ts         Aim down sights: the aim ramp, its spread, recoil and speed scaling, the pose action
     src/shot.ts        Hitscan: camera ray finds the aim point, muzzle trace decides (TPS rule)
     src/hitbox.ts      Head sphere and body capsule per stance, analytic ray tests
     src/net/schema.ts  Colyseus Schema 5 state, quantized poses, zone, loot items, input and message ids
@@ -28,7 +29,8 @@ qwakk-game/
     src/maps/          The shipped map files (npm run map:sync copies them from the map workstream)
     src/drop.ts        Freefall and glider (stepped in the sim, predicted)
     src/heal.ts        Bandages and medkits: timed, slow you down, interruptible (in the sim)
-    src/items.ts       Item kinds, loot tables, pickup rules, armor math
+    src/items.ts       Item kinds, loot tables, LOOT, PACK (capacity and weights) and ARMOR numbers, armor math
+    src/inventory.ts   Inventory rules: carrying capacity, pickups and why one is refused, drops, crate contents on the wire
     src/zone.ts        Circle plan (final circle first, from the map's candidates) and timeline
     src/plane.ts       The drop plane's route from the map's flight paths
     test/              Vitest: determinism, movement feel, weapons, hitscan, loot, armor, heals, drop, zone
@@ -58,11 +60,12 @@ qwakk-game/
     src/audio/         Synthesized sounds (WebAudio), 3D for other players
     src/hud/           Game HUD, battle royale HUD (hud/br: minimap, map, inventory, results) and the debug HUD
     src/camera/        Over-the-shoulder spring-arm camera, recoil kick, shake, death camera
-    src/player/        Duck avatar: clips, procedural layers, hand IK, weapons
+    src/player/        Duck avatar: clips, procedural layers, hand IK, weapons, the reload's magazine (reloadMag.ts)
     src/world/         Greybox terrain and props; world/sainte: the Sainte-Canard world (instanced props with LODs, terrain, water, sky, plane, zone wall, loot)
-    public/models/     Art from the art workstream (duck, animations, weapons)
+    public/models/     Art from the art workstream (duck, animations, weapons, props, openable crates)
   e2e/two-clients.ts Two real headless browsers in one deathmatch room
   e2e/br-two-clients.ts Two real headless browsers in one battle royale (plane, drop, loot, culling, victory)
+  e2e/br-lobby.ts    Lobby rooms: Chrome joins a room from the menu's live list, two Node players, countdown, bot fill
   e2e/br-perf.ts     Frame time and draw calls in a full battle royale (one browser, 15 bots)
   e2e/map-perf.ts    Frame time and draw calls of the map alone (dev map viewer, mapview.html)
   e2e/pause-resume.ts Node client: input pauses and network stalls, must recover within 1 s
@@ -87,7 +90,7 @@ npm run dev          # game server on :2567 and client on http://localhost:5173/
 
 Open http://localhost:5173/game/: the menu starts a battle royale or a deathmatch. In dev you can skip the menu with `?mode=br` or `?mode=dm`.
 
-- **Battle royale** (`br` room, up to 16 humans): joinOrCreate puts you in a warm-up on the village square (45 s, 15 s once 8 humans are in; damage off). Then the room locks, bots fill the seats to 16 ducks and everyone boards the plane. Jump with F over land (or be thrown out before the coast), fall, open the glider (Space or F, or it opens by itself 45 m above the ground), glide about 3 m forward per meter down (W dives, S brakes), land, loot, survive the zone. The last duck standing wins; dead ducks watch their killer or any duck still alive.
+- **Battle royale** (`br` rooms, up to 16 humans each): the menu lists every room live (name, ducks in, waiting / countdown / in progress). Join one, create one, or Quick Play (the open room with the most players, or a new one). You wait on the village square (damage off) with the room's roster on screen. Once 3 humans are in, a 30 s countdown starts (10 s when the room is full of humans); if they drop below 3 it goes back to waiting. When it ends, the room locks, bots fill the seats to 16 ducks and everyone boards the plane. Jump with F over land (or be thrown out before the coast), fall, open the glider (Space or F, or it opens by itself 45 m above the ground), glide about 3 m forward per meter down (W dives, S brakes), land, loot, survive the zone. The last duck standing wins; dead ducks watch their killer or any duck still alive.
 - **Deathmatch** (`island` room): bots fill the room up to 8 ducks; every human who joins replaces a bot. First to 25 kills or the most kills after 5 minutes wins the round, then a new round starts after 8 seconds. Played on the greybox island (kept: simpler, and the Phase 1 tests and benchmark stay comparable).
 
 | Key | Action |
@@ -99,16 +102,18 @@ Open http://localhost:5173/game/: the menu starts a battle royale or a deathmatc
 | C | Crouch (hold) |
 | Space | Jump |
 | Left mouse | Shoot (rifle: hold for full auto; pistol: one shot per click) |
+| Right mouse (hold) | Aim down sights: the camera moves in over the shoulder and zooms, tighter spread, less recoil and shake, slower moves, no sprint |
 | R | Reload (a trigger pull with rounds left cancels it) |
 | 1 / 2 / mouse wheel | Rifle / pistol (switching cancels a reload) |
-| E | Pick up (the item in front of you, shown in the prompt) |
+| E | Pick up the item in front of you (shown in the prompt). On a closed crate: open it; on an open crate: take everything that fits |
+| I | Inventory screen (battle royale): drop items, take single items from a crate or the ground. The mouse is free while it is open, W A S D still move; I, Esc or a click outside closes it |
 | F | Jump out of the plane; open the glider |
 | 4 / 5 | Bandage / medkit |
 | M | Full-screen map |
 | Tab | Scoreboard (battle royale: your gear and every duck) |
 | Click while dead | Watch the next duck (battle royale) |
 | V | Swap shoulder |
-| - / = | Mouse sensitivity (saved in the browser) |
+| - / = | Mouse sensitivity (saved in the browser; the menu also has an aiming sensitivity, a multiplier while aiming down sights) |
 | H | Toggle the debug HUD |
 | N / J / L | Fake network: cycle latency (0, 60, 120, 150, 250 ms), toggle jitter, toggle 2% loss |
 
@@ -159,11 +164,12 @@ npm run build        # typecheck, then the client production build in apps/clien
 npm run build:test   # the same client with dev tools, for the browser tests (apps/client/dist-test)
 npm run e2e          # two headless Chrome clients in a deathmatch, then in a battle royale (build:test first)
 npm run e2e:br -- DIR # only the battle royale e2e; saves its screenshots to DIR
+npm run e2e:lobby -- DIR # lobby rooms: room list, join from the list, countdown, bot fill; screenshots to DIR
 npm run test:net     # pause and stall recovery against the real server
 npm run test:br      # headless 16-bot battle royale (server workspace)
 npm run bench        # server benchmark at 8, 16 and 32 bots (npm run bench -- 4 64 for other counts)
 npm run bench:br     # battle royale benchmark: network clients plus bots, bandwidth, CPU, culling
-npm run shots -- DIR # screenshots of a deathmatch firefight (build:test first)
+npm run shots -- DIR # screenshots of a deathmatch firefight, then hip vs aim down sights and the reloads (two ducks in a battle royale warm-up; build:test first)
 npm run perf:br -- DIR # battle royale frame time, CPU per frame and draw calls in headless Chrome
 npm run perf:map -- DIR # the map alone in the dev map viewer
 npm run map:sync     # copy the map workstream's export into packages/shared/src/maps
@@ -171,7 +177,7 @@ npm run map:sync     # copy the map workstream's export into packages/shared/src
 
 The two e2e scripts use ports 2567 and 5173 by default. While `npm run dev` holds them, run them on others: `E2E_SERVER_PORT=2589 E2E_WEB_PORT=5189 npm run e2e`.
 
-Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 8), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_WARMUP` (battle royale warm-up seconds), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder).
+Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 8), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder).
 
 ## Meta: identity, leaderboard, menu
 
@@ -189,6 +195,8 @@ The menu is the first screen at `/game/`. Guests pick a nickname, the server giv
 | --- | --- |
 | `verifySession(token)` | `{ playerId, name, tag }` for a valid session token, else `null`. No token: a random guest in dev, `null` when `NODE_ENV=production` |
 | `allowJoin(ip)` | Per-IP join limit: a burst of 10, then one join every 4 s (IPv6 counted per /64). Loopback is exempt outside production, for the benchmark and e2e |
+| `allowCreateRoom(ip)` | Per-IP limit on new game rooms (`create`, or a Quick Play that has to open one): a burst of 3, then one a minute. Checked by the matchmaking guard (`apps/server/src/matchmaking.ts`), which also caps open battle royale rooms at `BR.maxRooms` (20) and drops every join option except `name`, `token`, `spectate`. Loopback exempt outside production |
+| `allowLobby(ip)` | Per-IP limit on lobby (room list) connections: a burst of 20, then one every 3 s. Loopback exempt outside production |
 | `joinIp(context)` | The client IP from a Colyseus `AuthContext`. Colyseus fills `context.ip` from client-controlled headers, so `guardJoinIps(httpServer)` (installed in `index.ts`) rewrites `X-Real-IP` on every upgrade first: the socket address, or with `TRUST_PROXY` the entry our proxy appended to `X-Forwarded-For` |
 | `recordMatch(result)` | Writes a finished match. No-op without `DATABASE_URL`, never throws, yields before any work so the tick is not held up, ignores a repeated `matchId`, queues up to 200 results while the database is down. Optional per-player `deaths` (default: royale 1 unless the player won, deathmatch 0; pass it for deathmatch so K/D is right) |
 
@@ -251,11 +259,12 @@ It seeds a throwaway database, checks render, the name filter message, the leade
 
 | Stage | What happens |
 | --- | --- |
-| Warm-up | joinOrCreate on the `br` room. 45 s from the first human (15 s once 8 humans are in), on the village square, both guns, damage off |
+| Lobby | The menu's room list comes from the `lobby` room (Colyseus' built-in LobbyRoom with realtime listing on `br`, `apps/server/src/lobby.ts`). Each room's metadata is public: label, stage, humans, capacity, humans still needed, countdown seconds. Join by id, create, or Quick Play (joinOrCreate, most players first). Rooms in progress are listed but locked |
+| Waiting | On the village square, both guns, damage off, the room's roster (name#tag) and "waiting for N more" on screen. The countdown (`BR.countdownSeconds`, 30 s) starts once `BR.minHumans` (3) humans are in and resets when they drop below it; more humans can join during it, up to 16 (a full room starts in `BR.fullCountdownSeconds`, 10 s). Joins close 2 s before the end |
 | Lock | The room locks, bots fill to 16, loot is rolled, the zone is planned, everyone boards the plane with no gear |
 | Plane | One of the map's 8 flight paths (match seed mod 8), 180 m up at 55 m/s. F jumps (only over land); everyone still aboard is ejected 70 m before the last land point |
 | Drop | Freefall (32 m/s down, W dives to 46 m/s, 10 m/s steering), then the glider: Space or F, or by itself 45 m above the terrain. Gliding: 13 m/s forward, 4.3 m/s down (about 1:3); W dives (19 / 7.5), S brakes (6 / 3) |
-| Loot | 618 loot points: each floor point holds an item 70% of the time, crates always; tables by tier (1 to 4), better in hot zones and upstairs; every gun comes with an ammo stack |
+| Loot | 634 loot points: each floor point holds an item 70% of the time; every crate on the map (149 today: small crates 2 items, large crates 3 one tier better, ammo boxes 2 ammo stacks) is always filled and starts closed; tables by tier (1 to 4), better in hot zones and upstairs; every gun comes with an ammo stack (next to it, or in the same crate) |
 | Zone | 7 phases (table below), final circle picked first from the map's weighted candidates, then grown outward so every circle contains the next and keeps at least 70% land |
 | End | The last duck standing wins; every duck gets a place (a duck that leaves mid-match is out with the place it had then; a winner who leaves the results screen stays the winner). Results go to the leaderboard through `recordMatch`, also when the last human leaves before the end (the room records the match as it stands). One identity holds at most one seat per room. The room closes 20 s later |
 
@@ -269,26 +278,53 @@ It seeds a throwaway database, checks render, the name filter message, the leade
 | 5 | 30 | 25 | 30 | 11 |
 | 6 | 20 | 20 | 0 | 18 |
 
-All of it is in `constants.ts` (`BR`, `DROP`, `HEAL`, `ZONE`, `VIS`, `WATER`) and `items.ts` (`LOOT`, `ARMOR`, loot tables).
+All of it is in `constants.ts` (`BR`, `DROP`, `HEAL`, `ZONE`, `VIS`, `WATER`) and `items.ts` (`LOOT`, `PACK`, `ARMOR`, loot tables).
 
 ### Items
 
 | Item | Rule |
 | --- | --- |
 | Rifle, pistol | One slot each (1 and 2). The first one comes with a full magazine and is equipped if you are unarmed; a gun you already have becomes reserve ammo |
-| Rifle ammo (30), pistol ammo (24) | Up to 180 rifle and 96 pistol rounds in reserve; what does not fit stays on the ground |
+| Rifle ammo (30), pistol ammo (24) | Up to 180 rifle and 96 pistol rounds in reserve, as far as the backpack holds them; what does not fit stays on the ground |
 | Vest level 1 / 2 | 30% / 40% less body damage, 100 / 150 durability; each hit wears 0.75 per point of raw damage; taken only as an upgrade |
 | Helmet level 1 / 2 | 30% / 40% less head damage, 80 / 120 durability |
-| Bandage | 4 s, +15 health up to 75; up to 10 |
+| Bandage | 4 s, +15 health up to 75; up to 10 (backpack permitting) |
 | Medkit | 7 s, full health; up to 3 |
+| Backpack level 1 / 2 / 3 | Carrying capacity 90 / 130 / 170 (50 without one); taken only as an upgrade, drawn on the duck's back |
 
-Heals slow you to 2.2 m/s and stop when you fire, reload, switch or jump (the item is kept). A dead duck drops a crate with its guns (with the rounds still in them), reserve ammo, armor (with its durability) and heals; E on the crate takes everything that fits. Nothing is created on the way.
+Heals slow you to 2.2 m/s and stop when you fire, reload, switch or jump (the item is kept). A dead duck drops a crate with its guns (with the rounds still in them), reserve ammo, armor (with its durability), backpack and heals; E on the crate takes everything that fits. Nothing is created on the way.
 
-Pickups are server decisions: E is an input button, and the server checks reach (2.6 m from the chest) and line of sight before it moves anything into the inventory. Inventory, ammo, armor durability and health are owner-only (`.view()`); other players only see the armor levels (drawn on the duck), the held gun and the glider.
+#### Inventory and carrying capacity
+
+PUBG-style weight: ammo and heals go into the backpack and weigh something, the two guns (slots 1 and 2), worn armor and the backpack itself weigh nothing. Numbers in `items.ts` (`PACK`, `LOOT`), rules in `inventory.ts`.
+
+| Item | Weight per unit | A full stack weighs | Cap per kind |
+| --- | --- | --- | --- |
+| Rifle ammo | 0.5 | 15 (30 rounds) | 180 |
+| Pistol ammo | 0.25 | 6 (24 rounds) | 96 |
+| Bandage | 2 | 4 (2) | 10 |
+| Medkit | 6 | 6 (1) | 3 |
+
+| Backpack | Capacity | Holds for example |
+| --- | --- | --- |
+| None | 50 | 60 rifle rounds, 24 pistol rounds, 4 bandages, 1 medkit (50) |
+| Level 1 | 90 | |
+| Level 2 | 130 | |
+| Level 3 | 170 | everything up to the caps (152) |
+
+- A pickup takes what fits: part of an ammo stack can be taken and the rest stays. Nothing fits: the item stays and the HUD says why (backpack full, carrying the max of it, your armor or backpack is as good or better). The prompt already says it before you press E, and an open crate's panel marks what does not fit.
+- A better vest, helmet or backpack replaces the worn one, which drops at your feet with its durability. A second gun of a kind you own adds its magazine to your reserve, as far as it fits.
+- The inventory screen (I) drops a stack (one magazine's worth or all of it, one heal or all), a gun (with the rounds in its magazine; you switch to the other gun), an armor piece (with its durability) or the backpack (only when what you carry fits without it). Dropped items land in front of you for anyone to take. It also lists what is in reach (open crates and items on the ground) with a Take button each.
+
+#### Crates
+
+Every small crate, large crate and ammo box on the map is a closed crate at match start. E on a closed crate opens it: the lid swings up for everyone who sees the crate, the loot lies inside on a straw bed, and after the lid is up (0.3 s, `LOOT.crateOpenTicks`) E takes everything that fits, or the inventory screen takes single items. An opened crate stays open, also when it is empty. The client draws these crates itself (`world/sainte/crates.ts`, model `models/crates/crates.glb` from `art/map/blender/crates_open.py`, greybox until it loads) in place of the static crate props at each container loot point; the static props keep their colliders, so the map data and hash are unchanged.
+
+Pickups are server decisions: E is an input button, and the server checks reach (2.6 m from the chest) and line of sight before it opens a crate or moves anything into the inventory. The inventory screen's buttons are requests too (`Msg.Inv`): the server applies the same reach, sight and inventory rules, at most 8 per second per duck, and only to a living duck on the ground in a running match. Inventory, ammo, armor durability and health are owner-only (`.view()`); other players only see the armor and backpack levels (drawn on the duck), the held gun and the glider.
 
 ### The map: Sainte-Canard
 
-The map workstream exports `map_v1` (format v2) to `art/map/export/` and the prop kit to `apps/client/public/models/props/`. `npm run map:sync` copies `map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` and `colliders.json` into `packages/shared/src/maps/sainte-canard/`: the server reads them from there and the client bundles the same files, so both build the same 6,702 colliders. `npm test` fails when the copy is stale. The room sends the map id and a hash of the three files the sim uses; a client with different files refuses to play.
+The map workstream exports `map_v1` (format v2) to `art/map/export/` and the prop kit to `apps/client/public/models/props/`. `npm run map:sync` copies `map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` and `colliders.json` into `packages/shared/src/maps/sainte-canard/`: the server reads them from there and the client bundles the same files, so both build the same 6,137 colliders. `npm test` fails when the copy is stale. `apps/server/test/houses.test.ts` walks a sim duck through every placed house (doors, stairs, the ruin's debris ramp, upper floors), running and crouched, along the `walk` paths in the prop manifest. The room sends the map id and a hash of the three files the sim uses; a client with different files refuses to play.
 
 Collider kinds follow the map's table: `wire` and `fence` block movement only, `hedge` blocks movement and sight but not bullets, `foliage` (bushes) only hides. The river and the shallow sea slow you down (70% when the water is over 25 cm, 45% over 1 m).
 
@@ -296,7 +332,7 @@ The client draws the props as instanced meshes per prop type and LOD level, refi
 
 ### Anti-wallhack
 
-The server sends an enemy's pose only when the viewer could plausibly see it: within 10 m always, otherwise within 320 m and with a clear line through opaque geometry from the viewer's eye or either camera shoulder to the target's head, chest, feet or sides (a 0.6 m margin), tested every 3 ticks, also at the positions both will have 150 ms plus half a round trip later (so a duck coming round a corner is already there), and kept for 1 s after it was last visible. A hidden enemy is removed from the client's state, so the client has nothing to reveal. Shots from a duck you cannot see arrive as a direction and a loudness only (for the sound); kill messages carry the victim's position only to viewers who saw it; damage indicators carry a direction, never the attacker's position. A duck's movement mode (plane, freefall, glider) and action (reload, heal) ride on its pose entry, so they are culled with it. Loot is sent within 100 m and only once its spot is in sight (or within 10 m): a death crate behind a wall shows up when you see it, and an item taken behind a wall stays as a stale copy until you see that spot again (pressing E on it does nothing, the server decides pickups on its own list).
+The server sends an enemy's pose only when the viewer could plausibly see it: within 10 m always, otherwise within 320 m and with a clear line through opaque geometry from the viewer's eye or either camera shoulder to the target's head, chest, feet or sides (a 0.6 m margin), tested every 3 ticks, also at the positions both will have 150 ms plus half a round trip later (so a duck coming round a corner is already there), and kept for 1 s after it was last visible. A hidden enemy is removed from the client's state, so the client has nothing to reveal. Shots from a duck you cannot see arrive as a direction and a loudness only (for the sound); kill messages carry the victim's position only to viewers who saw it; damage indicators carry a direction, never the attacker's position. A duck's movement mode (plane, freefall, glider) and action (reload, heal) ride on its pose entry, so they are culled with it. Loot is sent within 100 m and only once its spot is in sight (or within 10 m): a death crate behind a wall shows up when you see it, and an item taken behind a wall stays as a stale copy until you see that spot again (pressing E on it does nothing, the server decides pickups on its own list). Crates work the same way: a crate opened behind a wall stays closed for you until you see it again, and a closed crate's contents are never sent to anyone.
 
 ### Bots
 
@@ -304,7 +340,7 @@ Battle royale bots run on a tiled recast navmesh built from the map colliders (`
 
 ## How the netcode works
 
-- The client sends inputs only: move axes, buttons (including fire, reload, weapon slot and shoulder side), yaw, pitch, its tick estimate and the server time it is drawing other players at (`vt`, the rewind target). Colyseus numbers them (`room.input()`), the server acks them.
+- The client sends inputs only: move axes, buttons (including fire, reload, weapon slot, shoulder side and aim down sights), yaw, pitch, its tick estimate and the server time it is drawing other players at (`vt`, the rewind target). Colyseus numbers them (`room.input()`), the server acks them.
 - The server owns position and velocity. Every input is sanitized (`sanitizeInputFields`: NaN, ranges, diagonal speed, unknown buttons, angles), turn rate is capped, the input buffer is capped (10), and an input credit (one per tick, burst of 8, spent by every simulated step) means a client can never run faster than the tick rate. WebSocket frames are capped at 1 KB and a client may send at most 300 messages per second, enough for the backlog after a stall of several seconds (inputs are one message per tick).
 - The server runs at 30 Hz on its own loop with exact tick deadlines (`tickLoop.ts`) and sends one state patch right after each tick.
 - The local player is predicted with the Colyseus 0.18 `Reconciler`: each input is simulated immediately with the shared sim, then checked against the server state when its ack arrives. The sim is bit-for-bit deterministic between Node and the browser (states are float32 on both sides, deterministic trig, inputs rounded to float32 before stepping), so in normal play the prediction never needs correcting. When a correction is needed, it is blended out over about 70 ms.
@@ -341,6 +377,23 @@ All in `packages/shared/src/weapons.ts`. Spread values are the cone radius.
 | Moving / airborne adds | up to 4.5 / 9 degrees | up to 2.6 / 6 degrees |
 | Spray | 30-shot learnable pattern: up first, then left, right, left; plus 0.12 degrees per shot (cap 1.6) | small climb, 0.25 degrees per shot (cap 1.2) |
 | Recoil reset | 0.6 pattern steps per tick after the gun is ready | 0.35 steps per tick |
+
+### Aim down sights
+
+Holding the right mouse button sets the `Aim` input bit. The sim ramps `aim` up by one tick per tick to 6 (200 ms) while the duck is armed, not reloading and not healing, and down by 2 per tick on release (100 ms out), so a one-tick flick buys almost nothing. Everything scales with that ramp, on the client and the server alike (`ADS` in `constants.ts`):
+
+| At full aim | Value |
+| --- | --- |
+| Base spread (standing, crouched) | x0.5 (rifle 0.10 degrees standing) |
+| Moving penalty | x0.6 |
+| Spray bloom | x0.6 |
+| Airborne penalty | unchanged |
+| Spray pattern (recoil) | x0.65, carried on the shot (`ShotFired.recoil`) so the server traces the same pattern |
+| Move speed | 3.0 m/s cap, no sprint |
+| Camera | arm 3.1 to 2.0 m along the same shoulder line, zoom x1.5 (rifle) or x1.25 (pistol), view kick x0.55, screen shake x0.5, edge vignette |
+| Look speed | the aiming sensitivity setting (default 0.8 of the normal speed) |
+
+Starting a reload drops the aim. Other players see the raised aim pose (pose action 4).
 
 Movement below 34% of run speed adds no inaccuracy, which a counter-strafe reaches in 2 ticks. Firing stops sprinting. A trigger pull on an empty magazine starts the reload. Spawn protection lasts 1.5 s or until you fire (no predicted hit markers on protected ducks or during the round break); respawn takes 3 s, at the arena spawn point farthest from living enemies, and the camera turns to the spawn facing.
 
@@ -391,17 +444,20 @@ Down bandwidth per client, before and after interest management:
 
 Measured on an Apple M4 Pro, Node 24.12, headless Chrome (WebGPU) at 1280x720. Headless Chrome is vsync capped at 60 fps, so every frame time below is 16.7 ms; the CPU time of our own frame (input, sim, scene update and render submit) is the useful number.
 
-Two browsers in one battle royale (`npm run e2e:br`, no bots): map hash `8b3549ce` with 6,702 colliders and the sim scenario on the map are identical in Node and Chrome; neither client gets the other's pose while in the plane; both jump, glide to the village, land, see each other, pick up 1 to 4 items; when B leaves, A gets the victory card.
+Two browsers in one battle royale (`npm run e2e:br`, no bots): map hash `2dc8f2ec` with 6,137 colliders and the sim scenario on the map are identical in Node and Chrome; neither client gets the other's pose while in the plane; both jump, glide to the village, land, see each other, pick up 1 to 4 items; when B leaves, A gets the victory card.
+
+Lobby rooms (`npm run e2e:lobby`, bots on, 10 s countdown): a Node player creates a room and the lobby lists it as waiting for 2 more; Chrome sees it in the menu's live list (1/16, needs 2 more) and joins from there; the waiting room shows the roster and "Waiting for 1 more duck"; a second Node player picks the room from the lobby list and joins, the countdown starts (listed and shown in game); when it ends, 13 bots fill the seats, the match starts with 3 humans, the room is listed as in progress and a late join by id is refused.
 
 A full match in the browser (`npm run perf:br`: one autopilot client aimed at the village, 15 navmesh bots, the client was knocked out on foot and then watched):
 
 | Stage | CPU per frame avg / p95 (ms) | Draw calls avg / max | Triangles avg / max | Enemy ducks drawn avg / max |
 | --- | --- | --- | --- | --- |
-| Plane | 2.33 / 4.80 | 96 / 102 | 118k / 167k | 0.3 / 2 |
-| Freefall | 2.48 / 4.80 | 119 / 126 | 162k / 177k | 5.8 / 8 |
-| Glide | 3.01 / 5.90 | 157 / 172 | 241k / 280k | 10.6 / 11 |
-| On foot | 2.98 / 3.90 | 119 / 156 | 197k / 300k | 8.4 / 10 |
-| Watching (dead) | 2.76 / 5.90 | 114 / 145 | 196k / 302k | 6.8 / 9 |
+| Plane | 1.55 / 1.80 | 92 / 99 | 108k / 110k | 0.0 / 0 |
+| Freefall | 1.90 / 2.70 | 124 / 142 | 164k / 208k | 6.0 / 10 |
+| Glide | 2.33 / 2.70 | 151 / 156 | 219k / 258k | 11.8 / 12 |
+| On foot | 2.03 / 3.00 | 118 / 147 | 217k / 264k | 4.3 / 12 |
+
+Measured after the detailed houses landed (27 houses with full interiors instead of 37 plain ones; the duck survived this run, so there is no watching stage). The same run before the change on the same machine: on foot 1.81 / 6.50 ms, 110 / 148 calls, 147k / 216k triangles; glide 1.99 / 2.30 ms, 135 / 141 calls, 183k / 218k triangles. `npm run perf:map` (16 ducks in the square) before and after: street 215 / 319 to 216 / 320 calls, 377k / 611k to 400k / 640k triangles, CPU 3.27 to 2.68 ms; church square turn 230 to 231 calls, 392k to 415k triangles. Draw calls do not change (same prop types, instanced per type and LOD); the houses add about 5 percent triangles inside 60 m.
 
 The map alone (`npm run perf:map`, no ducks) draws 83 to 117 calls and 104k to 159k triangles at 1.4 to 2.0 ms CPU per frame; the rest is ducks (about 9k triangles and 3 to 7 calls each near the camera). The glide over the village with ten gliders in view is the heaviest moment, a little over the 150-call target.
 
@@ -424,7 +480,9 @@ Server benchmark (`npm run bench:br`: 4 network clients plus 12 bots, 60 s after
 
 | Clients + bots | Tick avg / p95 / max (ms) | Patch avg / p95 (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Up per client (KB/s) | Enemy poses received / enemies in the world | Visibility pairs / rays per second |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 4 + 12 | 1.908 / 6.032 / 7.10 | 0.146 / 0.401 | 8.1 | 364 | 1.63 | 0.56 | 3.3 / 11.1 | 584 / 3162 |
+| 4 + 12 | 1.323 / 6.144 / 9.03 | 0.114 / 0.352 | 5.8 | 151 | 2.05 | 0.57 | 8.7 / 8.9 | 578 / 5409 |
+
+The row above is after the detailed houses (6,137 colliders instead of 6,702). The same benchmark just before the change on the same machine: 2.205 / 5.417 / 7.44 ms tick, 9.1 percent CPU, 1.73 KB/s down, 2.4 / 10.0 poses, 600 / 3,696 visibility pairs and rays per second. Bench runs vary with how the bots meet: this run's ducks fought in the open more (8.7 of 8.9 enemies in sight on average), hence more poses and rays.
 
 With the culling a client receives on average 3.3 of the 11 enemies alive, so a 16-duck battle royale costs 1.6 KB/s down per client (the deathmatch with 16 players: 5.6 KB/s). The visibility checks cost about 3,200 ray casts per second (about 2 microseconds each on this map).
 
@@ -442,14 +500,18 @@ All in `packages/shared/src/constants.ts` (`MOVE`, `BODY`, `NET`) and `apps/clie
 | Step height, max slope | 0.45 m, 46 degrees |
 | Capsule | 1.75 m standing, 1.15 m crouched, radius 0.35 m |
 | Camera | arm 3.1 m, shoulder 0.75 m right and 0.32 m up, FOV 75 (81 sprinting), mouse look applied every frame |
+| Aim down sights | `ADS` in `constants.ts` (ramp, spread, recoil, speed), arm, zoom, kick and shake in `CAMERA` (see Weapons) |
 
 ## Art and animation
 
 The art workstream (`art/`) publishes into `apps/client/public/models/`; the game picks the files up when they exist and falls back to greybox otherwise (`?duck=placeholder` forces the primitive duck):
 
 - `duck.glb`: skinned toon duck, used at its authored size (meters), turned to face -z. It gets the art's toon recipe in the engine: two-band toon shading with the shadow tint `#d9a6a0`, and a 7.5 mm inverted-hull outline in `#151619` that follows the skinning.
-- `duck_anims.glb`: the clips. Locomotion clips drive the hips and legs (8-way blend of walk and run by the direction of travel, sprint, crouch, jump, fall, land) with `timeScale = speed / authored speed`. The upper body (Spine and everything below it) plays `Rifle_Aim` or `Pistol_Aim`, or the reload or `Equip` while they run. `Death_A` or `Death_B` take over the whole body. `Quack` opens the bill on a kill. Then procedural layers: spine, neck and head follow the camera pitch, a recoil kick on each shot, and two-bone IK puts the left hand on the gun's `Support` node.
+- `duck_anims.glb`: the clips. Locomotion clips drive the hips and legs (8-way blend of walk and run by the direction of travel, sprint, crouch, jump, fall, land) with `timeScale = speed / authored speed`. The upper body (Spine and everything below it) plays `Rifle_Aim` or `Pistol_Aim` blended into `Rifle_ADS` or `Pistol_ADS` by the aim (the local camera's aim blend, or pose action 4 for others), or the reload or `Equip` while they run. The reload clips are as long as the server's reloads (rifle 2.3 s, pistol 1.6 s) and are stretched to them anyway; they start on the reload action (predicted for the local duck, from the pose for others). `Death_A` or `Death_B` take over the whole body. `Quack` opens the bill on a kill. Then procedural layers: spine, neck and head follow the camera pitch, a recoil kick on each shot, and two-bone IK puts the left hand on the gun's `Support` node.
 - `weapons/rifle.glb`, `weapons/pistol.glb`, `weapons/attach.json`: the gun rides the `RightHand` bone at the attach pose; tracers and flashes start at its `Muzzle` node. Guns get toon shading but no outline hull (hard edges would crack it).
+- Reloads move a real magazine: the gun's `Mag` child node. `attach.json` `reload.rifle` and `reload.pistol` give the clip's timeline in seconds (`out`: the magazine leaves the gun, into the left hand for the rifle, falling free for the pistol; `drop`: the old one leaves the hand and falls; `fresh`: a new one appears in the left hand at the hip pouch; `in`: it is seated) and the magazine's pose in the `LeftHand` joint (`magInHand`). `reloadMag.ts` re-parents the node at those moments (keeping its world pose, then easing into place), drops a toon copy that falls, lands at the duck's feet and shrinks away, and the clicks play on the events. Guns without a `Mag` node or a timeline reload without it. While the reload clip runs, the left-hand IK eases off so the clip's hand reaches the magazine.
+
+- `crates/crates.glb` (`art/map/blender/crates_open.py`, uncompressed): the openable loot crates, nodes `small_body`, `large_body`, `ammo_body` (open top, a straw bed inside) each with a `<variant>_lid` child whose translation is the hinge at the back top edge (glTF -z side); the game swings the lid around its local X. Sizes and colors match the `crate_small`, `crate_large` and `ammo_box` props, whose colliders stay in the map.
 
 Without clips, a procedural pose takes over (leg swing, crouch, both hands on the gun by IK). Every sound is synthesized in code (`LICENSES.md`).
 
@@ -458,7 +520,8 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 - Player collision is server-only (see above), so bumping into another duck gives a small correction.
 - Deathmatch bots navigate by steering and ray casts, not a navmesh; they can get stuck on complex geometry for a moment (they pick a new goal after a second). Battle royale bots use the navmesh; on a cold cache (first start after a map change) they steer directly for about a minute while it builds.
 - Battle royale bots do not use vertical cover on purpose and can bump into each other while looting. Matches with 16 bots last 5 to 9 minutes, a little short of the 8 to 12 minute plan, because many fights happen right after landing.
-- Loot crates on the map are not opened: their items lie on top of them, ready to pick up (simpler and faster to loot).
+- A crate that was opened while you could not see it swings open when you next see it (the client cannot tell an old opening from a new one without learning when it happened).
+- The inventory screen has no drag and drop; every action is a button.
 - The anti-wallhack culling has no field-of-view test (a fast 180 degree turn would show pop-in), and a duck you cannot see can still be heard (direction only). Bushes do not count as walls for the culling (a duck in a bush is sent; it is hidden by the bush itself).
 - LOD switches on props are hard cuts; far hedgerows look chunky from the plane.
 - The zone timer text for the first circle uses the default timings (wrong when `QWAKK_ZONE_SCALE` is set for tests).
@@ -469,5 +532,6 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 - After a pause longer than about 0.2 s (a hidden tab), the server's stand-in steps differ from what the client predicted, so the duck gets one smoothed correction on return.
 - The client bundle is about 2 MB gzip, mostly Rapier (its WASM is inlined as base64 in the compat build) and Three.js.
 - Rapier's character controller sometimes refuses to move off the ground it rests on; the sim retries from 4 mm up (see `sim.ts`), which fixed every case seen in a 12,000-step scan.
+- Rapier's autostep does not fire at walking or crouching speed on 0.27 m stair treads, and the wall clip in `moveCapsule` used to treat climbing a slope as a wall hit (with stop-speed friction a walking duck went up a 36 degree ramp at 0.2 m/s, a crouched one at 0.1). The clip now skips steps where the controller lifts a grounded duck, and house stairs use one ramp collider per flight under the visual steps: 4 m of stairs take 1.3 s sprinting, 1.7 s running, 3.7 s walking, 4.3 s crouched (`sim.test.ts`, `houses.test.ts`).
 - No touch controls yet.
 - The deathmatch stays on the greybox island; it does not use Sainte-Canard yet.

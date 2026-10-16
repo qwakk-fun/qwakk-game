@@ -46,6 +46,8 @@ export function simSelfTestHashOn(map: MapDef, ticks = 600): string {
       frame.mx = rng() * 2 - 1;
       frame.mz = rng() * 2 - 1;
       frame.buttons = rng() < 0.1 ? Button.Jump : rng() < 0.3 ? Button.Sprint : 0;
+      // Aim down sights in runs (slower moves, ramp state), so the scenario covers it too.
+      if (t % 90 < 40) frame.buttons |= Button.Aim;
       frame.yaw = p.yaw + (rng() - 0.5) * 0.2;
       frame.pitch = 0;
       sanitizeInputFields(frame);

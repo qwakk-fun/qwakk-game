@@ -10,6 +10,7 @@
 import { Room, ServerError, type AuthContext, type Client } from '@colyseus/core';
 import { StateView } from '@colyseus/schema';
 import {
+  actionOf,
   Button,
   createSimWorld,
   hasWeapon,
@@ -68,6 +69,8 @@ export interface JoinOptions {
 export interface JoinAuth {
   playerId: string | null;
   name: string;
+  /** Guest #tag (shown in the waiting room and lists). */
+  tag: string;
   /** True when the identity came from a session token (its name wins over the join options). */
   signed: boolean;
 }
@@ -176,7 +179,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
       }
       this.seatedIds.set(who.playerId, { sessionId: client.sessionId, at: Date.now() });
     }
-    return { playerId: who.playerId, name: who.name, signed };
+    return { playerId: who.playerId, name: who.name, tag: who.tag, signed };
   }
 
   /** Signed identities holding (or about to take) a seat here: playerId to session. */
@@ -312,6 +315,8 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
       const pose = new Pose();
       const farPose = new Pose();
       state.name = seat.name;
+      const auth = seat.bot ? undefined : this.auths.get(id);
+      state.tag = auth?.signed ? auth.tag : '';
       state.pid = seat.pid;
       state.bot = seat.bot !== null;
       this.state.players.set(id, state);
@@ -442,7 +447,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     const armed = hasWeapon(sim, sim.weapon) ? 1 : 0;
     if (st.armed !== armed) st.armed = armed;
     this.writeSeatExtras(seat, st);
-    const act = sim.reload > 0 ? 1 : sim.equip > 0 ? 2 : sim.heal > 0 ? 3 : 0;
+    const act = actionOf(sim);
     writePose(ns.pose, sim, act);
     if (writeFar) writePose(ns.farPose, sim, act);
   }

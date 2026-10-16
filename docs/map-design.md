@@ -16,7 +16,7 @@ The real battle royale map for Phase 2: a Normandy-style coastal village and boc
 ## 2. Size and players
 
 - Square map 840 x 840 m (the current `MAP_SIZE`), island of about 0.54 km2 of land, sea margin all around. Map bounds stay where the greybox has them (boundary walls 6 m inside the edge).
-- Built for 16 players first and 32 later. 618 loot points in v1: about 39 per player at 16, 19 at 32. Turn density up by zone if 32-player matches feel starved (section 5).
+- Built for 16 players first and 32 later. 634 loot points in v1: about 39 per player at 16, 19 at 32. Turn density up by zone if 32-player matches feel starved (section 5).
 - Coordinates: x east, y up, z south (north is -z), meters, centered at the origin, sea surface y = 0. Same as `map.ts`.
 
 ## 3. Layout
@@ -44,15 +44,15 @@ Top-down (north up). Named zones, their centers and character:
 | Zone (id) | Center | Area | Tier | Drop | Loot points (containers) | Main props |
 | --- | --- | --- | --- | --- | --- | --- |
 | Mallard Beach (`beach`) | (35, -305) | 0.037 km2 | 2 | medium | 44 (7) | 6 pillboxes on the bluff, 79 hedgehogs, 20 log obstacles, 57 wire segments, 3 landing craft, 3 trench lines (21 tiles), 14 craters, 1 tank, 1 truck |
-| Pointe du Bec (`headland`) | (-300, -300) | 0.041 km2 | 3 | medium | 67 (10) | lighthouse, 4 pillboxes, trench zigzag (16 tiles), keeper's townhouse, barn, wire, rocks, bushes |
-| Sainte-Canard (`village`) | (45, -185) | 0.033 km2 | 3 | hot | 211 (24) | church, 22 houses (11 townhouses, 6 farmhouses, 5 ruins), cobbled square, tank in the square, 2 trucks, rubble, garden walls, poplar avenue |
+| Pointe du Bec (`headland`) | (-300, -300) | 0.041 km2 | 3 | medium | 72 (10) | lighthouse, 4 pillboxes, trench zigzag (16 tiles), keeper's townhouse, barn, wire, rocks, bushes |
+| Sainte-Canard (`village`) | (45, -185) | 0.033 km2 | 3 | hot | 211 (22) | church, 14 houses with full interiors (8 townhouses with a bakery, 4 farmhouses, 2 ruins), kitchen gardens and a bombed lot where plainer houses stood, cobbled square, tank in the square, 2 trucks, rubble, garden walls, poplar avenue |
 | Pont Vieux (`bridge`) | (202, -150) | 0.005 km2 | 2 | medium | 7 (2) | stone bridge, sandbag nests at both ends, tank wreck on the approach |
 | Feather Ridge (`ridge`) | (284, 33) | 0.026 km2 | 3 | medium | 53 (12) | 64-tile zigzag trench on the crest, 3 pillboxes facing west, wire on the west slope, supply dump and truck on the reverse slope, 9 craters |
-| Ferme Colvert (`farm`) | (-160, 46) | 0.012 km2 | 2 | medium | 37 (6) | farmhouse, 2 barns, walled yard, small apple orchard, fences |
-| Convoy Crossroads (`crossroads`) | (20, 62) | 0.010 km2 | 3 | hot | 51 (13) | 4 trucks and 2 tanks along the roads, corner townhouse, farmhouse and ruin, 3 sandbag nests, craters, signpost |
-| Bois des Plumes (`forest`) | (-245, 235) | 0.046 km2 | 1 | quiet | 21 (6) | 300 oaks and poplars with two clearings, 77 bushes, rocks, a ruined lodge |
-| Le Verger (`orchard`) | (42, 245) | 0.016 km2 | 1 | quiet | 24 (3) | 110 apple trees in rows, farmhouse and barn |
-| Hameau Sud (`hamlet`) | (240, 274) | 0.006 km2 | 2 | quiet | 33 (3) | townhouse, farmhouse, ruin, barn, walls |
+| Ferme Colvert (`farm`) | (-160, 46) | 0.012 km2 | 2 | medium | 33 (6) | farmhouse, barn, walled yard, a kitchen garden, small apple orchard, fences |
+| Convoy Crossroads (`crossroads`) | (20, 62) | 0.010 km2 | 3 | hot | 57 (9) | 4 trucks and 2 tanks along the roads, corner townhouse, farmhouse and ruin, 3 sandbag nests, craters, signpost |
+| Bois des Plumes (`forest`) | (-245, 235) | 0.046 km2 | 1 | quiet | 25 (6) | 300 oaks and poplars with two clearings, 77 bushes, rocks, a ruined lodge |
+| Le Verger (`orchard`) | (42, 245) | 0.016 km2 | 1 | quiet | 26 (2) | 110 apple trees in rows, farmhouse and barn |
+| Hameau Sud (`hamlet`) | (240, 274) | 0.006 km2 | 2 | quiet | 36 (3) | townhouse, farmhouse, barn, a bombed lot, walls |
 | Bocage (`countryside`, the rest) | everywhere else | about 0.3 km2 | 1 | quiet | 70 (70) | 349 hedgerow blocks on a 54 m field grid with gates, lone trees, bushes, rocks, crates in the fields |
 
 Roads (dirt, cobbles in the village): the main road runs north to south from the beach exit through the church square and the crossroads to the south coast; the village street runs west to the headland (coast road) and east over Pont Vieux to the ridge; the farm road runs west to east through Ferme Colvert, the crossroads and a second bridge (the ford at (193, 120)) to the ridge; lanes lead to the hamlet and the forest edge.
@@ -66,7 +66,7 @@ The river La Mare runs from the southern hills north to the sea east of the beac
 - **Sainte-Canard.** The main hot drop. Streets 6 m wide, houses door-to-street on both sides, the church square in the middle with a tank wreck for cover. The church tower belfry (11.35 m) sees the whole village, the beach exit and the road to the crossroads, but it has only two ground doors and one long stair: strong but trappable. Ruins give half cover and quick vertical lines. Garden walls and fences behind the houses make flanking routes.
 - **Pont Vieux.** A chokepoint: the river banks are steep, so the bridge and the wade are the only ways east in the north. Sandbag nests on both ends.
 - **Feather Ridge.** The highest ground (crest about 24 m). The trench line along the crest gives crouch cover with stand-up firing, three pillboxes overlook the river valley, and the reverse slope has a supply dump. Best medium-range fights on the map and a strong final circle.
-- **Ferme Colvert.** A walled courtyard between a farmhouse and two barns (barn lofts give height), orchard rows to the west, hedgerows all around. Medium heat, good mid-game.
+- **Ferme Colvert.** A walled courtyard between a farmhouse and a barn (the barn loft gives height), orchard rows to the west, hedgerows all around. Medium heat, good mid-game.
 - **Convoy Crossroads.** The center of the map: two roads cross among wrecked trucks and tanks, three buildings on the corners. Lots of hard cover at waist and chest height, many angles. Hot drop and a natural final circle.
 - **Bois des Plumes.** Dense trees, little loot, two clearings. Quiet landing for players who want to gear up slowly. Short sightlines (under 40 m).
 - **Le Verger and the bocage.** Hedgerows block sight and movement (gates every field), so the countryside plays as a maze of small fields: short to medium range, ambush-heavy. Apple rows give soft cover. Quiet.
@@ -100,8 +100,8 @@ Where final circles play well (`circle.finalCandidates`, weighted): Feather Ridg
 
 ## 5. Loot
 
-- 618 points: 211 village, 70 countryside crates, 67 headland, 53 ridge, 51 crossroads, 44 beach, 37 farm, 33 hamlet, 24 orchard, 21 forest, 7 bridge.
-- By kind: 236 `building` (floors and furniture tops: tables, shelves, beds, the workbench, the hay cart), 156 `container` (crates and ammo boxes), 170 `ground`, 26 `bunker`, 24 `trench`, 6 `vehicle` (inside the landing craft).
+- 634 points: 211 village, 72 headland, 70 countryside crates, 57 crossroads, 53 ridge, 44 beach, 36 hamlet, 33 farm, 26 orchard, 25 forest, 7 bridge.
+- By kind: 259 `building` (floors and furniture tops: tables, shelves, beds, the workbench, the hay cart), 149 `container` (crates and ammo boxes), 170 `ground`, 26 `bunker`, 24 `trench`, 6 `vehicle` (inside the landing craft).
 - Each point is `{id, x, y, z, tier, kind, zone, chunk, container?}`. `id` is stable for this file (sorted by chunk, then z, then x) so the server can sync loot by id. Tier 1 to 4 (tier 4 points are the upstairs rooms and the belfry in tier 3 zones). `container` is `small`, `large` (one tier higher) or `ammo` when the point is the top of a crate prop: open the crate to spawn. The meaning of every kind is in `lootKinds`.
 - Suggested spawn rule: roll each point once per match with the match seed, about 70 percent chance, the item table picked by tier. Server only.
 - Density knobs live in `gen_map.py` (`scatter_loot` densities per zone, crate counts per zone) and buildings bring their own points (`manifest.json` `loot`).
@@ -166,7 +166,7 @@ Sample `(row, col)` is at `x = originX + col * cell`, `z = originZ + row * cell`
   "loot": [{ "id": 100, "x": 46.05, "y": 1.86, "z": -321.34, "tier": 2, "kind": "container", "zone": "beach", "chunk": 2, "container": "small" }],
   "propIndex": { "farmhouse": { "start": 655, "count": 10, "chunks": { "2": [655, 2], "5": [657, 1], "...": [0, 0] } } },
   "props": [{ "prop": "hedgerow", "x": -141.45, "y": 8.59, "z": -236.4, "rotY": -3.0202, "chunk": 1 }, { "prop": "tree_oak", "x": 1, "y": 2, "z": 3, "rotY": 0.4, "scale": 1.12, "chunk": 6 }],
-  "stats": { "props": 2064, "byProp": { "...": 0 }, "loot": 618, "groundSpawns": 48 }
+  "stats": { "props": 2093, "byProp": { "...": 0 }, "loot": 634, "groundSpawns": 48 }
 }
 ```
 
@@ -195,7 +195,7 @@ Client rendering:
 3. Each frame (or every few frames), per instance or per chunk: draw `lods[k]` while the camera distance is at most `lods[k].until` from `manifest.json`, nothing past `cullDistance`. On phones scale the distances by about 0.6.
 4. Use the environment shadow tint `#b4bccf` (`manifest.shadowTint.environment`) in the props and terrain toon material, and keep `#d9a6a0` for the ducks.
 
-v1 totals: 2,064 instances, 6,702 collider shapes (4,977 boxes, 941 hulls, 714 capsules, 70 cylinders), all static. That is fine for Rapier on the server. If needed, skip `foliage`, and merge hedgerow boxes that line up.
+v1 totals: 2,093 instances, 6,137 collider shapes (4,349 boxes, 973 hulls, 718 capsules, 97 cylinders), all static. That is fine for Rapier on the server. If needed, skip `foliage`, and merge hedgerow boxes that line up.
 
 ## 7. Performance
 
@@ -206,7 +206,7 @@ Targets: desktop first, mid-range phones later (phase 3) without a rewrite.
 | Draw calls | under 150 desktop, under 100 mobile | estimated 80 to 140 small InstancedMeshes in view (37 prop types x up to 3 LODs x visible chunks), plus terrain chunks and water; not measured yet |
 | Triangles drawn | under 600k desktop, under 200k mobile | 44k worst frame from the village square (below) |
 | Materials | 1 for every prop (palette), 1 terrain, 1 water, plus the outline pass for 3 loot props | same |
-| Prop downloads | as small as possible | 794 KB for all 38 GLBs (meshopt + quantization), 2,675 KB uncompressed |
+| Prop downloads | as small as possible | 1,212 KB for all 38 GLBs (meshopt + quantization), 4,693 KB uncompressed; the four detailed houses are 618 KB of it |
 
 ### Triangles in view (`art/map/layout/estimate_view.py`)
 
@@ -240,7 +240,7 @@ For comparison, the village square with LOD0 everywhere and no culling: 579k all
 ## 9. Known gaps
 
 - Hedgerows cut the countryside into a maze on purpose; if rotations feel slow, raise the gate rate (`bocage()` in `gen_map.py`).
-- Interiors are simple furniture blocks (farmhouse, townhouse, barn); the ruined house and the church keep their original sparse interiors.
+- The church keeps its original sparse interior (pews, altar, the tower stair); the four house types have full interiors (art/map/README.md, Building notes).
 - The river has no current or swim state: it is a wading slow-down zone (engine rule).
 - Craters dent the heightfield at 4 m resolution, so the dent is softer than the crater mesh rim.
 - Beach waterline props (landing craft) sit in 0.3 m of water; the sea is cosmetic, there is no swimming.

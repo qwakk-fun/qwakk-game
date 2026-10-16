@@ -6,7 +6,7 @@ import { h } from './dom.ts';
 const S = COPY.settings;
 
 interface SliderSpec {
-  key: 'sensitivity' | 'fov' | 'volume';
+  key: 'sensitivity' | 'adsSensitivity' | 'fov' | 'volume';
   label: string;
   min: number;
   max: number;
@@ -16,6 +16,7 @@ interface SliderSpec {
 
 const SLIDERS: SliderSpec[] = [
   { key: 'sensitivity', label: S.sensitivity, ...LIMITS.sensitivity, format: (v) => `${v.toFixed(2)}x` },
+  { key: 'adsSensitivity', label: S.adsSensitivity, ...LIMITS.adsSensitivity, format: (v) => `${v.toFixed(2)}x` },
   { key: 'fov', label: S.fov, ...LIMITS.fov, format: (v) => `${Math.round(v)}°` },
   { key: 'volume', label: S.volume, ...LIMITS.volume, format: (v) => `${Math.round(v * 100)}%` },
 ];

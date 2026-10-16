@@ -4,6 +4,8 @@
  *
  *   verifySession(token)  identity behind a session token, or null
  *   allowJoin(ip)         per-IP join rate limit (token bucket, in memory)
+ *   allowCreateRoom(ip)   per-IP limit on new game rooms (matchmaking.ts)
+ *   allowLobby(ip)        per-IP limit on lobby (room list) connections
  *   recordMatch(result)   write a finished match; no-op without DATABASE_URL, never throws
  *   joinIp(context)       the client IP from a Colyseus AuthContext (TRUST_PROXY aware)
  *
@@ -45,6 +47,14 @@ export function allowJoin(ip: string): boolean {
   return meta().allowJoin(ip);
 }
 
+export function allowCreateRoom(ip: string): boolean {
+  return meta().allowCreateRoom(ip);
+}
+
+export function allowLobby(ip: string): boolean {
+  return meta().allowLobby(ip);
+}
+
 /**
  * Client IP for `allowJoin` from a Colyseus 0.18 AuthContext (onAuth's third
  * argument). Colyseus takes `context.ip` from client-controlled headers, so
@@ -56,7 +66,7 @@ export function joinIp(context: { ip?: string | undefined } | undefined): string
   return normalizeIp(context?.ip ?? 'unknown');
 }
 
-/** Rewrite the client IP headers of WebSocket upgrades before Colyseus reads them (see ip.ts). */
+/** Rewrite the client IP headers of WebSocket upgrades and HTTP requests (matchmaking) before Colyseus reads them (see ip.ts). */
 export function guardJoinIps(server: HttpServer): void {
   installClientIpGuard(server, meta().config.trustProxyHops);
 }

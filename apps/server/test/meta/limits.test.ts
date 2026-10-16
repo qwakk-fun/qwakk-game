@@ -33,6 +33,14 @@ describe('token bucket', () => {
     expect(rl.size).toBe(1);
   });
 
+  it('room creation limit: 3 quick rooms, then one a minute', () => {
+    const rl = new RateLimiter(LIMITS.createRoom);
+    const ok = Array.from({ length: 5 }, () => rl.take('ip', 0)).filter(Boolean).length;
+    expect(ok).toBe(3);
+    expect(rl.take('ip', 59_000)).toBe(false);
+    expect(rl.take('ip', 60_000)).toBe(true);
+  });
+
   it('join limit: 10 quick joins, then one per 4 s', () => {
     const rl = new RateLimiter(LIMITS.join);
     const ok = Array.from({ length: 12 }, () => rl.take('ip', 0)).filter(Boolean).length;
@@ -90,6 +98,24 @@ describe('join IP guard (what Colyseus puts in context.ip)', () => {
     expect(await upgradeIp(1, { 'X-Real-IP': '9.9.9.9', 'X-Forwarded-For': '6.6.6.6, 203.0.113.7' })).toBe('203.0.113.7');
     // No proxy header at all: the socket address.
     expect(await upgradeIp(1, { 'X-Real-IP': '9.9.9.9' })).toBe('127.0.0.1');
+  });
+
+  it('matchmaking requests (room creation) get the same treatment, even for listeners prepended later', async () => {
+    const server = createServer();
+    installClientIpGuard(server, 0);
+    const seen = new Promise<string | undefined>((resolve) => {
+      // Colyseus prepends its matchmaking listener at listen time, after the guard.
+      server.prependListener('request', (req: IncomingMessage, res) => {
+        resolve(createAuthContext({ headers: req.headers as Record<string, string> }).ip);
+        res.end();
+      });
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const req = httpRequest({ port: (server.address() as AddressInfo).port, host: '127.0.0.1', method: 'POST', path: '/matchmake/create/br', headers: { 'X-Real-IP': '9.9.9.9', 'X-Forwarded-For': '8.8.8.8' } });
+    req.on('error', () => {});
+    req.end();
+    expect(await seen).toBe('127.0.0.1');
+    server.close();
   });
 
   it('rewrites the headers in place', () => {

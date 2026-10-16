@@ -22,9 +22,11 @@ export const Button = {
   Heal2: 1 << 11,
   /** Jump out of the plane, or open the glider early (F). */
   Deploy: 1 << 12,
+  /** Aim down sights (right mouse, held). Tighter spread, less recoil, slower moves (`ADS`). */
+  Aim: 1 << 13,
 } as const;
 
-export const ALL_BUTTONS = (1 << 13) - 1;
+export const ALL_BUTTONS = (1 << 14) - 1;
 
 /** One sim tick of player intent. This is all a client ever sends. */
 export interface InputFrame {

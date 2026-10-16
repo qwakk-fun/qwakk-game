@@ -1,15 +1,18 @@
 /**
  * The battle royale room on Sainte-Canard: networking glue (gameRoom.ts)
- * around the BattleRoyale rules. Joins go through joinOrCreate; the room
- * locks when the warm-up ends and bots fill the empty seats.
+ * around the BattleRoyale rules. Players pick a room from the lobby list
+ * (joinById), create one, or Quick Play (joinOrCreate). The countdown starts
+ * at `BR.minHumans` humans; when it ends the room locks and bots fill the
+ * empty seats. The room's listing (label, humans, stage, countdown) is its
+ * Colyseus metadata, pushed to menus by the lobby (lobby.ts).
  *
  * Owner-only state (inventory, ammo, armor durability, hp) uses `.view()`
  * fields; enemy poses are culled by line of sight (interest.ts); loot items
  * are sent per viewer, only near ones (StateView).
  */
 import type { Client } from '@colyseus/core';
-import { BR, INTEREST, Mode, planeAt } from '@qwakk/shared';
-import { GameMode, MatchPhase, Msg, type PlayerState } from '@qwakk/shared/net';
+import { BR, INTEREST, Mode, planeAt, TICK_RATE } from '@qwakk/shared';
+import { GameMode, InvOp, MatchPhase, Msg, type PlayerState } from '@qwakk/shared/net';
 import type { BotLike, Seat } from './arena.ts';
 import { BattleRoyale, DEFAULT_BR } from './br/battleRoyale.ts';
 import type { BrBotContext } from './br/context.ts';
@@ -19,10 +22,13 @@ import { GameRoom, type GameRoomOptions } from './gameRoom.ts';
 import type { ViewerPoint } from './interest.ts';
 import { loadSainteCanard, type ServerMap } from './maps.ts';
 import { recordMatch } from './meta/index.ts';
+import { roomLabel, type RoomListing, type RoomStage } from '@qwakk/shared/lobby';
 
 export interface BrRoomOptions extends GameRoomOptions {
-  /** Warm-up length override (s), for tests. */
-  warmupSeconds?: number;
+  /** Start countdown length override (s), for tests. */
+  countdownSeconds?: number;
+  /** Humans needed before the countdown starts (tests and benchmarks use fewer). */
+  minHumans?: number;
   /** Results screen time before the room closes (s). */
   endSeconds?: number;
   /** Zone timeline speed-up (tests). */
@@ -33,6 +39,8 @@ export interface BrRoomOptions extends GameRoomOptions {
 
 /** Item views are brought up to date every this many ticks. */
 const ITEM_EVERY_TICKS = 10;
+/** Joins close this many seconds before the countdown ends, so nobody is seated into a match that just started. */
+const LOCK_AHEAD_S = 2;
 
 export class BrRoom extends GameRoom<BattleRoyale> {
   override maxClients: number = BR.players;
@@ -43,6 +51,13 @@ export class BrRoom extends GameRoom<BattleRoyale> {
   private startedAt = Date.now();
   private recorded = false;
   private closeTimer: NodeJS.Timeout | null = null;
+  /** The listing last sent to the lobby (only changes are published). */
+  private listingKey = '';
+  /** Joins closed by us for the last seconds of the countdown. */
+  private lockedAhead = false;
+  private countdownTicks = 1;
+  /** A human changed the loot near it: refresh the item views on the next tick, not in up to 10. */
+  private itemsDirty = false;
 
   protected loadMap(): ServerMap {
     return loadSainteCanard();
@@ -53,6 +68,7 @@ export class BrRoom extends GameRoom<BattleRoyale> {
   }
 
   protected createMatch(options: BrRoomOptions): BattleRoyale {
+    this.countdownTicks = Math.max(1, Math.round((options.countdownSeconds ?? DEFAULT_BR.countdownSeconds) * TICK_RATE));
     this.state.mode = GameMode.BattleRoyale;
     this.state.phase = MatchPhase.Warmup;
     this.items = new ItemViews(this.state.items as never, this.vis, () => this.match.loot);
@@ -63,7 +79,8 @@ export class BrRoom extends GameRoom<BattleRoyale> {
       this.sim,
       {
         ...DEFAULT_BR,
-        warmupSeconds: options.warmupSeconds ?? DEFAULT_BR.warmupSeconds,
+        countdownSeconds: this.countdownTicks / TICK_RATE,
+        minHumans: options.minHumans ?? DEFAULT_BR.minHumans,
         endSeconds: options.endSeconds ?? DEFAULT_BR.endSeconds,
         bots: options.bots !== false,
         seed: options.seed,
@@ -81,6 +98,10 @@ export class BrRoom extends GameRoom<BattleRoyale> {
           const c = this.clients.getById(seat.id);
           for (const g of got) c?.send(Msg.Picked, [g.kind, g.amount]);
         },
+        denied: (seat, reason, kind) => this.clients.getById(seat.id)?.send(Msg.Denied, [reason, kind]),
+        looted: (seat) => {
+          if (!seat.bot) this.itemsDirty = true;
+        },
         result: (seat, placement) => {
           const r = this.match.resultOf(seat);
           this.clients.getById(seat.id)?.send(Msg.Result, [placement, this.match.seats.size, r.kills, r.dealt, r.survivedMs]);
@@ -96,9 +117,43 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     );
   }
 
-  override onCreate(options: BrRoomOptions = {}): Promise<void> {
+  override async onCreate(options: BrRoomOptions = {}): Promise<void> {
     this.onMessage(Msg.Spectate, (client, dir: unknown) => this.cycleWatch(client.sessionId, dir === -1 ? -1 : 1));
-    return super.onCreate(options);
+    this.onMessage(Msg.Inv, (client, msg: unknown) => this.inventoryRequest(client.sessionId, msg));
+    await super.onCreate(options);
+    this.state.label = roomLabel(this.roomId);
+    // Not persisted here: the matchmaker records the room (with this metadata) once onCreate returns.
+    void this.setMetadata(this.listing(), false);
+  }
+
+  /** What the lobby list shows for this room. Public: no names, ids or addresses. */
+  listing(): RoomListing {
+    const m = this.match;
+    const stage: RoomStage = m.phase === 'warmup' ? (m.countingDown ? 'countdown' : 'waiting') : m.phase;
+    const humans = m.phase === 'warmup' ? m.humans : Math.max(0, this.clients.length - this.spectators.size);
+    return { label: this.state.label, stage, humans, cap: this.maxClients, need: m.waitingFor, left: stage === 'countdown' ? m.secondsLeft : 0 };
+  }
+
+  /** Publish the listing when it changed (at most once a second during the countdown), and close joins just before the start. */
+  private updateListing(): void {
+    const m = this.match;
+    if (m.phase === 'warmup') {
+      const ahead = Math.min(LOCK_AHEAD_S * TICK_RATE, Math.round(this.countdownTicks / 4));
+      const closing = m.countingDown && m.warmupTicks <= ahead;
+      if (closing && !this.lockedAhead) {
+        this.lockedAhead = true;
+        void this.lock();
+      } else if (!closing && this.lockedAhead) {
+        // Players left and the countdown went back to waiting: open the room again.
+        this.lockedAhead = false;
+        void this.unlock();
+      }
+    }
+    const l = this.listing();
+    const key = `${l.stage}|${l.humans}|${l.need}|${l.left}`;
+    if (key === this.listingKey) return;
+    this.listingKey = key;
+    this.setMetadata(l).catch((err: unknown) => console.error('[lobby] listing update failed:', err));
   }
 
   protected addHuman(client: Client, name: string): Seat | null {
@@ -111,6 +166,20 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     this.match.remove(id);
     this.items.removeViewer(id);
     this.watching.delete(id);
+  }
+
+  /**
+   * An inventory request (Msg.Inv): [InvOp.Drop, kind, amount] or
+   * [InvOp.Take, entity, index, kind]. Untrusted: anything malformed is
+   * ignored; the match checks reach, sight and the inventory rules.
+   */
+  private inventoryRequest(id: string, msg: unknown): void {
+    if (!Array.isArray(msg) || msg.length < 3 || msg.length > 4) return;
+    const n = msg.map((v) => (typeof v === 'number' && Number.isInteger(v) ? v : Number.NaN));
+    if (n.some((v) => !Number.isFinite(v) || Math.abs(v) > 1_000_000)) return;
+    const [op, a, b, c] = n as [number, number, number, number | undefined];
+    if (op === InvOp.Drop && msg.length === 3 && a > 0 && b > 0) this.match.inventoryOp(id, 'drop', a, b, 0);
+    else if (op === InvOp.Take && msg.length === 4 && a > 0 && b >= -1 && c !== undefined) this.match.inventoryOp(id, 'take', a, b, c);
   }
 
   protected matchEndTick(): void {
@@ -213,6 +282,8 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     const a = this.match.armorFor(seat.id);
     if (st.vest !== a.vest) st.vest = a.vest;
     if (st.helmet !== a.helmet) st.helmet = a.helmet;
+    const pack = a.pack ?? 0;
+    if (st.pack !== pack) st.pack = pack;
     const vd = Math.ceil(a.vestDur);
     const hd = Math.ceil(a.helmetDur);
     if (st.vestDur !== vd) st.vestDur = Math.min(255, vd);
@@ -234,6 +305,9 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     const alive = m.alive;
     if (st.alive !== alive) st.alive = alive;
     if (m.phase === 'warmup' && st.total !== m.seats.size) st.total = m.seats.size;
+    const need = m.waitingFor;
+    if (st.need !== need) st.need = need;
+    this.updateListing();
     const winner = m.winner?.name ?? '';
     if (st.winner !== winner) st.winner = winner;
     const z = m.zone;
@@ -257,7 +331,10 @@ export class BrRoom extends GameRoom<BattleRoyale> {
         zs.dps = z.dps;
       }
     }
-    if (tick % ITEM_EVERY_TICKS === 0) this.updateItemViews();
+    if (tick % ITEM_EVERY_TICKS === 0 || this.itemsDirty) {
+      this.itemsDirty = false;
+      this.updateItemViews();
+    }
   }
 
   /** Bring every viewer's loot up to date (visible items only, see br/itemViews.ts). */

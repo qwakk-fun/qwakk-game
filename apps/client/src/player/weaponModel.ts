@@ -3,9 +3,12 @@
  * otherwise; both follow the same contract, so nothing else changes when the
  * files land:
  *   models/weapons/rifle.glb, pistol.glb: origin at the grip, barrel +Z,
- *   meters, child nodes Muzzle, Grip, Support (left-hand IK target), Eject.
+ *   meters, child nodes Muzzle, Grip, Support (left-hand IK target), Eject,
+ *   and the magazine mesh Mag (optional: reloads move it when present).
  *   models/weapons/attach.json: { rifle: {position, quaternion}, pistol: {...} }
- *   in RightHand bone space (used when the duck has animation clips).
+ *   in RightHand bone space (used when the duck has animation clips), plus
+ *   `reload`: the magazine timeline of each reload clip and the magazine's
+ *   pose in the LeftHand bone (see reloadMag.ts).
  */
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -22,6 +25,24 @@ export interface WeaponInstance {
   grip: THREE.Object3D;
   support: THREE.Object3D;
   eject: THREE.Object3D;
+  /** The magazine node (null on guns without one) and its seated pose in the gun. */
+  mag: THREE.Object3D | null;
+  magSeat: AttachPose | null;
+}
+
+/**
+ * A reload clip's magazine timeline (seconds into the clip, which is as long
+ * as the server's reload): the magazine leaves the gun (`out`), leaves the
+ * hand (`drop`), a fresh one appears in the hand (`fresh`) and is seated (`in`).
+ */
+export interface MagTimeline {
+  seconds: number;
+  out: number;
+  drop: number;
+  fresh: number;
+  in: number;
+  /** Magazine pose in the LeftHand bone. */
+  hand: AttachPose;
 }
 
 export interface AttachPose {
@@ -32,9 +53,27 @@ export interface AttachPose {
 interface Library {
   models: (THREE.Object3D | null)[];
   attach: (AttachPose | null)[];
+  reload: (MagTimeline | null)[];
 }
 
-let library: Library = { models: [null, null], attach: [null, null] };
+let library: Library = { models: [null, null], attach: [null, null], reload: [null, null] };
+
+type PoseJson = { position?: number[]; quaternion?: number[] };
+
+function poseOf(a: PoseJson | undefined): AttachPose | null {
+  if (!a?.position || !a.quaternion) return null;
+  return { position: new THREE.Vector3().fromArray(a.position), quaternion: new THREE.Quaternion().fromArray(a.quaternion) };
+}
+
+function timelineOf(r: Record<string, unknown> | undefined): MagTimeline | null {
+  if (!r) return null;
+  const hand = poseOf(r.magInHand as PoseJson | undefined);
+  const n = (k: string) => (typeof r[k] === 'number' ? (r[k] as number) : Number.NaN);
+  const t = { seconds: n('seconds'), out: n('out'), drop: n('drop'), fresh: n('fresh'), in: n('in') };
+  if (!hand || Object.values(t).some((v) => !Number.isFinite(v))) return null;
+  if (!(t.out <= t.drop && t.drop <= t.fresh && t.fresh <= t.in && t.in <= t.seconds)) return null;
+  return { ...t, hand };
+}
 let loading: Promise<Library> | null = null;
 
 async function exists(url: string): Promise<boolean> {
@@ -73,23 +112,20 @@ export function loadWeaponLibrary(): Promise<Library> {
       }),
     );
     const attach: (AttachPose | null)[] = [null, null];
+    const reload: (MagTimeline | null)[] = [null, null];
     if (await exists(BASE + 'attach.json')) {
       try {
-        const j = (await (await fetch(BASE + 'attach.json')).json()) as Record<string, { position?: number[]; quaternion?: number[] }>;
+        const j = (await (await fetch(BASE + 'attach.json')).json()) as Record<string, unknown>;
+        const r = (j.reload ?? {}) as Record<string, Record<string, unknown>>;
         (['rifle', 'pistol'] as const).forEach((k, i) => {
-          const a = j[k];
-          if (a?.position && a.quaternion) {
-            attach[i] = {
-              position: new THREE.Vector3().fromArray(a.position),
-              quaternion: new THREE.Quaternion().fromArray(a.quaternion),
-            };
-          }
+          attach[i] = poseOf(j[k] as PoseJson | undefined);
+          reload[i] = timelineOf(r[k]);
         });
       } catch (err) {
         console.warn('[weapons] bad attach.json', err);
       }
     }
-    library = { models, attach };
+    library = { models, attach, reload };
     return library;
   })();
   return loading;
@@ -97,6 +133,11 @@ export function loadWeaponLibrary(): Promise<Library> {
 
 export function attachPose(weapon: number): AttachPose | null {
   return library.attach[weapon] ?? null;
+}
+
+/** The magazine timeline of a weapon's reload clip, when the art provides one. */
+export function magTimeline(weapon: number): MagTimeline | null {
+  return library.reload[weapon] ?? null;
 }
 
 function node(name: string, x: number, y: number, z: number): THREE.Object3D {
@@ -144,12 +185,15 @@ export function createWeapon(weapon: number): WeaponInstance {
   const src = library.models[weapon];
   const root = src ? src.clone(true) : procedural(weapon);
   root.name = weapon === WeaponId.Rifle ? 'rifle' : 'pistol';
+  const mag = root.getObjectByName('Mag') ?? null;
   return {
     root,
     muzzle: find(root, 'Muzzle', root),
     grip: find(root, 'Grip', root),
     support: find(root, 'Support', root),
     eject: find(root, 'Eject', root),
+    mag,
+    magSeat: mag ? { position: mag.position.clone(), quaternion: mag.quaternion.clone() } : null,
   };
 }
 

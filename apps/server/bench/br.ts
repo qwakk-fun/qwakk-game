@@ -101,7 +101,7 @@ function play(room: Room<any, IslandState>): () => void {
 async function main(): Promise<void> {
   const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url));
   const proc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', entry], {
-    env: { ...process.env, PORT: String(PORT), QWAKK_STATS: '1', QWAKK_STATS_MS: '10000', QWAKK_BR_WARMUP: '4' },
+    env: { ...process.env, PORT: String(PORT), QWAKK_STATS: '1', QWAKK_STATS_MS: '10000', QWAKK_BR_COUNTDOWN: '4', QWAKK_BR_MIN_HUMANS: String(clients) },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   const stats: Stats[] = [];
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
       rooms.push(room);
       stops.push(play(room));
     }
-    // Warm-up (4 s), boarding (3 s), the plane and the drop (about a minute).
+    // Countdown once all are in (4 s), boarding (3 s), the plane and the drop (about a minute).
     console.error(`[bench:br] ${clients} clients in room ${rooms[0]?.roomId}; waiting for the drop ...`);
     await new Promise((r) => setTimeout(r, 70_000));
     for (const c of counters) Object.assign(c, { down: 0, up: 0, poseSamples: 0, poseSum: 0, othersSum: 0 });

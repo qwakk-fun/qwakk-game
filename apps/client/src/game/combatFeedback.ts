@@ -76,7 +76,7 @@ export class CombatFeedback {
     this.views = views;
   }
 
-  handlers(): Omit<SessionHandlers, 'shotHint' | 'picked' | 'result'> {
+  handlers(): Omit<SessionHandlers, 'shotHint' | 'picked' | 'denied' | 'result'> {
     return {
       localShot: (shot, state, buttons) => this.localShot(shot, state, buttons),
       shots: (list) => {

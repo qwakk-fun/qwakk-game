@@ -11,8 +11,12 @@
  *     the other only when it is visible (line of sight or close), reported
  *     against a line-of-sight check in Node;
  *   - both pick up at least one item;
+ *   - A walks to a closed crate, opens it (the lid swings up, the loot lies
+ *     inside), opens the inventory screen and takes an item with its Take
+ *     button (an inventory request the server answers);
  *   - when B leaves, A is the last duck standing and gets the victory card.
- * Saves screenshots (plane, glide over the village, looting, zone wall, victory).
+ * Saves screenshots (plane, glide over the village, looting, a closed and an
+ * open crate, the inventory screen, zone wall, victory).
  *
  * Usage: npm run e2e:br [-- OUTDIR]
  */
@@ -66,12 +70,127 @@ async function waitFor(p: Page, label: string, test: (s: Snap) => boolean, timeo
   }
 }
 
+type Los = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => boolean;
+type CrateInfo = { key: string; crate: string; open: boolean; contents: number; x: number; y: number; z: number; dist: number };
+const crates = (p: Page): Promise<CrateInfo[]> => p.evaluate(() => (window as any).__qwakk.crates(45));
+
+/**
+ * Screenshots of a closed crate, the same crate open with its loot inside,
+ * and the inventory screen next to it; then a Take button in the screen must
+ * bring an item into the inventory (the server's answer to Msg.Inv).
+ */
+async function crateAndInventory(a: Page, los: Los): Promise<void> {
+  const tried = new Set<string>();
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const s0 = await snap(a);
+    const me = s0.me;
+    const target = (await crates(a)).find((c) => !c.open && !tried.has(c.crate) && Math.abs(c.y - me.y) < 2 && los(me.x, me.y, me.z, c.x, c.y, c.z));
+    if (!target) break;
+    tried.add(target.crate);
+    await a.evaluate(([k]) => (window as any).__qwakk.focusItem(k, true), [target.key]);
+    // Walk up to it; stop a few meters short for the closed picture.
+    const end = Date.now() + 20000;
+    let near = false;
+    while (Date.now() < end) {
+      const s = await snap(a);
+      if (s.me && Math.hypot(s.me.x - target.x, s.me.z - target.z) < 4.5) {
+        near = true;
+        break;
+      }
+      await sleep(150);
+    }
+    if (!near) continue;
+    const me1 = (await snap(a)).me;
+    if (attempt === 0 || !existsSync(`${out}/3a-crate-closed.png`)) {
+      await a.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 1400, -0.3), [target.x, target.z]);
+      await sleep(700);
+      await a.screenshot({ path: `${out}/3a-crate-closed.png` });
+      await sleep(800);
+    }
+    // Let the autopilot press E; it stops once the crate is open.
+    const end2 = Date.now() + 15000;
+    let opened: CrateInfo | undefined;
+    while (Date.now() < end2 && !opened) {
+      opened = (await crates(a)).find((c) => c.crate === target.crate && c.open);
+      await sleep(100);
+    }
+    if (!opened) continue;
+    const at = (await snap(a)).me;
+    if (opened.contents === 0 || Math.hypot(at.x - target.x, at.z - target.z) > 4) {
+      // Someone else got there first (we held a stale closed copy): try another one.
+      console.log(`crate ${target.crate} was opened by someone else (${opened.contents} items left); trying another`);
+      continue;
+    }
+    await sleep(900);
+    const me2 = (await snap(a)).me ?? me1;
+    await a.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 6000, -0.55), [target.x, target.z]);
+    void me2;
+    await sleep(700);
+    await a.screenshot({ path: `${out}/3b-crate-open.png` });
+    const before = (await snap(a)).br.picked;
+    const shown = await a.evaluate(() => (window as any).__qwakk.inventory(true));
+    await sleep(600);
+    await a.screenshot({ path: `${out}/3c-inventory.png` });
+    const takes = await a.locator('.br-invscreen .br-ibtn.take').count();
+    console.log(`crate ${target.crate}: open, ${opened.contents} items inside; inventory screen ${shown ? 'shown' : 'NOT shown'}, ${takes} take buttons`);
+    if (!shown) throw new Error('the inventory screen did not open');
+    const waitPicked = async (from: number): Promise<number> => {
+      const end3 = Date.now() + 5000;
+      let now = from;
+      while (Date.now() < end3 && now === from) {
+        await sleep(150);
+        now = (await snap(a)).br.picked;
+      }
+      return now;
+    };
+    if (takes > 0) {
+      await a.locator('.br-invscreen .br-ibtn.take').first().click();
+      const after = await waitPicked(before);
+      await a.screenshot({ path: `${out}/3d-inventory-after-take.png` });
+      console.log(`inventory take from the crate: picked ${before} -> ${after}`);
+      if (after === before) throw new Error('taking an item from the inventory screen did nothing');
+    }
+    // Drop something from the backpack, then take it back from the ground.
+    const carried = (m: any) => m.res0 + m.res1 + m.bandages + m.medkits;
+    const drops = a.locator('.br-invscreen .br-inv-col:nth-child(2) .br-ibtn');
+    if ((await drops.count()) > 0) {
+      const had = carried((await snap(a)).mine);
+      await drops.first().click();
+      const end4 = Date.now() + 5000;
+      let has = had;
+      while (Date.now() < end4 && has === had) {
+        await sleep(150);
+        has = carried((await snap(a)).mine);
+      }
+      await sleep(400);
+      await a.screenshot({ path: `${out}/3e-inventory-after-drop.png` });
+      console.log(`inventory drop: carried ${had} -> ${has}`);
+      if (has >= had) throw new Error('dropping from the inventory screen did nothing');
+      const groundTake = a.locator('.br-invscreen .br-inv-col:nth-child(1) .br-ibtn.take');
+      const end5 = Date.now() + 5000;
+      while (Date.now() < end5 && (await groundTake.count()) === 0) await sleep(150);
+      const p0 = (await snap(a)).br.picked;
+      if ((await groundTake.count()) === 0) throw new Error('the dropped item did not show up in reach');
+      await groundTake.last().click();
+      const p1 = await waitPicked(p0);
+      console.log(`take the dropped item back: picked ${p0} -> ${p1}, carried ${carried((await snap(a)).mine)}`);
+      if (p1 === p0) throw new Error('taking the dropped item back did nothing');
+    }
+    await a.evaluate(() => (window as any).__qwakk.inventory(false));
+    await a.evaluate(() => (window as any).__qwakk.focusItem(null));
+    return;
+  }
+  await a.evaluate(() => (window as any).__qwakk.focusItem(null));
+  throw new Error('no crate in sight could be opened for the crate screenshots');
+}
+
 async function main(): Promise<void> {
   if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
     QWAKK_BOTS: '0',
-    QWAKK_BR_WARMUP: '8',
+    QWAKK_BR_COUNTDOWN: '8',
+    QWAKK_BR_MIN_HUMANS: '2',
     QWAKK_BR_SEED: String(SEED),
     QWAKK_ZONE_SCALE: '0.25',
   });
@@ -166,6 +285,13 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ samples, aSawB: seen, closeButNotSent: closeMissed, sentWithoutEyeLineOfSight: hiddenButSent, pickedA, pickedB }));
     if (pickedA === 0 || pickedB === 0) throw new Error('a client did not pick up an item');
     if (closeMissed > 1) throw new Error('a close enemy was not sent');
+
+    // Crates: walk A to a closed crate in sight, look at it closed, open it, look inside,
+    // then take one item from it through the inventory screen (a Msg.Inv request).
+    // B stands still meanwhile, so it does not loot the same crate first.
+    await b.evaluate(() => (window as any).__qwakk.face(0, 0, 90000, 0));
+    await crateAndInventory(a, (x, y, z, bx, by, bz) => los(x, y, z, bx, by - 0.9, bz));
+    await b.evaluate(() => (window as any).__qwakk.face(0, 0, 1, 0));
 
     // The zone wall (the test server runs the zone four times faster).
     await waitFor(a, 'the zone wall', (s) => s.br?.zoneWallSeen, 60000);

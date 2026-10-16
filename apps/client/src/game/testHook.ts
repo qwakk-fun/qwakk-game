@@ -26,6 +26,8 @@ export interface TestView {
   controls: { yaw: number; pitch: number };
   localAvatar: Avatar;
   hold(ms: number): void;
+  press(buttons: number, ms: number, mz?: number): void;
+  camera: { aimBlend: number };
 }
 
 function renderStats(v: TestView): { drawCalls: number; triangles: number; world: { drawCalls: number; triangles: number } | null } {
@@ -101,6 +103,11 @@ export function exposeTestHook(v: TestView): void {
         controls: { yaw: v.controls.yaw, pitch: v.controls.pitch },
         weapon: v.session.mine?.armed ? v.session.me?.state.weapon ?? -1 : 2,
         bones,
+        magState: a.magState,
+        aim: v.session.me?.state.aim ?? 0,
+        cameraAim: v.camera.aimBlend,
+        reload: v.session.me?.state.reload ?? 0,
+        mag: v.session.me ? (v.session.me.state.weapon === 0 ? v.session.me.state.mag0 : v.session.me.state.mag1) : 0,
       };
     },
     simSelfTestHash: () => simSelfTestHash(),
@@ -114,6 +121,43 @@ export function exposeTestHook(v: TestView): void {
       v.hold(ms);
       v.controls.yaw = Math.atan2(-(x - me.state.x), -(z - me.state.z));
       v.controls.pitch = pitch;
+    },
+    /** Crates this client knows about near the duck: key, crate, open, contents, distance. */
+    crates: (radius = 60) => {
+      const me = v.session.me;
+      if (!v.br || !me) return [];
+      const out = [];
+      for (const e of v.br.loot.crateStates()) {
+        if (!e.crate) continue;
+        const d = Math.hypot(e.x - me.state.x, e.z - me.state.z);
+        if (d <= radius) out.push({ key: e.key, crate: e.crate, open: e.open, contents: e.contents.length, x: e.x, y: e.y, z: e.z, dist: d });
+      }
+      return out.sort((a, b) => a.dist - b.dist);
+    },
+    /** Send the battle royale autopilot to this item first (null: back to normal); `holdOpen` stops it at an opened crate. */
+    focusItem: (key: string | null, holdOpen = false) => {
+      if (!v.br) return;
+      v.br.apFocus = key;
+      v.br.apHoldOpen = holdOpen;
+    },
+    /** Open or close the inventory screen (screenshots). */
+    inventory: (open: boolean) => {
+      if (!v.br || v.br.inventoryOpen === open) return v.br?.inventoryOpen ?? false;
+      v.br.toggleInventory();
+      return v.br.inventoryOpen;
+    },
+    /** Hold these input buttons (Button bits) for `ms`, on top of the autopilot or the keys; `mz` walks forward (1) or back. */
+    press: (buttons: number, ms: number, mz = 0) => v.press(buttons, ms, mz),
+    /** Remote ducks in view and what they are doing (pose action), for screenshots of their reloads. */
+    remoteActs: () => {
+      const out: { id: string; act: number; dist: number; magState: string }[] = [];
+      const me = v.session.me;
+      for (const [id, r] of v.remotes) {
+        const p = v.session.pose(id);
+        if (!p || !me) continue;
+        out.push({ id, act: p.act, dist: Math.hypot(p.x - me.state.x, p.z - me.state.z), magState: r.avatar.magState });
+      }
+      return out;
     },
     resetStats: () => {
       Object.assign(v.session.prediction, { reconciles: 0, corrected: 0, lastErrM: 0, maxErrM: 0, sumErrM: 0 });

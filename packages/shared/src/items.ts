@@ -1,15 +1,14 @@
 /**
- * Battle royale items: kinds, loot tables, armor math and inventory rules.
- * Pure and deterministic; the server owns every inventory change (pickups,
- * damage on armor). Tunable numbers live in LOOT and ARMOR below, with the
- * heal numbers in constants.ts (HEAL), because heals are part of the sim.
+ * Battle royale items: kinds, loot tables and armor math. Pure and
+ * deterministic; the server owns every inventory change (pickups, drops,
+ * damage on armor). Tunable numbers live in LOOT, PACK and ARMOR below, with
+ * the heal numbers in constants.ts (HEAL), because heals are part of the sim.
+ * The inventory rules (capacity, pickups, drops) are in inventory.ts.
  */
 import { createRng } from './rng.ts';
 import { dcos, dsin } from './math.ts';
 import type { LootPoint } from './brMapData.ts';
 import { Container } from './brMapData.ts';
-import type { PlayerSim } from './sim.ts';
-import { WeaponId, weaponStats } from './weapons.ts';
 
 export const Item = {
   Rifle: 1,
@@ -22,8 +21,15 @@ export const Item = {
   Helmet2: 8,
   Bandage: 9,
   Medkit: 10,
-  /** A death crate: holds a dead duck's loot (server side contents). */
+  /**
+   * A crate: a dead duck's drop, or a loot crate of the map (an ammo box
+   * included) that opens with the Use button. Server side contents.
+   */
   Crate: 11,
+  /** Backpacks: more carrying capacity per level (PACK.capacity). */
+  Backpack1: 12,
+  Backpack2: 13,
+  Backpack3: 14,
 } as const;
 export type ItemKind = (typeof Item)[keyof typeof Item];
 
@@ -45,6 +51,9 @@ export const ITEM_INFO: Record<number, ItemInfo> = {
   [Item.Bandage]: { name: 'Bandage', stack: 2 },
   [Item.Medkit]: { name: 'Medkit', stack: 1 },
   [Item.Crate]: { name: 'Loot crate', stack: 1 },
+  [Item.Backpack1]: { name: 'Backpack (level 1)', stack: 1 },
+  [Item.Backpack2]: { name: 'Backpack (level 2)', stack: 1 },
+  [Item.Backpack3]: { name: 'Backpack (level 3)', stack: 1 },
 };
 
 export function itemName(kind: number): string {
@@ -77,14 +86,39 @@ export const LOOT = {
   maxMedkits: 3,
   /** Pick-up reach from the duck's chest (m). */
   reach: 2.6,
+  /** Items in a map crate: small, large (one tier better) and ammo box. */
+  smallCrateItems: 2,
+  largeCrateItems: 3,
+  ammoBoxItems: 2,
+  /** A crate's lid swings open for this long before its contents can be taken (ticks). */
+  crateOpenTicks: 9,
+  /** Inventory requests (drop, take) a duck may make per second (server rate limit). */
+  invOpsPerSecond: 8,
+} as const;
+
+/**
+ * Carrying capacity (PUBG style weight). Ammo and heals in the backpack
+ * weigh something; the two guns in their slots, worn armor and the backpack
+ * itself weigh nothing. Weights are multiples of 0.25 so sums stay exact.
+ */
+export const PACK = {
+  /** Capacity by backpack level (index 0: no backpack). */
+  capacity: [50, 90, 130, 170],
+  /** Weight of one unit, by item kind. */
+  weight: {
+    [Item.RifleAmmo]: 0.5,
+    [Item.PistolAmmo]: 0.25,
+    [Item.Bandage]: 2,
+    [Item.Medkit]: 6,
+  } as Readonly<Record<number, number>>,
 } as const;
 
 /** Item weights per tier (1 to 4): [kind, weight]. */
 const TABLES: Record<number, readonly (readonly [number, number])[]> = {
-  1: [[Item.Pistol, 14], [Item.Rifle, 6], [Item.PistolAmmo, 18], [Item.RifleAmmo, 14], [Item.Vest1, 8], [Item.Helmet1, 8], [Item.Vest2, 1], [Item.Helmet2, 1], [Item.Bandage, 22], [Item.Medkit, 3]],
-  2: [[Item.Pistol, 11], [Item.Rifle, 12], [Item.PistolAmmo, 13], [Item.RifleAmmo, 18], [Item.Vest1, 9], [Item.Helmet1, 9], [Item.Vest2, 3], [Item.Helmet2, 3], [Item.Bandage, 16], [Item.Medkit, 5]],
-  3: [[Item.Pistol, 7], [Item.Rifle, 17], [Item.PistolAmmo, 9], [Item.RifleAmmo, 20], [Item.Vest1, 7], [Item.Helmet1, 7], [Item.Vest2, 7], [Item.Helmet2, 7], [Item.Bandage, 12], [Item.Medkit, 7]],
-  4: [[Item.Rifle, 18], [Item.RifleAmmo, 18], [Item.Vest2, 14], [Item.Helmet2, 14], [Item.Medkit, 14], [Item.Bandage, 8], [Item.Pistol, 4], [Item.PistolAmmo, 6]],
+  1: [[Item.Pistol, 14], [Item.Rifle, 6], [Item.PistolAmmo, 18], [Item.RifleAmmo, 14], [Item.Vest1, 8], [Item.Helmet1, 8], [Item.Vest2, 1], [Item.Helmet2, 1], [Item.Bandage, 22], [Item.Medkit, 3], [Item.Backpack1, 6], [Item.Backpack2, 1]],
+  2: [[Item.Pistol, 11], [Item.Rifle, 12], [Item.PistolAmmo, 13], [Item.RifleAmmo, 18], [Item.Vest1, 9], [Item.Helmet1, 9], [Item.Vest2, 3], [Item.Helmet2, 3], [Item.Bandage, 16], [Item.Medkit, 5], [Item.Backpack1, 5], [Item.Backpack2, 3], [Item.Backpack3, 0.5]],
+  3: [[Item.Pistol, 7], [Item.Rifle, 17], [Item.PistolAmmo, 9], [Item.RifleAmmo, 20], [Item.Vest1, 7], [Item.Helmet1, 7], [Item.Vest2, 7], [Item.Helmet2, 7], [Item.Bandage, 12], [Item.Medkit, 7], [Item.Backpack1, 3], [Item.Backpack2, 4], [Item.Backpack3, 1.5]],
+  4: [[Item.Rifle, 18], [Item.RifleAmmo, 18], [Item.Vest2, 14], [Item.Helmet2, 14], [Item.Medkit, 14], [Item.Bandage, 8], [Item.Pistol, 4], [Item.PistolAmmo, 6], [Item.Backpack2, 4], [Item.Backpack3, 4]],
 };
 const AMMO_TABLE: readonly (readonly [number, number])[] = [[Item.RifleAmmo, 3], [Item.PistolAmmo, 2]];
 
@@ -105,6 +139,10 @@ export interface SpawnedItem {
   x: number;
   y: number;
   z: number;
+  /** The loot point it was rolled for. */
+  point: number;
+  /** Container.* of that point: items with a container go inside its crate. */
+  box: number;
 }
 
 /** Ammo that fits a weapon kind. */
@@ -124,18 +162,20 @@ export function rollLoot(points: readonly LootPoint[], seed: number): SpawnedIte
     const container = p.container !== Container.None;
     if (rng() >= (container ? LOOT.containerChance : LOOT.spawnChance)) continue;
     const tier = Math.min(4, p.tier + (p.container === Container.Large ? 1 : 0));
-    const count = p.container === Container.Large ? 2 : 1;
+    const count = p.container === Container.Large ? LOOT.largeCrateItems : p.container === Container.Small ? LOOT.smallCrateItems : p.container === Container.Ammo ? LOOT.ammoBoxItems : 1;
+    const box = p.container;
     for (let i = 0; i < count; i++) {
       const kind = p.container === Container.Ammo ? pick(AMMO_TABLE, rng()) : pick(TABLES[tier] ?? (TABLES[1] as never), rng());
       // Small offsets so stacks on one point do not overlap.
       const ox = i === 0 ? 0 : (rng() - 0.5) * 0.6;
       const oz = i === 0 ? 0 : (rng() - 0.5) * 0.6;
-      out.push({ kind, amount: (ITEM_INFO[kind] as ItemInfo).stack, x: p.x + ox, y: p.y, z: p.z + oz });
-      if ((kind === Item.Rifle || kind === Item.Pistol) && !container) {
+      out.push({ kind, amount: (ITEM_INFO[kind] as ItemInfo).stack, x: p.x + ox, y: p.y, z: p.z + oz, point: p.id, box });
+      // A gun comes with ammo: next to it on the floor, in the same crate in a container.
+      if (kind === Item.Rifle || kind === Item.Pistol) {
         for (let a = 0; a < LOOT.ammoWithWeapon; a++) {
           const ammo = ammoFor(kind);
           const ang = rng() * 6.283185307179586;
-          out.push({ kind: ammo, amount: (ITEM_INFO[ammo] as ItemInfo).stack, x: p.x + dcos(ang) * 0.5, y: p.y, z: p.z + dsin(ang) * 0.5 });
+          out.push({ kind: ammo, amount: (ITEM_INFO[ammo] as ItemInfo).stack, x: p.x + dcos(ang) * 0.5, y: p.y, z: p.z + dsin(ang) * 0.5, point: p.id, box });
         }
       }
     }
@@ -143,12 +183,14 @@ export function rollLoot(points: readonly LootPoint[], seed: number): SpawnedIte
   return out;
 }
 
-/** Armor a duck wears (server side; levels are public, durability owner-only). */
+/** Gear a duck wears (server side; levels are public, durability owner-only). */
 export interface Armor {
   vest: number;
   vestDur: number;
   helmet: number;
   helmetDur: number;
+  /** Backpack level (0: none). Left out means none. */
+  pack?: number;
 }
 
 /**
@@ -175,108 +217,6 @@ export function absorbDamage(a: Armor, raw: number, head: boolean): number {
 export interface ItemExtra {
   mag?: number;
   dur?: number;
-}
-
-/** Is this vest or helmet (with `dur` left, default new) an upgrade over what is worn? (Higher level, or same level with more durability.) */
-export function isArmorUpgrade(a: Armor, kind: number, dur?: number): boolean {
-  if (kind === Item.Vest1 || kind === Item.Vest2) {
-    const lvl = kind === Item.Vest1 ? 1 : 2;
-    const d = dur ?? ARMOR.vestDurability[lvl] ?? 0;
-    return lvl > a.vest || (lvl === a.vest && d > a.vestDur + 1);
-  }
-  if (kind === Item.Helmet1 || kind === Item.Helmet2) {
-    const lvl = kind === Item.Helmet1 ? 1 : 2;
-    const d = dur ?? ARMOR.helmetDurability[lvl] ?? 0;
-    return lvl > a.helmet || (lvl === a.helmet && d > a.helmetDur + 1);
-  }
-  return false;
-}
-
-/**
- * Put up to `amount` of an item into the inventory. Returns how much was
- * taken (0: nothing fits, the item stays where it is). Server only: the
- * owner sees the result through its state. Rules:
- * - A gun you do not have: equip it with a full magazine (straight away if
- *   you are unarmed). A gun you already have: its magazine becomes reserve ammo.
- * - Ammo and heals: up to their caps. Armor: only an upgrade, replacing the old piece.
- */
-export function applyPickup(s: PlayerSim, a: Armor, kind: number, amount: number, extra: ItemExtra = {}): number {
-  if (kind === Item.Rifle || kind === Item.Pistol) {
-    const w = kind === Item.Rifle ? WeaponId.Rifle : WeaponId.Pistol;
-    const stats = weaponStats(w);
-    const bit = 1 << w;
-    // A dropped gun carries the rounds it had; a gun found in the world comes loaded.
-    const loaded = Math.max(0, Math.min(stats.magSize, extra.mag ?? stats.magSize));
-    if (s.arms & bit) {
-      const room = (w === WeaponId.Rifle ? LOOT.maxRifleAmmo - s.res0 : LOOT.maxPistolAmmo - s.res1);
-      if (room <= 0 || loaded === 0) return loaded === 0 ? amount : 0;
-      const add = Math.min(room, loaded);
-      if (w === WeaponId.Rifle) s.res0 += add;
-      else s.res1 += add;
-      return amount;
-    }
-    const wasArmed = (s.arms >> s.weapon) & 1;
-    s.arms |= bit;
-    if (w === WeaponId.Rifle) s.mag0 = loaded;
-    else s.mag1 = loaded;
-    if (!wasArmed) {
-      s.weapon = w;
-      s.equip = stats.equipTicks;
-      s.reload = 0;
-      s.spray = 0;
-      s.cooldown = 0;
-    }
-    return amount;
-  }
-  if (kind === Item.RifleAmmo || kind === Item.PistolAmmo) {
-    const rifle = kind === Item.RifleAmmo;
-    const room = rifle ? LOOT.maxRifleAmmo - s.res0 : LOOT.maxPistolAmmo - s.res1;
-    const take = Math.max(0, Math.min(room, amount));
-    if (rifle) s.res0 += take;
-    else s.res1 += take;
-    return take;
-  }
-  if (kind === Item.Bandage || kind === Item.Medkit) {
-    const band = kind === Item.Bandage;
-    const take = Math.max(0, Math.min(band ? LOOT.maxBandages - s.bandages : LOOT.maxMedkits - s.medkits, amount));
-    if (band) s.bandages += take;
-    else s.medkits += take;
-    return take;
-  }
-  if (kind === Item.Vest1 || kind === Item.Vest2 || kind === Item.Helmet1 || kind === Item.Helmet2) {
-    if (!isArmorUpgrade(a, kind, extra.dur)) return 0;
-    if (kind === Item.Vest1 || kind === Item.Vest2) {
-      a.vest = kind === Item.Vest1 ? 1 : 2;
-      a.vestDur = extra.dur ?? ARMOR.vestDurability[a.vest] ?? 0;
-    } else {
-      a.helmet = kind === Item.Helmet1 ? 1 : 2;
-      a.helmetDur = extra.dur ?? ARMOR.helmetDurability[a.helmet] ?? 0;
-    }
-    return amount;
-  }
-  return 0;
-}
-
-/** Would any of this item fit right now (for the pickup prompt and bots)? */
-export function wantsItem(s: PlayerSim, a: Armor, kind: number): boolean {
-  switch (kind) {
-    case Item.Rifle:
-      return !(s.arms & 1) || s.res0 < LOOT.maxRifleAmmo;
-    case Item.Pistol:
-      return !(s.arms & 2) || s.res1 < LOOT.maxPistolAmmo;
-    case Item.RifleAmmo:
-      return s.res0 < LOOT.maxRifleAmmo;
-    case Item.PistolAmmo:
-      return s.res1 < LOOT.maxPistolAmmo;
-    case Item.Bandage:
-      return s.bandages < LOOT.maxBandages;
-    case Item.Medkit:
-      return s.medkits < LOOT.maxMedkits;
-    case Item.Crate:
-      return true;
-    default:
-      return isArmorUpgrade(a, kind);
-  }
 }
 
 export interface PickupCandidate {
@@ -316,18 +256,4 @@ export function choosePickup<T extends PickupCandidate>(items: Iterable<T>, x: n
 export interface DropItem extends ItemExtra {
   kind: number;
   amount: number;
-}
-
-/** What a dead duck drops: its guns with the rounds in them, its reserve ammo, its armor as worn, its heals. Nothing is created. */
-export function dropsOf(s: PlayerSim, a: Armor): DropItem[] {
-  const out: DropItem[] = [];
-  if (s.arms & 1) out.push({ kind: Item.Rifle, amount: 1, mag: s.mag0 });
-  if (s.arms & 2) out.push({ kind: Item.Pistol, amount: 1, mag: s.mag1 });
-  if (s.res0 > 0) out.push({ kind: Item.RifleAmmo, amount: s.res0 });
-  if (s.res1 > 0) out.push({ kind: Item.PistolAmmo, amount: s.res1 });
-  if (a.vest > 0) out.push({ kind: a.vest === 1 ? Item.Vest1 : Item.Vest2, amount: 1, dur: a.vestDur });
-  if (a.helmet > 0) out.push({ kind: a.helmet === 1 ? Item.Helmet1 : Item.Helmet2, amount: 1, dur: a.helmetDur });
-  if (s.bandages > 0) out.push({ kind: Item.Bandage, amount: s.bandages });
-  if (s.medkits > 0) out.push({ kind: Item.Medkit, amount: s.medkits });
-  return out;
 }

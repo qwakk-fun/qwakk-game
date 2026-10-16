@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./net": "./src/net/schema.ts",
+    "./lobby": "./src/lobby.ts",
     "./maps/*": "./src/maps/*"
   },
   "scripts": {

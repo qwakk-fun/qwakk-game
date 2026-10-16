@@ -422,6 +422,26 @@ def tint_compare(built, palette, renders_dir, game_dir):
             o.data.materials[0] = _prepare_mat
 
 
+def interiors(built, renders_dir):
+    """Eye-level shots inside each house from the cameras in p.meta["cams"]: (tag, eye, target, lens), Blender space."""
+    toon.setup_scene(samples=bpy.context.scene.eevee.taa_render_samples, size=(1280, 800), bg=SKY)
+    ground = ground_plane()
+    for _, _, objs in built:
+        _hide_all(objs, True)
+    for p, obj, objs in built:
+        cams = p.meta.get("cams")
+        if not cams:
+            continue
+        _hide_all(objs, False)
+        for tag, eye, target, lens in cams:
+            cam = toon.camera(f"int_{p.name}_{tag}", eye, target, lens=lens)
+            toon.render(cam, os.path.join(renders_dir, f"interior_{p.name}_{tag}.png"))
+        _hide_all(objs, True)
+    bpy.data.objects.remove(ground)
+    for _, _, objs in built:
+        _hide_all(objs, False)
+
+
 def run(palette, built, renders_dir, thumbs_dir, quick=False, shots=None, game_dir=None):
     toon.setup_scene(samples=8 if quick else 32)
     _prepare(built, palette)
@@ -434,6 +454,8 @@ def run(palette, built, renders_dir, thumbs_dir, quick=False, shots=None, game_d
         sheet(files, os.path.join(renders_dir, "kit_overview.png"))
     if want("closeups"):
         closeups(built, renders_dir)
+    if want("interiors"):
+        interiors(built, renders_dir)
     if want("plane"):
         plane_shot(built, renders_dir)
     if want("street"):

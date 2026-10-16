@@ -57,9 +57,17 @@ export function guardClientIp(req: IncomingMessage, trustProxyHops: number): str
   return ip;
 }
 
-/** Install the guard on the HTTP server ahead of the WebSocket transport's own upgrade listener. */
+/**
+ * Rewrite the headers of every upgrade (joins) and plain request (matchmaking,
+ * where room creation is limited per IP, see matchmaking.ts) before ANY
+ * listener sees it. A prepended listener is not enough: Colyseus prepends its
+ * own matchmaking listener when the server starts listening, after we are
+ * installed, and copies the headers right away. So the guard sits in `emit`.
+ */
 export function installClientIpGuard(server: HttpServer, trustProxyHops: number): void {
-  server.prependListener('upgrade', (req: IncomingMessage) => {
-    guardClientIp(req, trustProxyHops);
-  });
+  const emit = server.emit.bind(server) as (event: string | symbol, ...args: unknown[]) => boolean;
+  server.emit = ((event: string | symbol, ...args: unknown[]): boolean => {
+    if (event === 'request' || event === 'upgrade') guardClientIp(args[0] as IncomingMessage, trustProxyHops);
+    return emit(event, ...args);
+  }) as typeof server.emit;
 }

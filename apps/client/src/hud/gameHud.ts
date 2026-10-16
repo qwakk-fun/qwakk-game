@@ -35,6 +35,8 @@ export class GameHud {
   private readonly score: HTMLElement;
   private readonly board: HTMLElement;
   private readonly vignette: HTMLElement;
+  private readonly focus: HTMLElement;
+  private lastFocus = -1;
   private readonly flash: HTMLElement;
   private readonly center: HTMLElement;
   private readonly arcs: HTMLElement;
@@ -48,6 +50,7 @@ export class GameHud {
 
   constructor(app: HTMLElement) {
     this.root = el('div', 'ghud', app);
+    this.focus = el('div', 'ghud-focus', this.root);
     this.vignette = el('div', 'ghud-vignette', this.root);
     this.flash = el('div', 'ghud-flash', this.root);
     this.arcs = el('div', 'ghud-arcs', this.root);
@@ -113,6 +116,15 @@ export class GameHud {
     b.style.transform = `translate(-50%, ${gap}px)`;
     l.style.transform = `translate(${-gap - 9}px, -50%)`;
     r.style.transform = `translate(${gap}px, -50%)`;
+  }
+
+  /** Aim down sights: darken the screen edges a little (0 hip to 1 full aim). */
+  aimFocus(blend: number): void {
+    const v = Math.round(blend * 50) / 50;
+    if (v === this.lastFocus) return;
+    this.lastFocus = v;
+    this.focus.style.opacity = String(v);
+    this.cross.classList.toggle('ads', v > 0.5);
   }
 
   /** Hit marker: white for a hit, yellow for a headshot, red for a kill. */

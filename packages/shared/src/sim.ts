@@ -4,7 +4,8 @@
  * SimWorld: the same (state, input) gives the same next state on the client
  * (prediction and replay) and on the server (authority).
  */
-import { BODY, DT, HEAL, MOVE, TICK_RATE, WATER } from './constants.ts';
+import { ADS, BODY, DT, HEAL, MOVE, TICK_RATE, WATER } from './constants.ts';
+import { aimBlend, stepAim } from './ads.ts';
 import { Button, type InputFrame } from './input.ts';
 import { stepWeapon, type ShotFired } from './combat.ts';
 import { WeaponId, weaponStats } from './weapons.ts';
@@ -76,13 +77,15 @@ export interface PlayerSim {
   /** Heal items carried. */
   bandages: number;
   medkits: number;
+  /** Aim down sights: ticks into the aim, 0 (hip) to ADS.inTicks (full aim). */
+  aim: number;
 }
 
 /** Field list in a fixed order: reconciler mirror list and test helpers. */
 export const PLAYER_SIM_FIELDS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'crouch', 'grounded', 'air', 'jumpBuf', 'prevButtons',
   'alive', 'weapon', 'equip', 'cooldown', 'reload', 'mag0', 'mag1', 'res0', 'res1', 'spray', 'shotSeq',
-  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits',
+  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits', 'aim',
 ] as const satisfies readonly (keyof PlayerSim)[];
 
 export function createPlayerSim(x: number, y: number, z: number, yaw = 0): PlayerSim {
@@ -92,7 +95,7 @@ export function createPlayerSim(x: number, y: number, z: number, yaw = 0): Playe
     x, y, z, vx: 0, vy: 0, vz: 0, yaw, pitch: 0, crouch: 0, grounded: 0, air: 0, jumpBuf: 0, prevButtons: 0,
     alive: 1, weapon: WeaponId.Rifle, equip: 0, cooldown: 0, reload: 0,
     mag0: rifle.magSize, mag1: pistol.magSize, res0: rifle.reserve, res1: pistol.reserve, spray: 0, shotSeq: 0,
-    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0,
+    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0, aim: 0,
   };
 }
 
@@ -109,6 +112,8 @@ export function wishSpeedFor(s: PlayerSim, input: InputFrame): number {
   if (s.heal > 0) return Math.min(HEAL.moveSpeed, s.crouch ? MOVE.crouchSpeed : HEAL.moveSpeed);
   if (s.crouch) return MOVE.crouchSpeed;
   if (input.buttons & Button.Walk) return MOVE.walkSpeed;
+  // Aiming down sights: no sprint, and the speed eases down to the aim speed as the aim comes in.
+  if (s.aim > 0) return MOVE.runSpeed + (ADS.moveSpeed - MOVE.runSpeed) * aimBlend(s);
   // No sprinting while the trigger is held.
   if (input.buttons & Button.Sprint && input.mz >= MOVE.sprintMinForward && !(input.buttons & Button.Fire)) return MOVE.sprintSpeed;
   return MOVE.runSpeed;
@@ -166,14 +171,17 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
   const buttons = input.buttons | 0;
   let shot: ShotFired | null = null;
   if (s.alive && s.mode === Mode.Ground) {
+    stepAim(s, input);
     stepMovement(sim, s, input, dt);
     stepHeal(s, input);
     shot = stepWeapon(s, input);
   } else if (s.alive && (s.mode === Mode.Freefall || s.mode === Mode.Glide)) {
     stepDrop(sim, s, input, dt);
+    s.aim = 0;
   } else {
     s.yaw = input.yaw;
     s.pitch = input.pitch;
+    s.aim = 0;
   }
   s.prevButtons = buttons;
   quantize(s);
@@ -305,9 +313,16 @@ export function moveCapsule(sim: SimWorld, s: PlayerSim, dt: number): boolean {
   s.z += mz;
 
   // Clip horizontal velocity against walls (slide along them, no stored push).
+  // Not while the controller lifts a grounded duck up a ramp or a stair ramp:
+  // there the shorter horizontal move is the climb, not a wall, and clipping it
+  // every step (plus stop-speed friction) left walking and crouching ducks
+  // crawling up stairs at 0.1 to 0.2 m/s. Only a real lift counts: on flat
+  // ground my (about 0) is still above the gravity step dy, and skipping the
+  // clip there would keep wall-pushing ducks' velocity (lookahead, spread).
   const desiredH = dx * dx + dz * dz;
   const movedH = mx * mx + mz * mz;
-  if (desiredH > 1e-10 && movedH < desiredH * 0.98) {
+  const climbing = grounded && s.grounded === 1 && my > 1e-3;
+  if (desiredH > 1e-10 && movedH < desiredH * 0.98 && !climbing) {
     s.vx = mx / dt;
     s.vz = mz / dt;
   }

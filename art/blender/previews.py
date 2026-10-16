@@ -17,7 +17,9 @@ import clips
 import geo
 import holds
 import posing
+import reloads
 import render
+import weapons
 
 STRIP_FRAMES = 8
 
@@ -37,12 +39,20 @@ class Stage:
         self.floor.hide_render = True
         ng = bpy.data.node_groups.get("InvertedHull")
         self.gun_hulls = {}
-        for kind, (gun, _e) in guns.items():
+        self.mags = {}
+        self.mag_state = None
+        for kind, (gun, nodes) in guns.items():
             gun.data.materials[0] = duck_obj.data.materials[0]   # the toon material set up by shots()
             hull = render.add_outline(gun, None, ng)
             hull.parent = None
             hull.hide_render = True
             self.gun_hulls[kind] = hull
+            mag = weapons.mag_of(nodes)
+            mag.data.materials[0] = duck_obj.data.materials[0]
+            mag_hull = render.add_outline(mag, None, ng)
+            mag_hull.parent = None
+            mag_hull.hide_render = True
+            self.mags[kind] = (mag, mag_hull)
 
     def _floor(self):
         bpy.ops.mesh.primitive_plane_add(size=40, location=(0, 0, -0.001))
@@ -85,6 +95,7 @@ class Stage:
     def basis_at(self, name, t):
         fn, frames, loop, layer = self.reg[name]
         pose = fn(self.ctx, t)
+        self.mag_state = getattr(pose, "mag", None)
         M, _ = posing.solve(self.sk, pose)
         return posing.to_basis(self.sk, M), layer
 
@@ -94,10 +105,22 @@ class Stage:
         for kind, (gun, _e) in self.guns.items():
             on = kind == weapon
             gun.hide_render = self.gun_hulls[kind].hide_render = not on
+            mag, mag_hull = self.mags[kind]
+            state = self.mag_state or "gun"
+            mag.hide_render = mag_hull.hide_render = not on or state == "none"
             if on:
                 hand = self.rig.matrix_world @ self.rig.pose.bones["RightHand"].matrix
                 gun.matrix_world = hand @ holds.attach(self.sk, "Right")
                 self.gun_hulls[kind].matrix_world = gun.matrix_world
+                if state == "hand":
+                    left = self.rig.matrix_world @ self.rig.pose.bones["LeftHand"].matrix
+                    world = left @ holds.mag_in_hand(self.sk, kind)
+                else:
+                    world = gun.matrix_world @ weapons.mag_local(kind)
+                bpy.context.view_layer.update()
+                mag.matrix_world = world
+                mag_hull.matrix_world = world
+        self.mag_state = None
         bpy.context.view_layer.update()
 
     def layered(self, lower, upper, t_lower, t_upper):
@@ -164,6 +187,8 @@ def run(wanted, quick, renders, rig_obj, sk, ctx, guns, duck_obj):
         weapon_shots(stage, renders)
     if wanted("hold"):
         hold_shots(stage, renders)
+    if wanted("tps"):
+        tps_strips(stage, renders)
     names = [n for n in stage.reg if wanted("anim:" + n)]   # --only anim, or --only anim:Run_F
     if names:
         anim_dir = os.path.join(renders, "anim")
@@ -292,3 +317,59 @@ def hold_shots(stage, renders):
                 cam = render.frame_camera("cam_h", target, height, pitch_deg=8, lens=80)
             render.render(cam, os.path.join(renders, f"hold_{kind}_{view}.png"))
         stage.show(posing.to_basis(stage.sk, posing.solve(stage.sk, posing.Pose())[0]), None)
+
+
+def game_camera(name, arm, zoom=1.0, pitch=-0.10):
+    """The game's over-the-shoulder camera (tpsCamera.ts): pivot at eye height, shoulder 0.75 m right
+    and 0.32 m up, arm straight back along the view; 75 degree vertical field of view divided by `zoom`."""
+    shoulder = Vector((-0.75, 0.0, 1.55 + 0.32))          # duck's right is -X, forward is -Y
+    fwd = Vector((0.0, -math.cos(pitch), math.sin(pitch)))
+    loc = shoulder - fwd * arm
+    # Blender fits the 36 mm sensor to the wider side: 16:9 frames, so scale the vertical view by 16/9.
+    lens = 18.0 / (math.tan(math.radians(37.5)) / zoom * 16 / 9)
+    return render.camera(name, loc, loc + fwd * 10, lens)
+
+
+def tps_strips(stage, renders):
+    """Review strips in renders/tps: hip vs aim down sights from the game camera, and each reload at
+    its magazine events from the game camera, from the same eye point with a narrow lens on the hands
+    (`tpszoom`), and from the duck's front right (`right`, how other players see it)."""
+    out = os.path.join(renders, "tps")
+    os.makedirs(out, exist_ok=True)
+    scene = bpy.context.scene
+    scene.render.resolution_x, scene.render.resolution_y = 768, 432
+    stage.turn(0)
+    for kind, aim, ads in (("rifle", "Rifle_Aim", "Rifle_ADS"), ("pistol", "Pistol_Aim", "Pistol_ADS")):
+        for label, clip, arm, zoom in (("hip", aim, 3.1, 1.0), ("ads", ads, 1.8, 1.5 if kind == "rifle" else 1.25)):
+            basis, _ = stage.basis_at(clip, 0.0)
+            stage.show(basis, kind)
+            render.render(game_camera("cam_tps", arm, zoom), os.path.join(out, f"{kind}_{label}.png"))
+    for kind, clip in (("rifle", "Rifle_Reload"), ("pistol", "Pistol_Reload")):
+        e = reloads.MAG_EVENTS[kind]
+        times = [0.0, e["out"] + 0.02, (e["out"] + e["drop"]) / 2 if e["drop"] > e["out"] else e["out"] + 0.12,
+                 e["fresh"] + 0.02, (e["fresh"] + e["in"]) / 2, e["in"] + 0.02, reloads.RELOAD_SECONDS[kind] - 0.25]
+        for view in ("tps", "tpszoom", "right"):
+            files = []
+            for i, t in enumerate(times):
+                basis, _ = stage.basis_at(clip, t)
+                stage.show(basis, kind)
+                if view == "tps":
+                    scene.render.resolution_x, scene.render.resolution_y = 768, 432
+                    cam = game_camera("cam_tps", 3.1)
+                elif view == "tpszoom":
+                    # Same eye point as the game camera, narrow lens on the hands (review only).
+                    scene.render.resolution_x = scene.render.resolution_y = 432
+                    eye = game_camera("cam_tps", 3.1).location.copy()
+                    cam = render.camera("cam_z", eye, Vector((-0.2, -0.3, 0.95)), 75)
+                else:
+                    scene.render.resolution_x = scene.render.resolution_y = 432
+                    cam = render.frame_camera("cam_f", (-0.30, -0.30, 0.80), 0.75, yaw_deg=-75, pitch_deg=15, lens=60)
+                path = os.path.join(out, f"_{kind}_{view}_{i}.png")
+                render.render(cam, path)
+                files.append(path)
+                stage.turn(0)
+            ffmpeg(*sum([["-i", p] for p in files], []), "-filter_complex", f"hstack=inputs={len(files)}",
+                   os.path.join(out, f"reload_{kind}_{view}.png"))
+            for p in files:
+                os.remove(p)
+    scene.render.resolution_x = scene.render.resolution_y = 1024

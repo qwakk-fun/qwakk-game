@@ -17,7 +17,7 @@ function loadSensitivity(): number {
   }
 }
 
-export type ControlAction = 'shoulder' | 'hud' | 'lag' | 'jitter' | 'loss' | 'scoreboard-on' | 'scoreboard-off' | 'map' | 'spectate-next' | 'spectate-prev';
+export type ControlAction = 'shoulder' | 'hud' | 'lag' | 'jitter' | 'loss' | 'scoreboard-on' | 'scoreboard-off' | 'map' | 'spectate-next' | 'spectate-prev' | 'inventory' | 'inventory-close';
 
 export class Controls {
   yaw = 0;
@@ -31,6 +31,13 @@ export class Controls {
   private jumpLatch = false;
   private fireLatch = false;
   private fireHeld = false;
+  /** Right mouse held: aim down sights. */
+  private aimHeld = false;
+  /**
+   * Look speed multiplier on top of `sensitivity`, set by the game every frame
+   * (the aiming sensitivity setting, blended in with the aim).
+   */
+  lookScale = 1;
   private reloadLatch = false;
   private useLatch = false;
   private deployLatch = false;
@@ -44,6 +51,12 @@ export class Controls {
   leftShoulder = false;
   /** Dead in a battle royale: clicks cycle the duck being watched instead of firing. */
   spectating = false;
+  /**
+   * A game screen that needs the mouse is open (the inventory): the pointer is
+   * free, but movement and action keys still count, so a duck can walk away
+   * from a fight with its inventory open. Mouse look and the trigger do not.
+   */
+  uiOpen = false;
   private readonly abort = new AbortController();
 
   /** Remove every listener (the game ends; a new game makes new controls). */
@@ -60,6 +73,7 @@ export class Controls {
       if (!this.locked) {
         this.keys.clear();
         this.fireHeld = false;
+        this.aimHeld = false;
       }
     }, opts);
     document.addEventListener('mousedown', (e) => {
@@ -68,12 +82,21 @@ export class Controls {
         this.emit(e.button === 2 ? 'spectate-prev' : 'spectate-next');
         return;
       }
+      if (e.button === 2) {
+        this.aimHeld = true;
+        return;
+      }
       if (e.button !== 0) return;
       this.fireHeld = true;
       this.fireLatch = true;
     }, opts);
     document.addEventListener('mouseup', (e) => {
       if (e.button === 0) this.fireHeld = false;
+      if (e.button === 2) this.aimHeld = false;
+    }, opts);
+    // Right click aims: no browser menu while playing.
+    document.addEventListener('contextmenu', (e) => {
+      if (this.locked || this.uiOpen) e.preventDefault();
     }, opts);
     document.addEventListener(
       'wheel',
@@ -85,14 +108,16 @@ export class Controls {
     );
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
-      this.yaw = wrapAngle(this.yaw - e.movementX * this.sensitivity);
-      this.pitch = Math.max(NET.minPitch, Math.min(NET.maxPitch, this.pitch - e.movementY * this.sensitivity));
+      const k = this.sensitivity * this.lookScale;
+      this.yaw = wrapAngle(this.yaw - e.movementX * k);
+      this.pitch = Math.max(NET.minPitch, Math.min(NET.maxPitch, this.pitch - e.movementY * k));
     }, opts);
     window.addEventListener('keydown', (e) => this.onKey(e, true), opts);
     window.addEventListener('keyup', (e) => this.onKey(e, false), opts);
     window.addEventListener('blur', () => {
       this.keys.clear();
       this.fireHeld = false;
+      this.aimHeld = false;
     }, opts);
   }
 
@@ -118,19 +143,23 @@ export class Controls {
   private onKey(e: KeyboardEvent, down: boolean): void {
     const code = e.code;
     if (code === 'AltLeft' || code === 'AltRight' || code === 'Space' || code === 'Tab') e.preventDefault();
+    // Playing: the mouse is locked, or a game screen (the inventory) is open.
+    const live = this.locked || this.uiOpen;
     if (down && !e.repeat) {
-      if (code === 'Space' && this.locked) this.jumpLatch = true;
+      if (code === 'KeyI') this.emit('inventory');
+      if (code === 'Escape' && this.uiOpen) this.emit('inventory-close');
+      if (code === 'Space' && live) this.jumpLatch = true;
       if (code === 'KeyV') {
         this.leftShoulder = !this.leftShoulder;
         this.emit('shoulder');
       }
-      if (code === 'KeyR' && this.locked) this.reloadLatch = true;
-      if (code === 'Digit1' && this.locked) this.slotLatch = 0;
-      if (code === 'Digit2' && this.locked) this.slotLatch = 1;
-      if (code === 'KeyE' && this.locked) this.useLatch = true;
-      if (code === 'KeyF' && this.locked) this.deployLatch = true;
-      if (code === 'Digit4' && this.locked) this.heal1Latch = true;
-      if (code === 'Digit5' && this.locked) this.heal2Latch = true;
+      if (code === 'KeyR' && live) this.reloadLatch = true;
+      if (code === 'Digit1' && live) this.slotLatch = 0;
+      if (code === 'Digit2' && live) this.slotLatch = 1;
+      if (code === 'KeyE' && live) this.useLatch = true;
+      if (code === 'KeyF' && live) this.deployLatch = true;
+      if (code === 'Digit4' && live) this.heal1Latch = true;
+      if (code === 'Digit5' && live) this.heal2Latch = true;
       if (code === 'KeyM') this.emit('map');
       if (code === 'Tab') this.emit('scoreboard-on');
       if (code === 'KeyH') this.emit('hud');
@@ -143,7 +172,7 @@ export class Controls {
     // Movement keys only count while playing (pointer locked), so typing or
     // clicking around the page never moves the duck. Releases always count.
     if (!down && code === 'Tab') this.emit('scoreboard-off');
-    if (down && this.locked) this.keys.add(code);
+    if (down && live) this.keys.add(code);
     else if (!down) this.keys.delete(code);
   }
 
@@ -167,6 +196,7 @@ export class Controls {
     if (k.has('KeyC')) buttons |= Button.Crouch;
     if (k.has('AltLeft') || k.has('AltRight')) buttons |= Button.Walk;
     if (this.fireHeld || this.fireLatch) buttons |= Button.Fire;
+    if (this.aimHeld) buttons |= Button.Aim;
     if (this.reloadLatch) buttons |= Button.Reload;
     if (this.slotLatch === 0) buttons |= Button.Slot1;
     if (this.slotLatch === 1) buttons |= Button.Slot2;

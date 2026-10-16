@@ -3,7 +3,7 @@
  * loads Sainte-Canard without a game server and flies a fixed camera path for
  * frame time, draw call and triangle measurements (e2e/map-perf.ts).
  *
- * URL: /game/mapview.html?quality=low&shadows=0&ducks=0&segment=street&hold=1
+ * URL: /game/mapview.html?quality=low&shadows=0&ducks=0&segment=street&hold=1 (or &cam=x,y,z&look=x,y,z&segment=view)
  */
 import * as THREE from 'three/webgpu';
 import { Item } from '@qwakk/shared';
@@ -76,6 +76,22 @@ const SEGMENTS: Segment[] = [
   },
 ];
 
+/** `?cam=x,y,z&look=x,y,z` adds a fixed 'view' segment (house interiors, review shots). */
+const camParam = params.get('cam')?.split(',').map(Number);
+const lookParam = params.get('look')?.split(',').map(Number);
+if (camParam?.length === 3 && lookParam?.length === 3 && [...camParam, ...lookParam].every(Number.isFinite)) {
+  const [cx, cy, cz] = camParam as [number, number, number];
+  const [lx, ly, lz] = lookParam as [number, number, number];
+  SEGMENTS.push({
+    name: 'view',
+    seconds: 3,
+    at(_u, pos, look) {
+      pos.set(cx, cy, cz);
+      look.set(lx, ly, lz);
+    },
+  });
+}
+
 interface SegStats {
   name: string;
   frames: number;
@@ -125,7 +141,7 @@ async function main(): Promise<void> {
   zone.setNext(40, -120, 170);
   const items = new ItemsView(scene);
   const loot = assets.def.br?.loot ?? [];
-  const kinds = [Item.Rifle, Item.Pistol, Item.RifleAmmo, Item.PistolAmmo, Item.Vest1, Item.Vest2, Item.Helmet1, Item.Helmet2, Item.Bandage, Item.Medkit, Item.Crate];
+  const kinds = [Item.Rifle, Item.Pistol, Item.RifleAmmo, Item.PistolAmmo, Item.Vest1, Item.Vest2, Item.Helmet1, Item.Helmet2, Item.Bandage, Item.Medkit, Item.Backpack1, Item.Backpack2, Item.Backpack3];
   loot.forEach((p, i) => {
     if (i % 10 < 7) items.upsert(`i${i}`, kinds[i % kinds.length] as number, p.x, p.y, p.z);
   });

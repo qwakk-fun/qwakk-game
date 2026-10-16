@@ -15,7 +15,7 @@ Options:
 - `--no-render`: mesh, rig, weapons, clips and exports only.
 - `--quick`: fewer render samples, and no MP4/GIF previews.
 - `--no-anim`: skip baking the clips (fast mesh iteration; leaves the old `duck_anims.glb` in place).
-- `--only NAME`: render only shots whose name contains NAME: `turnaround`, `face`, `size`, `pose`, `beanie`, `weapon`, `hold`, `anim`, or a single clip such as `anim:Run_F` (repeatable).
+- `--only NAME`: render only shots whose name contains NAME: `turnaround`, `face`, `size`, `pose`, `beanie`, `weapon`, `hold`, `tps` (hip vs aim down sights from the game camera and the reloads at their magazine moments, in `renders/tps/`), `anim`, or a single clip such as `anim:Run_F` (repeatable).
 
 Check the published files against the asset contract (plain Python, no Blender):
 
@@ -29,8 +29,8 @@ python3 qwakk-game/art/blender/validate_glb.py
 | --- | --- |
 | `duck.glb` | Skinned duck, T-pose rest, facing +Z, meters, palette texture embedded |
 | `duck_anims.glb` | Armature only, same bone names, all clips below |
-| `weapons/rifle.glb`, `weapons/pistol.glb` | Weapons, origin at the right-hand grip, barrel +Z, with child nodes `Muzzle`, `Grip`, `Support`, `Eject` |
-| `weapons/attach.json` | Weapon pose in `RightHand` joint space: `{ rifle: {position, quaternion}, pistol: {...} }` |
+| `weapons/rifle.glb`, `weapons/pistol.glb` | Weapons, origin at the right-hand grip, barrel +Z, with child nodes `Muzzle`, `Grip`, `Support`, `Eject`, and the magazine mesh `Mag` (origin at its seat, local -Z out of the magwell) |
+| `weapons/attach.json` | Weapon pose in `RightHand` joint space: `{ rifle: {position, quaternion}, pistol: {...} }`, plus `reload: { rifle: {seconds, out, drop, fresh, in, magInHand}, pistol: {...} }`: the reload clip's magazine timeline (seconds) and the magazine's pose in the `LeftHand` joint |
 
 Nothing else under `models/` is written by this build (`models/props/` belongs to the map workstream).
 
@@ -48,6 +48,7 @@ Local outputs in `art/`: `export/` (the same GLBs, `acc_beanie.glb`, `palette.pn
 | `blender/holds.py` | The fist grip frame, weapon attach math, support hand placement |
 | `blender/posing.py` | Pose engine: rotations in character axes, analytic two-bone IK for feet and hands |
 | `blender/clips.py` | Every clip as code (gait cycles, idles, jumps, deaths, weapon handling, quack) |
+| `blender/reloads.py` | The magazine-change reloads, their timeline (`MAG_EVENTS`) and the aim-down-sights holds |
 | `blender/bake.py` | Bakes clips into actions, exports and prunes `duck_anims.glb`, computes `attach.json` |
 | `blender/render.py`, `blender/previews.py` | Toon renders, clip strips, MP4/GIF previews |
 | `blender/build_all.py` | Entry point |
@@ -79,8 +80,10 @@ All clips are baked at 30 fps. Looping clips have an identical first and last ke
 | `Hit_React` | 0.4 | no | full | Head snaps back, wings flail, feet stay planted |
 | `Rifle_Aim` | 2.0 | yes | upper | Rifle at the right hip, left hand on the magwell, breathing |
 | `Pistol_Aim` | 2.0 | yes | upper | Two-handed pistol at the chest, breathing |
-| `Rifle_Reload` | 1.8 | no | upper | Rifle tilts in, left hand pulls the mag down and slaps it back |
-| `Pistol_Reload` | 1.4 | no | upper | Pistol tips up, fresh mag, slide rack |
+| `Rifle_ADS` | 2.0 | yes | upper | Rifle raised to the bill, arms forward, head leaning into the sight |
+| `Pistol_ADS` | 2.0 | yes | upper | Pistol pushed out at arm's length at eye height |
+| `Rifle_Reload` | 2.3 | no | upper | Rifle swings out to the right hip; left hand pulls the mag (0.37 s), tosses it (0.80 s), takes a fresh one from the hip pouch (1.08 s), seats it (1.63 s) with a bump, back to the aim |
+| `Pistol_Reload` | 1.6 | no | upper | Pistol out to the right; the mag drops free (0.10 s), fresh one from the pouch (0.43 s), seated (0.89 s), slide rack, back to the aim |
 | `Rifle_Fire` | 0.2 | no | upper | Short kick back and up |
 | `Pistol_Fire` | 0.2 | no | upper | Wrist flick |
 | `Equip` | 0.6 | no | upper | Rifle swings up from a low ready into the aim, with a settle |
@@ -88,6 +91,7 @@ All clips are baked at 30 fps. Looping clips have an identical first and last ke
 
 - **Speed matching.** Feet are placed by IK on a gait cycle whose stride equals the authored speed, so they stay planted when the duck moves at that speed (the previews scroll a checker floor to prove it). When the actual speed differs (accelerating, diagonal blends), set `timeScale = speed / authoredSpeed`. At stride ends the legs can run out of reach by up to 3 cm going forward and up to 6 cm in strafes, a small slip.
 - **Tracks.** Full-body clips carry rotation tracks for every joint plus a `Hips` translation track. Upper-body clips carry rotation tracks only for `Spine` and everything below it in the hierarchy (arms, neck, head, jaw, fingers), so they can be layered over any locomotion clip by replacing those bones. There are no scale tracks and no other translation tracks; bones keep their bind positions.
+- **Reloads.** Reload clips are exactly as long as the server's reload time (`packages/shared/src/weapons.ts`; `validate_glb.py` checks it). The gun moves out to the right hip during the reload, beside the body, so the magazine change shows from the over-the-shoulder camera. At the hand-over moments the left fist sits exactly where it holds the seated magazine (`holds.FIST_ON_MAG`), so the engine re-parents the `Mag` node without a pop.
 - **Weapon layering.** Aim, reload, fire and equip clips assume the weapon rides on `RightHand` with `attach.json`. Because the left hand is baked into the clip, it stays on the gun as long as the upper-body layer is applied as a whole. The engine can add procedural aim pitch on `Spine1`/`Spine2` and recoil on top.
 
 ## Weapons
@@ -101,6 +105,7 @@ All clips are baked at 30 fps. Looping clips have an identical first and last ke
 - Built from beveled boxes and cylinders with hardened normals, sharing the duck's palette texture (gunmetal greys plus brand yellow magazine and orange handguard, grip and butt pad). No logos.
 - The rifle is a compact carbine on purpose: the duck's short wings must reach around its round belly. The left hand holds the magwell, which is where `Support` sits.
 - Empties (glTF nodes, children of the weapon node, identity rotation so +Z is forward): `Muzzle` at the barrel tip, `Grip` at the origin, `Support` for the left-hand IK target (rifle: magwell; pistol: left side of the grip), `Eject` on the right side of the receiver or slide.
+- `Mag`: the magazine as its own mesh node, child of the weapon node, at its seat (`weapons.MAG_FRAME`): its origin is the top of the magazine where it enters the gun and its local -Z runs out of the magwell (rifle tilted 8 degrees, pistol along the raked grip). Dark body with an orange base plate, so it reads against the yellow duck while it travels in the wing-hand. The pistol's magazine body sits hidden inside the grip until it drops out.
 
 ### Attaching a weapon (three.js)
 

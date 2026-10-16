@@ -13,6 +13,8 @@ export type Quality = 'low' | 'high';
 export interface Settings {
   /** Look speed multiplier, 1 = default. */
   sensitivity: number;
+  /** Look speed while aiming down sights, as a multiplier of `sensitivity`. */
+  adsSensitivity: number;
   /** Base camera field of view in degrees. */
   fov: number;
   /** Master volume, 0 to 1. */
@@ -24,6 +26,8 @@ export interface Settings {
 export interface GameSettings {
   /** Radians per mouse count (the unit `Controls.sensitivity` uses). */
   sensitivity: number;
+  /** Multiplier of `sensitivity` while aiming down sights. */
+  adsSensitivity: number;
   fov: number;
   volume: number;
   quality: Quality;
@@ -32,10 +36,11 @@ export interface GameSettings {
 export const BASE_SENSITIVITY = 0.0022;
 export const LIMITS = {
   sensitivity: { min: 0.2, max: 3, step: 0.05 },
+  adsSensitivity: { min: 0.2, max: 1.5, step: 0.05 },
   fov: { min: 60, max: 100, step: 1 },
   volume: { min: 0, max: 1, step: 0.01 },
 } as const;
-export const DEFAULTS: Readonly<Settings> = { sensitivity: 1, fov: 75, volume: 0.7, quality: 'high' };
+export const DEFAULTS: Readonly<Settings> = { sensitivity: 1, adsSensitivity: 0.8, fov: 75, volume: 0.7, quality: 'high' };
 
 const KEY = 'qwakk.settings';
 const LEGACY_SENS_KEY = 'qwakk.sensitivity';
@@ -67,6 +72,7 @@ export function sanitize(raw: unknown): Settings {
   const r = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
   return {
     sensitivity: clamp(r.sensitivity, LIMITS.sensitivity.min, LIMITS.sensitivity.max, DEFAULTS.sensitivity),
+    adsSensitivity: clamp(r.adsSensitivity, LIMITS.adsSensitivity.min, LIMITS.adsSensitivity.max, DEFAULTS.adsSensitivity),
     fov: Math.round(clamp(r.fov, LIMITS.fov.min, LIMITS.fov.max, DEFAULTS.fov)),
     volume: clamp(r.volume, LIMITS.volume.min, LIMITS.volume.max, DEFAULTS.volume),
     quality: QUALITIES.includes(r.quality as Quality) ? (r.quality as Quality) : DEFAULTS.quality,
@@ -99,5 +105,5 @@ export function resetSettings(): Settings {
 }
 
 export function toGameSettings(s: Settings): GameSettings {
-  return { sensitivity: s.sensitivity * BASE_SENSITIVITY, fov: s.fov, volume: s.volume, quality: s.quality };
+  return { sensitivity: s.sensitivity * BASE_SENSITIVITY, adsSensitivity: s.adsSensitivity, fov: s.fov, volume: s.volume, quality: s.quality };
 }

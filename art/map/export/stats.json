@@ -8,7 +8,7 @@
    56
   ],
   "vertices": 828,
-  "glb_src_bytes": 117164,
+  "glb_src_bytes": 117360,
   "colliders": 25
  },
  "czech_hedgehog": {
@@ -19,7 +19,7 @@
    36
   ],
   "vertices": 120,
-  "glb_src_bytes": 22964,
+  "glb_src_bytes": 23160,
   "colliders": 3
  },
  "beach_obstacle": {
@@ -29,7 +29,7 @@
    196
   ],
   "vertices": 116,
-  "glb_src_bytes": 16064,
+  "glb_src_bytes": 16260,
   "colliders": 4
  },
  "sandbag_wall": {
@@ -41,7 +41,7 @@
    10
   ],
   "vertices": 432,
-  "glb_src_bytes": 69256,
+  "glb_src_bytes": 69452,
   "colliders": 1
  },
  "sandbag_corner": {
@@ -53,7 +53,7 @@
    20
   ],
   "vertices": 672,
-  "glb_src_bytes": 106584,
+  "glb_src_bytes": 106780,
   "colliders": 2
  },
  "barbed_wire": {
@@ -64,7 +64,7 @@
    90
   ],
   "vertices": 498,
-  "glb_src_bytes": 47864,
+  "glb_src_bytes": 48060,
   "colliders": 1
  },
  "trench_straight": {
@@ -76,7 +76,7 @@
    34
   ],
   "vertices": 392,
-  "glb_src_bytes": 58900,
+  "glb_src_bytes": 59096,
   "colliders": 4
  },
  "trench_corner": {
@@ -88,7 +88,7 @@
    80
   ],
   "vertices": 600,
-  "glb_src_bytes": 94456,
+  "glb_src_bytes": 94652,
   "colliders": 9
  },
  "trench_end": {
@@ -100,7 +100,7 @@
    54
   ],
   "vertices": 350,
-  "glb_src_bytes": 55352,
+  "glb_src_bytes": 55548,
   "colliders": 6
  },
  "crate_small": {
@@ -110,7 +110,7 @@
    512
   ],
   "vertices": 272,
-  "glb_src_bytes": 35000,
+  "glb_src_bytes": 35196,
   "colliders": 1
  },
  "crate_large": {
@@ -120,7 +120,7 @@
    536
   ],
   "vertices": 288,
-  "glb_src_bytes": 36664,
+  "glb_src_bytes": 36860,
   "colliders": 1
  },
  "ammo_box": {
@@ -130,7 +130,7 @@
    122
   ],
   "vertices": 72,
-  "glb_src_bytes": 12808,
+  "glb_src_bytes": 13004,
   "colliders": 1
  },
  "fuel_barrel": {
@@ -140,68 +140,68 @@
    166
   ],
   "vertices": 128,
-  "glb_src_bytes": 14608,
+  "glb_src_bytes": 14804,
   "colliders": 1
  },
  "farmhouse": {
   "category": "building",
-  "triangles": 3750,
+  "triangles": 12306,
   "lodTriangles": [
-   3750,
-   156,
-   72
+   12306,
+   212,
+   84
   ],
-  "vertices": 2688,
-  "glb_src_bytes": 286388,
-  "colliders": 94
+  "vertices": 8320,
+  "glb_src_bytes": 893180,
+  "colliders": 100
  },
  "townhouse": {
   "category": "building",
-  "triangles": 3234,
+  "triangles": 12956,
   "lodTriangles": [
-   3234,
-   150,
-   70
+   12956,
+   210,
+   82
   ],
-  "vertices": 2324,
-  "glb_src_bytes": 247812,
-  "colliders": 74
+  "vertices": 8598,
+  "glb_src_bytes": 1002580,
+  "colliders": 93
  },
  "house_ruined": {
   "category": "building",
-  "triangles": 2380,
+  "triangles": 8126,
   "lodTriangles": [
-   2380,
-   228,
-   70
+   8126,
+   266,
+   86
   ],
-  "vertices": 1639,
-  "glb_src_bytes": 198476,
-  "colliders": 97
+  "vertices": 5428,
+  "glb_src_bytes": 610788,
+  "colliders": 99
  },
  "church": {
   "category": "building",
-  "triangles": 3208,
+  "triangles": 3244,
   "lodTriangles": [
-   3208,
+   3244,
    112,
    64
   ],
-  "vertices": 2237,
-  "glb_src_bytes": 235840,
+  "vertices": 2261,
+  "glb_src_bytes": 238556,
   "colliders": 167
  },
  "barn": {
   "category": "building",
-  "triangles": 2776,
+  "triangles": 6642,
   "lodTriangles": [
-   2776,
-   100,
+   6642,
+   120,
    46
   ],
-  "vertices": 1880,
-  "glb_src_bytes": 212720,
-  "colliders": 59
+  "vertices": 4467,
+  "glb_src_bytes": 496016,
+  "colliders": 57
  },
  "lighthouse": {
   "category": "landmark",
@@ -210,7 +210,7 @@
    678
   ],
   "vertices": 478,
-  "glb_src_bytes": 48088,
+  "glb_src_bytes": 48284,
   "colliders": 5
  },
  "bridge_stone": {
@@ -220,7 +220,7 @@
    418
   ],
   "vertices": 280,
-  "glb_src_bytes": 32996,
+  "glb_src_bytes": 33192,
   "colliders": 19
  },
  "hedgerow": {
@@ -232,7 +232,7 @@
    72
   ],
   "vertices": 478,
-  "glb_src_bytes": 35484,
+  "glb_src_bytes": 35680,
   "colliders": 2
  },
  "stone_wall": {
@@ -244,7 +244,7 @@
    10
   ],
   "vertices": 672,
-  "glb_src_bytes": 100044,
+  "glb_src_bytes": 100240,
   "colliders": 1
  },
  "wood_fence": {
@@ -254,7 +254,7 @@
    232
   ],
   "vertices": 128,
-  "glb_src_bytes": 21300,
+  "glb_src_bytes": 21496,
   "colliders": 1
  },
  "signpost": {
@@ -264,7 +264,7 @@
    182
   ],
   "vertices": 114,
-  "glb_src_bytes": 17196,
+  "glb_src_bytes": 17392,
   "colliders": 1
  },
  "tree_oak": {
@@ -276,7 +276,7 @@
    26
   ],
   "vertices": 412,
-  "glb_src_bytes": 27136,
+  "glb_src_bytes": 27332,
   "colliders": 1
  },
  "tree_poplar": {
@@ -288,7 +288,7 @@
    26
   ],
   "vertices": 209,
-  "glb_src_bytes": 17404,
+  "glb_src_bytes": 17600,
   "colliders": 1
  },
  "tree_apple": {
@@ -300,7 +300,7 @@
    26
   ],
   "vertices": 486,
-  "glb_src_bytes": 54952,
+  "glb_src_bytes": 55148,
   "colliders": 1
  },
  "bush_round": {
@@ -312,7 +312,7 @@
    20
   ],
   "vertices": 188,
-  "glb_src_bytes": 15404,
+  "glb_src_bytes": 15600,
   "colliders": 1
  },
  "bush_wide": {
@@ -324,7 +324,7 @@
    20
   ],
   "vertices": 235,
-  "glb_src_bytes": 18640,
+  "glb_src_bytes": 18836,
   "colliders": 1
  },
  "rock_boulder": {
@@ -334,7 +334,7 @@
    64
   ],
   "vertices": 34,
-  "glb_src_bytes": 9984,
+  "glb_src_bytes": 10180,
   "colliders": 1
  },
  "rock_slab": {
@@ -344,7 +344,7 @@
    62
   ],
   "vertices": 33,
-  "glb_src_bytes": 9712,
+  "glb_src_bytes": 9908,
   "colliders": 1
  },
  "rock_spire": {
@@ -354,7 +354,7 @@
    68
   ],
   "vertices": 36,
-  "glb_src_bytes": 10452,
+  "glb_src_bytes": 10648,
   "colliders": 1
  },
  "crater": {
@@ -364,7 +364,7 @@
    360
   ],
   "vertices": 204,
-  "glb_src_bytes": 24856,
+  "glb_src_bytes": 25052,
   "colliders": 0
  },
  "rubble_pile": {
@@ -374,7 +374,7 @@
    438
   ],
   "vertices": 241,
-  "glb_src_bytes": 37004,
+  "glb_src_bytes": 37200,
   "colliders": 1
  },
  "tank_wreck": {
@@ -386,7 +386,7 @@
    66
   ],
   "vertices": 652,
-  "glb_src_bytes": 87260,
+  "glb_src_bytes": 87456,
   "colliders": 7
  },
  "truck_wreck": {
@@ -398,7 +398,7 @@
    60
   ],
   "vertices": 528,
-  "glb_src_bytes": 77640,
+  "glb_src_bytes": 77836,
   "colliders": 5
  },
  "landing_craft": {
@@ -410,7 +410,7 @@
    64
   ],
   "vertices": 360,
-  "glb_src_bytes": 53284,
+  "glb_src_bytes": 53480,
   "colliders": 7
  },
  "transport_plane": {
@@ -420,7 +420,7 @@
    3376
   ],
   "vertices": 1686,
-  "glb_src_bytes": 171932,
+  "glb_src_bytes": 172128,
   "colliders": 0
  }
 }

@@ -84,25 +84,32 @@ ROADS = [
 ]
 PLAZA = (22, -208, 58, -176)
 
-# Buildings: (prop, x, z, facing). Hand placed so streets read and doors face the street.
+# Buildings: (prop, x, z, facing). Hand placed so streets read and doors face the street. Fewer but richer
+# houses (27, was 37): each type has a full interior (art/map/blender/house_*.py).
 BUILDINGS = [
     ("church", 40, -221.3, FACE_S),
     ("townhouse", 22, -251, FACE_E), ("farmhouse", 59, -252, FACE_W),
-    ("townhouse", 8, -226, FACE_E), ("farmhouse", 8, -208, FACE_E), ("house_ruined", 8, -170, FACE_E), ("townhouse", 8, -152, FACE_E),
-    ("farmhouse", 72, -226, FACE_W), ("townhouse", 72, -208, FACE_W), ("townhouse", 72, -170, FACE_W), ("house_ruined", 72, -152, FACE_W),
-    ("townhouse", -16, -204, FACE_S), ("farmhouse", -38, -204, FACE_S), ("house_ruined", -16, -175, FACE_N), ("townhouse", -38, -175, FACE_N),
-    ("townhouse", 96, -201, FACE_S), ("house_ruined", 116, -198, FACE_S), ("farmhouse", 96, -166, FACE_N), ("townhouse", 117, -164, FACE_N),
-    ("townhouse", 22, -134, FACE_E), ("house_ruined", 21, -116, FACE_E), ("farmhouse", 54, -134, FACE_W), ("townhouse", 53, -116, FACE_W),
+    ("townhouse", 8, -226, FACE_E), ("farmhouse", 8, -208, FACE_E), ("house_ruined", 8, -170, FACE_E),
+    ("townhouse", 72, -208, FACE_W), ("townhouse", 72, -170, FACE_W),
+    ("farmhouse", -38, -204, FACE_S), ("townhouse", -38, -175, FACE_N),
+    ("townhouse", 96, -201, FACE_S), ("townhouse", 117, -164, FACE_N),
+    ("townhouse", 22, -134, FACE_E), ("house_ruined", 21, -116, FACE_E), ("farmhouse", 54, -134, FACE_W),
     # Pointe du Bec
     ("lighthouse", -334, -342, FACE_S), ("townhouse", -296, -302, FACE_N), ("barn", -262, -262, FACE_W),
     # Ferme Colvert
-    ("farmhouse", -166, 46, FACE_E), ("barn", -126, 30, FACE_W), ("barn", -150, 80, FACE_N),
+    ("farmhouse", -166, 46, FACE_E), ("barn", -126, 30, FACE_W),
     # crossroads corner
     ("townhouse", 5, 36, FACE_E), ("house_ruined", 41, 88, FACE_W), ("farmhouse", 50, 36, FACE_W),
     # orchard farm, hamlet, forest lodge
     ("farmhouse", 92, 256, FACE_W), ("barn", 92, 226, FACE_W),
-    ("townhouse", 226, 254, FACE_S), ("farmhouse", 252, 262, FACE_W), ("house_ruined", 224, 290, FACE_N), ("barn", 258, 294, FACE_W),
+    ("townhouse", 226, 254, FACE_S), ("farmhouse", 252, 262, FACE_W), ("barn", 258, 294, FACE_W),
     ("house_ruined", -262, 232, FACE_S),
+]
+# Lots that held a plain house in the first layout: kitchen gardens and one bombed-out plot.
+LOTS = [
+    ("garden", 8, -152, FACE_E), ("garden", 72, -226, FACE_W), ("bombed", 72, -152, FACE_W), ("garden", -16, -204, FACE_S),
+    ("bombed", -16, -175, FACE_N), ("garden", 116, -198, FACE_S), ("garden", 96, -166, FACE_N), ("garden", 53, -116, FACE_W),
+    ("garden", -150, 80, FACE_N), ("bombed", 224, 290, FACE_N),
 ]
 BRIDGES = [(201.0, -150.0, FACE_E), (192.6, 120.0, FACE_E)]
 
@@ -445,9 +452,12 @@ def generate():
         y = pad_y[(round(fp[0], 2), round(fp[1], 2))]
         ok = g.place(prop, x, z, yaw, y=y, check=(), margin=0.0)
         assert ok, prop
+        # a 2.5 m yard around every building: nothing scattered later (hedges, crates, walls) blocks a door
+        g.solid.add(g.footprint(prop, x, z, yaw, margin=2.5))
     for bx, bz, yaw in BRIDGES:
         _, bed = T.river_info(bx, bz)
         g.place("bridge_stone", bx, bz, yaw, y=bed + 3.0, check=(), on_land=False, margin=0.0)
+    lots(g)
     for name, prop, x, z, yaw in tiles:
         g.place(prop, x, z, yaw, check=(), margin=0.0, loot=False)
     tile_loot = 0
@@ -479,6 +489,29 @@ def generate():
     g.spawns = ground_spawns(g, rng)
     ground = paint_ground(g, fields)
     return g, fields, ground
+
+
+def lots(g):
+    """Fill the freed house lots: a walled kitchen garden (fruit trees, bushes) or a bombed plot (crater,
+    rubble, a broken fence). Fixed local offsets, rotated by the lot's facing; no RNG draws."""
+    for kind, x, z, yaw in LOTS:
+        def at(lx, lz):
+            dx, dz = rot2(lx, lz, yaw)
+            return x + dx, z + dz
+        if kind == "garden":
+            items = [("stone_wall", -4.0, 4.0, 0.0), ("stone_wall", 0.0, 4.0, 0.0), ("stone_wall", 4.0, 4.0, 0.0),
+                     ("stone_wall", -6.0, 2.0, PI / 2), ("stone_wall", 6.0, 2.0, PI / 2), ("tree_apple", -2.5, 0.5, 0.7),
+                     ("tree_apple", 2.8, 1.0, 2.1), ("bush_round", -4.2, -1.5, 0.3), ("bush_wide", 0.5, -2.5, 1.2),
+                     ("wood_fence", -4.4, -4.5, 0.0), ("wood_fence", 4.4, -4.5, 0.0)]
+        else:
+            items = [("crater", 0.0, 0.5, 0.8), ("rubble_pile", -3.5, 2.5, 0.4), ("rubble_pile", 3.2, -2.0, 2.2),
+                     ("wood_fence", -4.0, -5.0, 0.12), ("tree_poplar", 5.0, 3.5, 0.0)]
+        for prop, lx, lz, ly in items:
+            wx, wz = at(lx, lz)
+            soft = prop.startswith(("tree", "bush"))
+            y = g.y_at(wx, wz) - 0.05 if prop == "crater" else None
+            g.place(prop, wx, wz, yaw + ly, check=("solid",), layer="soft" if soft or prop == "crater" else "solid",
+                    margin=0.3, y=y, loot=False)
 
 
 def ground_spawns(g, rng, want=48, min_dist=70.0):

@@ -122,7 +122,7 @@ describe('pickups and inventory', () => {
 
   it('ammo and heals stop at their caps and leave the rest', () => {
     const s = unarmed();
-    const a = noArmor();
+    const a = { ...noArmor(), pack: 3 };
     s.res0 = LOOT.maxRifleAmmo - 10;
     expect(applyPickup(s, a, Item.RifleAmmo, 30)).toBe(10);
     expect(s.res0).toBe(LOOT.maxRifleAmmo);

@@ -20,5 +20,7 @@ export interface BrBotContext {
   itemsNear(x: number, z: number, r: number): LootEntity[];
   /** Is this item in line of sight and reach from the duck (the server's pickup rule)? */
   canReach(self: import('@qwakk/shared').PlayerSim, item: LootEntity): boolean;
+  /** Can this be taken right now (a crate: open, done opening, not empty)? Anyone looking at it can tell. */
+  lootable(item: LootEntity): boolean;
   armorOf(seatId: string): Armor;
 }

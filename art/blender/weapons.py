@@ -2,6 +2,9 @@
 
 Weapon space (Blender): origin at the right-hand grip center, barrel along -Y, up +Z, meters.
 After glTF export that is barrel +Z, up +Y. Child empties mark Muzzle, Grip, Support and Eject.
+The magazine is its own mesh, the child node `Mag`: its origin is the seat point (the top of the
+magazine where it enters the gun) and its local -Z runs out of the magwell, so the reload clips and
+the engine can pull it out, hand it to the off hand and seat a fresh one.
 """
 
 import math
@@ -28,12 +31,15 @@ RIFLE = [
     ("cyl", (0.014, 0.090), (0, -0.395, 0.092), "gun_dark", 0, 0.0),                # barrel
     ("cyl", (0.023, 0.052), (0, -0.462, 0.092), "gunmetal", 0, 0.005),             # muzzle brake
     ("box", (0.014, 0.014, 0.034), (0, -0.330, 0.136), "gun_dark", 0, 0.003),       # front sight post
-    ("box", (0.038, 0.056, 0.078), (0, -0.090, -0.002), "yellow", -8, 0.008),       # magazine, upper
-    ("box", (0.038, 0.056, 0.070), (0, -0.112, -0.064), "yellow", -22, 0.008),      # magazine, lower
-    ("box", (0.042, 0.062, 0.012), (0, -0.124, -0.100), "gun_dark", -22, 0.003),    # magazine base
     ("box", (0.012, 0.064, 0.008), (0, -0.040, 0.016), "gun_dark", 0, 0.002),       # trigger guard
     ("box", (0.008, 0.010, 0.026), (0, -0.030, 0.030), "gun_light", 0, 0.002),      # trigger
     ("box", (0.074, 0.018, 0.014), (0, 0.040, 0.118), "gun_light", 0, 0.003),      # charging handle
+]
+RIFLE_MAG = [
+    # dark body, orange base: reads against the yellow duck while it travels in the wing-hand
+    ("box", (0.038, 0.056, 0.078), (0, -0.090, -0.002), "gunmetal", -8, 0.008),     # magazine, upper
+    ("box", (0.038, 0.056, 0.070), (0, -0.112, -0.064), "gunmetal", -22, 0.008),    # magazine, lower
+    ("box", (0.042, 0.062, 0.012), (0, -0.124, -0.100), "orange", -22, 0.003),      # magazine base
 ]
 RIFLE_EMPTIES = {
     "Muzzle": (0, -0.489, 0.092),
@@ -51,9 +57,12 @@ PISTOL = [
     ("box", (0.010, 0.050, 0.008), (0, -0.048, 0.012), "gun_dark", 0, 0.002),       # trigger guard bottom
     ("box", (0.010, 0.008, 0.034), (0, -0.072, 0.027), "gun_dark", 0, 0.002),       # trigger guard front
     ("box", (0.007, 0.009, 0.022), (0, -0.038, 0.028), "gun_light", 0, 0.002),      # trigger
-    ("box", (0.040, 0.054, 0.013), (0, 0.020, -0.064), "yellow", 14, 0.004),        # magazine base
     ("box", (0.026, 0.010, 0.012), (0, 0.030, 0.116), "gun_dark", 0, 0.002),        # rear sight
     ("box", (0.008, 0.010, 0.012), (0, -0.128, 0.116), "gun_dark", 0, 0.002),       # front sight
+]
+PISTOL_MAG = [
+    ("box", (0.024, 0.034, 0.092), (0, 0.0074, -0.0158), "gun_dark", 14, 0.004),    # magazine body (inside the grip)
+    ("box", (0.040, 0.054, 0.013), (0, 0.020, -0.064), "yellow", 14, 0.004),        # magazine base
 ]
 PISTOL_EMPTIES = {
     "Muzzle": (0, -0.158, 0.090),
@@ -61,6 +70,19 @@ PISTOL_EMPTIES = {
     "Support": (0.040, 0.004, -0.020),  # off hand wraps the grip from the left side
     "Eject": (-0.022, -0.040, 0.100),
 }
+
+
+# Magazine frame in weapon space: seat point and the tilt (degrees about X) of the magwell axis.
+MAG_FRAME = {
+    "rifle": ((0, -0.0846, 0.0366), -8.0),
+    "pistol": ((0, -0.0037, 0.0288), 14.0),
+}
+
+
+def mag_local(kind):
+    """4x4 of the magazine node in weapon space (its seated pose)."""
+    pos, rx = MAG_FRAME[kind]
+    return Matrix.Translation(pos) @ Matrix.Rotation(math.radians(rx), 4, "X")
 
 
 def set_cell(obj, cell):
@@ -95,6 +117,34 @@ def make_part(kind, dims, center, cell, rot_x, bevel):
         poly.use_smooth = True
     set_cell(obj, cell)
     return obj
+
+
+def join_parts(name, parts):
+    objs = [make_part(*p) for p in parts]
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in objs:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = objs[0]
+    bpy.ops.object.join()
+    obj = bpy.context.active_object
+    obj.name = name
+    obj.data.name = name
+    return obj
+
+
+def build_mag(gun, kind, parts, material):
+    """The magazine as its own mesh, parented to the gun at its seat (contract name Mag)."""
+    mag = join_parts(gun.name + "_Mag", parts)
+    frame = mag_local(kind)
+    mag.data.transform(frame.inverted())
+    mag.data.materials.clear()
+    mag.data.materials.append(material)
+    g = mag.vertex_groups.new(name="outline")
+    g.add(list(range(len(mag.data.vertices))), 1.0, "REPLACE")
+    mag.parent = gun
+    mag.matrix_basis = frame
+    mag["contract_name"] = "Mag"
+    return mag
 
 
 def build_weapon(name, parts, empties, material):
@@ -134,6 +184,15 @@ def contract_names(guns, active):
 
 
 def build_all(material):
-    rifle = build_weapon("Rifle", RIFLE, RIFLE_EMPTIES, material)
-    pistol = build_weapon("Pistol", PISTOL, PISTOL_EMPTIES, material)
-    return {"rifle": rifle, "pistol": pistol}
+    """kind -> (gun, child nodes): the empties plus the Mag mesh (last)."""
+    out = {}
+    for kind, name, parts, mag_parts, empties in (("rifle", "Rifle", RIFLE, RIFLE_MAG, RIFLE_EMPTIES),
+                                                  ("pistol", "Pistol", PISTOL, PISTOL_MAG, PISTOL_EMPTIES)):
+        gun, nodes = build_weapon(name, parts, empties, material)
+        nodes.append(build_mag(gun, kind, mag_parts, material))
+        out[kind] = (gun, nodes)
+    return out
+
+
+def mag_of(nodes):
+    return next(n for n in nodes if n.get("contract_name") == "Mag")

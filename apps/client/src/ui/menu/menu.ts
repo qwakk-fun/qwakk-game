@@ -8,7 +8,9 @@ import { ApiError, fetchMe, type MeData } from './api.ts';
 import { COPY, LINKS } from './copy.ts';
 import { asset, h } from './dom.ts';
 import { ensureSession, loadIdentity, NAME_RE, rememberName, suggestName } from './identity.ts';
+import { LOBBY_ERROR } from '@qwakk/shared/lobby';
 import { LeaderboardPanel } from './leaderboardPanel.ts';
+import { RoomsPanel } from './roomsPanel.ts';
 import { matchPoints } from './score.ts';
 import { SettingsPanel } from './settingsPanel.ts';
 import '@fontsource-variable/geist/wght.css';
@@ -29,6 +31,10 @@ export interface MatchSummary {
 
 export interface StartOptions {
   mode: GameMode;
+  /** Battle royale: join this room from the list (joinById) ... */
+  roomId?: string;
+  /** ... or open a new room (create). Neither: Quick Play (joinOrCreate). */
+  create?: boolean;
   token?: string;
   name?: string;
   settings: GameSettings;
@@ -45,6 +51,16 @@ export interface MenuHooks {
 
 type Tab = 'play' | 'leaderboard' | 'settings' | 'howto';
 
+/** Join refusals the menu explains (matchmaking or the room's onAuth). */
+const JOIN_ERRORS: Record<number, string> = {
+  [LOBBY_ERROR.createLimited]: 'create_limited',
+  [LOBBY_ERROR.roomsFull]: 'rooms_full',
+  /** Colyseus MATCHMAKE_INVALID_ROOM_ID: the room is gone, locked (started) or full. */
+  522: 'room_closed',
+  /** gameRoom.ts JOIN_ERROR.alreadyInMatch. */
+  4409: 'already_in',
+};
+
 const isTouchOnly = (): boolean => !matchMedia('(any-pointer: fine)').matches;
 
 export class Menu {
@@ -60,6 +76,7 @@ export class Menu {
   private readonly playButtons: HTMLButtonElement[] = [];
   private readonly leaderboard = new LeaderboardPanel();
   private readonly settingsPanel: SettingsPanel;
+  private readonly rooms: RoomsPanel;
   private busy = false;
   private before: MeData | null = null;
   private lastMode: GameMode = 'br';
@@ -67,6 +84,10 @@ export class Menu {
   constructor(hooks: MenuHooks) {
     this.hooks = hooks;
     this.settingsPanel = new SettingsPanel(hooks.showQuality === true);
+    this.rooms = new RoomsPanel({
+      join: (roomId) => void this.play('br', { roomId }),
+      create: () => void this.play('br', { create: true }),
+    });
     const id = loadIdentity();
 
     this.nameInput = h('input', {
@@ -126,6 +147,7 @@ export class Menu {
       h('div', { class: 'qm-play' }, brButton, dmButton),
       this.status,
       this.result,
+      this.rooms.el,
     );
 
     const howto = h(
@@ -203,6 +225,7 @@ export class Menu {
     document.body.classList.add('qm-open');
     this.setBusy(false);
     this.status.replaceChildren();
+    this.rooms.start();
     if (exit) void this.showResult(exit.reason, exit.summary);
     this.select('play');
     if (!isTouchOnly()) this.playButtons[0]?.focus({ preventScroll: true });
@@ -218,6 +241,7 @@ export class Menu {
   }
 
   hide(): void {
+    this.rooms.stop();
     this.root.hidden = true;
     document.body.classList.remove('qm-open');
   }
@@ -271,6 +295,7 @@ export class Menu {
     this.busy = on;
     this.root.classList.toggle('is-busy', on);
     for (const b of this.playButtons) b.disabled = on || isTouchOnly();
+    this.rooms.setBusy(on || isTouchOnly());
     this.nameInput.disabled = on;
   }
 
@@ -278,7 +303,7 @@ export class Menu {
     this.status.replaceChildren(h('span', { class: 'qm-spin', 'aria-hidden': 'true' }), h('span', {}, text));
   }
 
-  private async play(mode: GameMode): Promise<void> {
+  private async play(mode: GameMode, target: { roomId?: string; create?: boolean } = {}): Promise<void> {
     if (this.busy || isTouchOnly()) return;
     this.lastMode = mode;
     this.setBusy(true);
@@ -309,12 +334,13 @@ export class Menu {
     }
     this.setStatus(COPY.loadingGame);
     try {
-      await this.hooks.start({ mode, token, name: this.nameInput.value.trim(), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
+      await this.hooks.start({ mode, ...target, token, name: this.nameInput.value.trim(), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
       this.hide();
     } catch (err) {
       console.error('[menu] start failed', err);
       this.setBusy(false);
-      this.status.replaceChildren(h('p', { class: 'qm-error' }, COPY.errors.start_failed!));
+      const known = JOIN_ERRORS[(err as { code?: number } | null)?.code ?? 0];
+      this.status.replaceChildren(h('p', { class: 'qm-error' }, COPY.errors[known ?? 'start_failed'] ?? COPY.errors.start_failed!));
     }
   }
 

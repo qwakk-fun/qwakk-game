@@ -6,7 +6,7 @@ Options after `--`:
   --no-render     build and export only
   --quick         fewer render samples
   --only NAME     build (and render) only props whose name contains NAME (repeatable); skips the shared JSON
-  --shots LIST    comma separated render groups: sheet,closeups,colliders,street,plane (default all)
+  --shots LIST    comma separated render groups: sheet,closeups,interiors,street,plane,lods,tint (default all)
 """
 
 import inspect
@@ -52,7 +52,7 @@ BUILDERS = props_military.BUILDERS + props_buildings.BUILDERS + props_country.BU
 KINDS = {
     "wall": {"move": True, "bullets": True, "sight": True, "note": "building and bunker walls, gables"},
     "floor": {"move": True, "bullets": True, "sight": True, "note": "walkable slabs and floors"},
-    "stairs": {"move": True, "bullets": True, "sight": True, "note": "one box per step, rise <= 0.22 m"},
+    "stairs": {"move": True, "bullets": True, "sight": True, "note": "house stairs: one smooth ramp hull per flight under the visual steps (33 to 37 deg); church tower: one box per step, rise <= 0.22 m"},
     "ramp": {"move": True, "bullets": True, "sight": True, "note": "walkable slopes <= 35 deg"},
     "roof": {"move": True, "bullets": True, "sight": True, "note": "roof slabs, too steep to stand on"},
     "cover": {"move": True, "bullets": True, "sight": True, "note": "sandbags, railings, pews, low walls"},
@@ -271,6 +271,10 @@ def export_all(built):
         for k in ("container", "tile", "nodes", "note"):
             if k in p.meta:
                 entry[k] = p.meta[k]
+        if "walk" in p.meta:
+            # waypoints a duck can walk in order (door, stairs, upper floor): checked by apps/server/test/houses.test.ts
+            walks = p.meta["walk"] if isinstance(p.meta["walk"][0][0], (list, tuple)) else [p.meta["walk"]]
+            entry["walk"] = [[[kit.r4(a) for a in kit.to_gltf_vec(Vector(v))] for v in w] for w in walks]
         manifest[p.name] = entry
         problems += check_probes(p)
         problems += collider_bounds_problems(p, mn, mx)

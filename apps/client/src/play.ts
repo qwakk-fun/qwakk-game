@@ -20,9 +20,12 @@ export type { ExitReason, ExitSummary } from './game.ts';
 
 export interface StartGameOptions {
   mode: 'br' | 'dm';
+  /** Battle royale: a room from the lobby list, or a new room; neither is Quick Play. */
+  roomId?: string;
+  create?: boolean;
   token?: string;
   name?: string;
-  settings: { sensitivity: number; fov: number; volume: number; quality?: 'low' | 'medium' | 'high' };
+  settings: { sensitivity: number; adsSensitivity?: number; fov: number; volume: number; quality?: 'low' | 'medium' | 'high' };
 }
 
 type ExitCallback = (reason: ExitReason, summary?: ExitSummary) => void;
@@ -112,13 +115,15 @@ function wireOnce(): void {
     const cur = current;
     if (!cur) return;
     cur.game.sound.unlock();
+    // A click outside the inventory screen closes it and goes back to play.
+    if (cur.game.br?.inventoryOpen) cur.game.br.closeInventory(false);
     if (!cur.game.controlsRef.locked && !config.spectate && !cur.game.br?.resultOpen) cur.game.controlsRef.requestLock();
   });
   document.addEventListener('pointerlockchange', () => {
     const cur = current;
     if (!cur || overlay.dataset.stopped === '1') return;
     const locked = document.pointerLockElement === canvas;
-    if (locked || config.autopilot !== '' || config.spectate || cur.game.br?.resultOpen) overlay.classList.add('hidden');
+    if (locked || config.autopilot !== '' || config.spectate || cur.game.br?.resultOpen || cur.game.br?.inventoryOpen) overlay.classList.add('hidden');
     else setOverlay('Click to play', { leave: true });
   });
   window.addEventListener('beforeunload', () => current?.session.leave());
@@ -135,12 +140,12 @@ export async function startGame(opts: StartGameOptions): Promise<void> {
   setOverlay(config.devtools ? `Joining ${config.server} ...` : opts.mode === 'br' ? 'Finding a match...' : 'Joining the island...');
   let session: Session;
   try {
-    session = await Session.join(config.server, { mode: opts.mode, name: opts.name, token: opts.token }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
+    session = await Session.join(config.server, { mode: opts.mode, roomId: opts.roomId, create: opts.create, name: opts.name, token: opts.token }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
   } catch (err) {
     // The server refuses a second seat for the same player (another tab).
     if ((err as { code?: number }).code === ALREADY_IN_MATCH) {
       setOverlay('You are already in this match in another tab or window.', { stopped: true });
-      throw new Error('You are already in this match in another tab or window.');
+      throw Object.assign(new Error('You are already in this match in another tab or window.'), { code: ALREADY_IN_MATCH });
     }
     throw err;
   }

@@ -37,6 +37,12 @@ PALETTE = {
     "wire": "#4a4a48", "tire": "#2c2c2e", "plane": "#66714b", "plane_belly": "#9aa292",
     # brand accents (sparingly: loot readability, faction marks, the drop plane)
     "yellow": "#ffd43b", "orange": "#ff8a3d", "dark": "#151619",
+    # house interiors and details (appended, so the cells above keep their UVs)
+    "flagstone": "#c2b69c", "plaster_warm": "#f0dfbd", "wallpaper_green": "#b9c79c", "wallpaper_rose": "#e8c7b2",
+    "fabric_red": "#b4493e", "fabric_green": "#6e8f5c", "fabric_blue": "#5d7a9c", "cream": "#f4ecd6",
+    "book_red": "#9e3c34", "book_blue": "#40618a", "book_green": "#4f6f3e", "bread": "#d49a55",
+    "awning_red": "#c9503d", "rug_red": "#a5463a", "rug_gold": "#d2a44e", "flower_pink": "#e58fa8",
+    "shop_green": "#3f6b58", "iron": "#303338", "copper": "#b8713f", "paper": "#f2ebd6",
 }
 CELL_NAMES = list(PALETTE)
 PALETTE_SIZE = 256

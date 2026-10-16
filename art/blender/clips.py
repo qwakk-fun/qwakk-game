@@ -364,9 +364,9 @@ AIM = {
 }
 
 
-def weapon_pose(ctx, kind, gun_offset=None, left_override=None, breathe=0.0, extra=None):
-    """Upper-body pose holding `kind` at its aim spot. gun_offset is a 4x4 applied in weapon space."""
-    a = AIM[kind]
+def weapon_pose(ctx, kind, gun_offset=None, left_override=None, breathe=0.0, extra=None, spot=None):
+    """Upper-body pose holding `kind` at its aim spot (or `spot`). gun_offset is a 4x4 applied in weapon space."""
+    a = spot or AIM[kind]
     pose = Pose()
     tw = a["twist"]
     pose.add("Spine", rx=a["lean"] * 0.5, rz=tw * 0.3)
@@ -409,57 +409,6 @@ def fire(kind):
             pose.add("Neck", rx=1.5 * k)
         return weapon_pose(ctx, kind, gun_offset=off, extra=extra)
     return fn
-
-
-def reload_rifle(ctx, t):
-    # tilt the rifle in, left hand: support -> magazine -> pull down -> back in -> slap -> support
-    tilt = keys(t, [(0, 0), (0.25, 1), (1.45, 1), (1.7, 0)])
-    off = Matrix.Rotation(-22 * tilt * DEG, 4, "Y") @ Matrix.Rotation(10 * tilt * DEG, 4, "X")
-    mag = Vector((0.0, -0.10, -0.03))
-    path = [(0.0, None), (0.30, mag), (0.45, mag), (0.70, mag + Vector((0.12, 0.02, -0.26))),
-            (0.95, mag + Vector((0.10, 0.03, -0.22))), (1.15, mag + Vector((0, 0, -0.03))), (1.25, mag),
-            (1.40, mag), (1.70, None)]
-
-    def left(gun):
-        base = holds.support_frame(gun, "rifle")
-        pts = [(tt, (gun.inverted() @ base).to_translation() if p is None else p) for tt, p in path]
-        x = keys(t, [(tt, p.x) for tt, p in pts])
-        y = keys(t, [(tt, p.y) for tt, p in pts])
-        z = keys(t, [(tt, p.z) for tt, p in pts])
-        m = base.copy()
-        m.translation = gun @ Vector((x, y, z))
-        return m
-
-    def extra(pose):
-        pose.fingers("Left", -30 * keys(t, [(0.3, 0.2), (0.4, 1.0), (1.3, 1.0), (1.5, 0.6)]) - 10)
-        pose.add("Neck", rx=10 * tilt, rz=10 * tilt)
-        pose.add("Head", rx=6 * tilt)
-    return weapon_pose(ctx, "rifle", gun_offset=off, left_override=left, extra=extra)
-
-
-def reload_pistol(ctx, t):
-    # tip the pistol up and in, off hand drops for a fresh mag, slaps it in, racks the slide
-    tilt = keys(t, [(0, 0), (0.18, 1), (1.05, 1), (1.3, 0)])
-    off = Matrix.Translation((0.04 * tilt, 0.08 * tilt, 0.04 * tilt)) @ Matrix.Rotation(28 * tilt * DEG, 4, "Y") \
-        @ Matrix.Rotation(20 * tilt * DEG, 4, "X")
-    grip_bottom = Vector((0.0, 0.03, -0.11))
-    slide = Vector((0.02, 0.02, 0.10))
-    path = [(0.0, None), (0.25, grip_bottom + Vector((0.06, 0.0, -0.20))), (0.45, grip_bottom + Vector((0.0, 0.0, -0.06))),
-            (0.55, grip_bottom), (0.75, slide), (0.88, slide + Vector((0, 0.07, 0))), (1.0, slide + Vector((0, 0.06, 0.03))),
-            (1.3, None)]
-
-    def left(gun):
-        base = holds.support_frame(gun, "pistol")
-        pts = [(tt, (gun.inverted() @ base).to_translation() if p is None else p) for tt, p in path]
-        m = base.copy()
-        m.translation = gun @ Vector((keys(t, [(tt, p.x) for tt, p in pts]), keys(t, [(tt, p.y) for tt, p in pts]),
-                                      keys(t, [(tt, p.z) for tt, p in pts])))
-        return m
-
-    def extra(pose):
-        pose.fingers("Left", -25, -28, -12)
-        pose.add("Neck", rx=8 * tilt)
-    return weapon_pose(ctx, "pistol", gun_offset=off, left_override=left, extra=extra)
 
 
 def equip(ctx, t):
@@ -516,8 +465,8 @@ def registry():
     clips["Hit_React"] = (hit_react, 12, False, FULL)
     clips["Rifle_Aim"] = (aim_loop("rifle"), 60, True, UPPER)
     clips["Pistol_Aim"] = (aim_loop("pistol"), 60, True, UPPER)
-    clips["Rifle_Reload"] = (reload_rifle, 54, False, UPPER)
-    clips["Pistol_Reload"] = (reload_pistol, 42, False, UPPER)
+    import reloads   # noqa: E402  (imports this module)
+    reloads.register(clips)
     clips["Rifle_Fire"] = (fire("rifle"), 6, False, UPPER)
     clips["Pistol_Fire"] = (fire("pistol"), 6, False, UPPER)
     clips["Equip"] = (equip, 18, False, UPPER)

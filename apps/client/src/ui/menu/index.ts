@@ -10,7 +10,7 @@ export type { ExitReason, GameMode, MatchSummary, StartOptions } from './menu.ts
 
 /** What the game module exports (game.ts / play.ts). */
 export interface GameEntry {
-  startGame(opts: { mode: GameMode; token?: string; name?: string; settings: GameSettings }): Promise<void>;
+  startGame(opts: { mode: GameMode; roomId?: string; create?: boolean; token?: string; name?: string; settings: GameSettings }): Promise<void>;
   onGameExit(cb: (reason: ExitReason, summary?: MatchSummary) => void): void;
 }
 

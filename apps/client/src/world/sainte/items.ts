@@ -2,14 +2,23 @@
  * World pickups (server-owned items, drawn here): one InstancedMesh per item
  * kind plus one for the soft yellow glow discs under them, so loot reads from
  * a distance. Items bob and turn slowly; the item the pickup prompt targets
- * gets a pulsing ring and grows a little.
+ * gets a pulsing ring and grows a little. Items inside an open crate lie
+ * still (no bob, no glow); crates themselves are drawn by crates.ts and are
+ * only markers here (the ring when the prompt targets one).
  */
 import * as THREE from 'three/webgpu';
 import { Item } from '@qwakk/shared';
 import { toonMaterial } from '../../render/materials.ts';
 import { BRAND } from '../../render/palette.ts';
-import { envMaterial, loadPropGlb, nodeGeometry, paletteOf } from './gltf.ts';
 import { itemGeometry } from './itemMeshes.ts';
+
+/** How an entry is drawn: a loose item (bobs, turns, glows), an item lying still in a crate, or a marker (the prompt ring only). */
+export interface ItemLook {
+  still?: { yaw: number; scale: number };
+  marker?: boolean;
+  /** Ring size for a marker. */
+  ring?: number;
+}
 
 interface Entry {
   kind: number;
@@ -17,6 +26,7 @@ interface Entry {
   y: number;
   z: number;
   phase: number;
+  look: ItemLook | null;
 }
 
 interface KindMesh {
@@ -24,7 +34,7 @@ interface KindMesh {
   cap: number;
 }
 
-const KINDS = [Item.Rifle, Item.Pistol, Item.RifleAmmo, Item.PistolAmmo, Item.Vest1, Item.Vest2, Item.Helmet1, Item.Helmet2, Item.Bandage, Item.Medkit, Item.Crate];
+const KINDS = [Item.Rifle, Item.Pistol, Item.RifleAmmo, Item.PistolAmmo, Item.Vest1, Item.Vest2, Item.Helmet1, Item.Helmet2, Item.Bandage, Item.Medkit, Item.Backpack1, Item.Backpack2, Item.Backpack3];
 /** Items farther than this are not drawn (the server only sends nearby items anyway). */
 const DRAW_DIST = 160;
 const HOVER = 0.12;
@@ -76,18 +86,6 @@ export class ItemsView {
     this.ring.rotation.x = Math.PI / 2;
     this.ring.visible = false;
     this.group.add(this.ring);
-    // The death crate uses the map's crate prop when it loads.
-    void loadPropGlb('crate_small').then((gltf) => {
-      const geo = nodeGeometry(gltf, 'LOD0');
-      if (!geo) return;
-      const old = this.meshes.get(Item.Crate);
-      const km = this.makeKind(geo, envMaterial({ key: 'props', map: paletteOf(gltf), side: THREE.DoubleSide }), old?.cap ?? 64);
-      if (old) {
-        this.group.remove(old.mesh);
-        old.mesh.dispose();
-      }
-      this.meshes.set(Item.Crate, km);
-    }).catch(() => undefined);
   }
 
   private makeKind(geo: THREE.BufferGeometry, mat: THREE.Material, cap: number): KindMesh {
@@ -101,18 +99,19 @@ export class ItemsView {
     return { mesh, cap };
   }
 
-  upsert(id: string, kind: number, x: number, y: number, z: number): void {
+  upsert(id: string, kind: number, x: number, y: number, z: number, look: ItemLook | null = null): void {
     const e = this.items.get(id);
     if (e) {
       e.kind = kind;
       e.x = x;
       e.y = y;
       e.z = z;
+      e.look = look;
       return;
     }
     let h = 0;
     for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
-    this.items.set(id, { kind, x, y, z, phase: (h & 1023) / 163 });
+    this.items.set(id, { kind, x, y, z, phase: (h & 1023) / 163, look });
   }
 
   remove(id: string): void {
@@ -145,26 +144,32 @@ export class ItemsView {
       const dx = e.x - cx;
       const dz = e.z - cz;
       if (dx * dx + dz * dz > d2max) continue;
-      let km = this.meshes.get(e.kind) ?? (this.meshes.get(Item.Crate) as KindMesh);
-      const n = counts.get(e.kind) ?? 0;
-      if (n >= km.cap) km = this.grow(e.kind, km);
-      const crate = e.kind === Item.Crate;
       const hot = id === this.highlighted;
-      const bob = crate ? 0 : Math.sin(this.t * 2.2 + e.phase) * 0.04;
-      const scale = hot ? 1.22 : 1;
-      this.q.setFromAxisAngle(this.up, crate ? e.phase : this.t * 0.6 + e.phase);
-      this.m.compose(this.p.set(e.x, e.y + (crate ? 0 : HOVER) + bob, e.z), this.q, this.s.setScalar(scale));
-      km.mesh.setMatrixAt(n, this.m);
-      counts.set(e.kind, n + 1);
-      if (glows < this.glowCap) {
-        this.m.compose(this.p.set(e.x, e.y + 0.03, e.z), this.flat, this.s.setScalar(crate ? 1.5 : 1));
-        this.glow.setMatrixAt(glows++, this.m);
-      }
       if (hot) {
         this.ring.visible = true;
         this.ring.position.set(e.x, e.y + 0.06, e.z);
         const pulse = 1 + Math.sin(this.t * 6) * 0.08;
-        this.ring.scale.setScalar(crate ? 1.4 * pulse : pulse);
+        this.ring.scale.setScalar((e.look?.ring ?? 1) * pulse);
+      }
+      if (e.look?.marker) continue;
+      let km = this.meshes.get(e.kind);
+      if (!km) continue;
+      const n = counts.get(e.kind) ?? 0;
+      if (n >= km.cap) km = this.grow(e.kind, km);
+      const still = e.look?.still;
+      if (still) {
+        this.q.setFromAxisAngle(this.up, still.yaw);
+        this.m.compose(this.p.set(e.x, e.y, e.z), this.q, this.s.setScalar(still.scale));
+      } else {
+        const bob = Math.sin(this.t * 2.2 + e.phase) * 0.04;
+        this.q.setFromAxisAngle(this.up, this.t * 0.6 + e.phase);
+        this.m.compose(this.p.set(e.x, e.y + HOVER + bob, e.z), this.q, this.s.setScalar(hot ? 1.22 : 1));
+      }
+      km.mesh.setMatrixAt(n, this.m);
+      counts.set(e.kind, n + 1);
+      if (!still && glows < this.glowCap) {
+        this.m.compose(this.p.set(e.x, e.y + 0.03, e.z), this.flat, this.s.setScalar(1));
+        this.glow.setMatrixAt(glows++, this.m);
       }
     }
     for (const [kind, km] of this.meshes) {

@@ -154,6 +154,19 @@ export class Sound {
     click(seconds * 0.85, 4200);
   }
 
+  /** Magazine moments of a reload (the clip's timeline): out, fresh from the pouch, seated. */
+  magClick(e: 'out' | 'fresh' | 'in', at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    const f = e === 'out' ? 3000 : e === 'in' ? 4200 : 1700;
+    this.noiseBurst(dest, t, 0.05, f, f / 3, e === 'fresh' ? 0.18 : 0.35, 4);
+    this.tone(dest, t, 'square', f / 4, f / 6, 0.03, e === 'fresh' ? 0.06 : 0.12);
+    // Seating the magazine: a second, lower clack.
+    if (e === 'in') this.noiseBurst(dest, t + 0.07, 0.06, 1800, 600, 0.3, 4);
+  }
+
   /** Hit marker tick. */
   hit(): void {
     if (!this.ready || !this.ctx || !this.master) return;
@@ -222,6 +235,27 @@ export class Sound {
     const t = this.ctx.currentTime;
     this.tone(out, t, 'triangle', 660, 880, 0.06, 0.12);
     this.tone(out, t + 0.07, 'triangle', 880, 1100, 0.07, 0.1);
+  }
+
+  /** A crate lid swinging open: a wooden creak, then the lid knocking back. 3D at the crate. */
+  crateOpen(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sawtooth', 190, 260, 0.22, 0.05);
+    this.noiseBurst(dest, t, 0.18, 1800, 600, 0.12, 3);
+    this.noiseBurst(dest, t + 0.32, 0.09, 900, 200, 0.4, 1);
+    this.tone(dest, t + 0.32, 'sine', 160, 70, 0.12, 0.35);
+  }
+
+  /** A pickup or a request that did not go through: a short low double blip. */
+  deny(): void {
+    const out = this.out();
+    if (!this.ready || !out || !this.ctx) return;
+    const t = this.ctx.currentTime;
+    this.tone(out, t, 'square', 240, 220, 0.06, 0.06);
+    this.tone(out, t + 0.08, 'square', 180, 160, 0.08, 0.06);
   }
 
   /** Winning: a little rising quack fanfare. */

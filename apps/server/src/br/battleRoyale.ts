@@ -1,8 +1,9 @@
 /**
  * Battle royale rules on top of the shared combat core (arena.ts):
  *
- *   warm-up  humans run around the village square (damage off) while the
- *            countdown runs; the room locks when it ends
+ *   warm-up  the lobby room: humans run around the village square (damage
+ *            off). The countdown starts once `minHumans` humans are in and
+ *            resets when they drop below that; when it ends the room locks
  *   playing  bots fill the seats, everyone boards the plane, jumps (F) or is
  *            ejected before the coast, loots, the zone shrinks, last duck wins
  *   ended    results are up; the room closes after a while
@@ -15,8 +16,11 @@ import {
   BR,
   circleAt,
   createPlayerSim,
+  Deny,
   dropsOf,
   groundHeightAt,
+  LOOT,
+  takeOut,
   Mode,
   outsideCircle,
   overLand,
@@ -26,6 +30,7 @@ import {
   planeRoute,
   TICK_RATE,
   Button,
+  Item,
   WeaponId,
   weaponStats,
   zoneAt,
@@ -41,11 +46,15 @@ import {
 import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from '../arena.ts';
 import { BOT_NAMES } from '../bots.ts';
 import type { BrBotContext } from './context.ts';
-import { LootWorld, type LootEntity, type LootEvents } from './loot.ts';
+import { isEmptyCrate, LootWorld, type LootEntity, type LootEvents, type LootResult } from './loot.ts';
 
 export interface BrEvents extends ArenaEvents {
   /** The pickup went through: what the duck got. */
   picked(seat: Seat, got: { kind: number; amount: number }[]): void;
+  /** A Use press or an inventory request did nothing (Deny.*), about this item kind. */
+  denied?(seat: Seat, reason: number, kind: number): void;
+  /** A duck changed the loot around it (opened a crate, took or dropped something). */
+  looted?(seat: Seat): void;
   /** A duck is out (or won): its final place. */
   result(seat: Seat, placement: number): void;
   /** The room locked and the match started (plane boarding). */
@@ -57,9 +66,11 @@ export interface BrEvents extends ArenaEvents {
 export interface BrOptions extends ArenaOptions {
   bots: boolean;
   players: number;
-  warmupSeconds: number;
-  warmupFullSeconds: number;
-  warmupFullHumans: number;
+  /** Humans needed in the room before the countdown starts. */
+  minHumans: number;
+  countdownSeconds: number;
+  /** Countdown cap once the room is full of humans. */
+  fullCountdownSeconds: number;
   endSeconds: number;
   /** Match seed (plane path, circles, loot). Random when unset. */
   seed?: number;
@@ -71,9 +82,9 @@ export interface BrOptions extends ArenaOptions {
 
 export const DEFAULT_BR: Omit<BrOptions, 'bots' | 'createBot'> = {
   players: BR.players,
-  warmupSeconds: BR.warmupSeconds,
-  warmupFullSeconds: BR.warmupFullSeconds,
-  warmupFullHumans: BR.warmupFullHumans,
+  minHumans: BR.minHumans,
+  countdownSeconds: BR.countdownSeconds,
+  fullCountdownSeconds: BR.fullCountdownSeconds,
   endSeconds: BR.endSeconds,
 };
 
@@ -85,7 +96,7 @@ const BOARDING_S = 3;
 
 export class BattleRoyale extends Arena {
   phase: 'warmup' | 'playing' | 'ended' = 'warmup';
-  /** Warm-up ticks left (-1: waiting for the first human). */
+  /** Countdown ticks left (-1: waiting for enough humans). */
   warmupTicks = -1;
   endTicks = 0;
   readonly seed: number;
@@ -115,7 +126,7 @@ export class BattleRoyale extends Arena {
     this.o = options;
     this.bev = events;
     this.seed = (options.seed ?? randomSecret()) >>> 0;
-    this.loot = new LootWorld(sim, events.loot);
+    this.loot = new LootWorld(sim, events.loot, () => this.tick);
     const k = options.zoneTimeScale ?? 1;
     this.phases = ZONE.phases.map((p) => ({ ...p, waitS: p.waitS * k, shrinkS: p.shrinkS * k }));
     this.botContext = {
@@ -126,6 +137,7 @@ export class BattleRoyale extends Arena {
       zone: () => this.zoneInfo(),
       itemsNear: (x, z, r) => this.loot.near(x, z, r, []),
       canReach: (s, e) => this.loot.reachable(s, e) && Math.hypot(e.x - s.x, e.y - s.y - 0.9, e.z - s.z) < 2.6,
+      lootable: (e) => e.kind !== Item.Crate || (this.loot.lootable(e) && !isEmptyCrate(e)),
       armorOf: (id) => this.armorFor(id),
     };
   }
@@ -136,7 +148,7 @@ export class BattleRoyale extends Arena {
 
   armorFor(id: string): Armor {
     let a = this.armor.get(id);
-    if (!a) this.armor.set(id, (a = { vest: 0, vestDur: 0, helmet: 0, helmetDur: 0 }));
+    if (!a) this.armor.set(id, (a = { vest: 0, vestDur: 0, helmet: 0, helmetDur: 0, pack: 0 }));
     return a;
   }
 
@@ -176,9 +188,34 @@ export class BattleRoyale extends Arena {
     const seat = this.makeSeat(id, name, null, createPlayerSim(0, -100, 0));
     this.armorFor(id);
     this.spawnWarmup(seat);
-    if (this.warmupTicks < 0) this.warmupTicks = this.o.warmupSeconds * TICK_RATE;
-    if (this.humans >= this.o.warmupFullHumans) this.warmupTicks = Math.min(this.warmupTicks, this.o.warmupFullSeconds * TICK_RATE);
+    this.updateCountdown();
     return seat;
+  }
+
+  /** More humans needed before the countdown starts (0 once it runs or after the start). */
+  get waitingFor(): number {
+    return this.phase === 'warmup' ? Math.max(0, this.o.minHumans - this.humans) : 0;
+  }
+
+  /** True while the start countdown runs. */
+  get countingDown(): boolean {
+    return this.phase === 'warmup' && this.warmupTicks > 0;
+  }
+
+  /**
+   * The start rule: the countdown starts once `minHumans` humans are in, goes
+   * back to waiting when they drop below that, and is capped once the room is
+   * full of humans.
+   */
+  private updateCountdown(): void {
+    if (this.phase !== 'warmup') return;
+    const humans = this.humans;
+    if (humans < Math.max(1, this.o.minHumans)) {
+      this.warmupTicks = -1;
+      return;
+    }
+    if (this.warmupTicks < 0) this.warmupTicks = Math.max(1, Math.round(this.o.countdownSeconds * TICK_RATE));
+    if (humans >= this.o.players) this.warmupTicks = Math.min(this.warmupTicks, Math.max(1, Math.round(this.o.fullCountdownSeconds * TICK_RATE)));
   }
 
   /** A human left. In the warm-up the seat goes; in a match the duck is out (its loot drops). */
@@ -188,7 +225,7 @@ export class BattleRoyale extends Arena {
     if (this.phase === 'warmup') {
       this.seats.delete(id);
       this.armor.delete(id);
-      if (this.humans === 0) this.warmupTicks = -1;
+      this.updateCountdown();
       return;
     }
     // After the end nobody is out any more: a winner leaving the results stays the winner.
@@ -242,7 +279,7 @@ export class BattleRoyale extends Arena {
     fresh.res0 = 0;
     fresh.res1 = 0;
     Object.assign(seat.sim, fresh);
-    Object.assign(this.armorFor(seat.id), { vest: 0, vestDur: 0, helmet: 0, helmetDur: 0 });
+    Object.assign(this.armorFor(seat.id), { vest: 0, vestDur: 0, helmet: 0, helmetDur: 0, pack: 0 });
     seat.kills = 0;
     seat.deaths = 0;
     seat.dealt = 0;
@@ -290,8 +327,50 @@ export class BattleRoyale extends Arena {
 
   protected override afterStep(seat: Seat, _f: InputFrame): void {
     if (!this.useEdge || !seat.sim.alive || seat.sim.mode !== Mode.Ground || this.phase !== 'playing') return;
-    const got = this.loot.tryPickup(seat.sim, this.armorFor(seat.id));
-    if (got) this.bev.picked(seat, got);
+    const r = this.loot.tryPickup(seat.sim, this.armorFor(seat.id));
+    if (r) this.report(seat, r);
+  }
+
+  private report(seat: Seat, r: LootResult): void {
+    if (r.got.length > 0) this.bev.picked(seat, r.got);
+    if (r.deny !== Deny.None) this.bev.denied?.(seat, r.deny, r.denyKind);
+    if (r.got.length > 0 || r.opened) this.bev.looted?.(seat);
+  }
+
+  /** Inventory requests left per seat this second (rate limit), and the second they count for. */
+  private readonly invBudget = new Map<string, { left: number; second: number }>();
+
+  /**
+   * An inventory request from a client (the inventory screen): drop an item
+   * from the inventory onto the ground, or take one item (or a crate's
+   * content at `index`) that is in reach and in sight. Same rules as the Use
+   * button; the server decides. Returns false when refused outright.
+   */
+  inventoryOp(seatId: string, op: 'drop' | 'take', a: number, b: number, c: number): boolean {
+    const seat = this.seats.get(seatId);
+    if (!seat || !seat.sim.alive || seat.sim.mode !== Mode.Ground || this.phase !== 'playing') return false;
+    const second = Math.floor(this.tick / TICK_RATE);
+    let budget = this.invBudget.get(seatId);
+    if (!budget || budget.second !== second) this.invBudget.set(seatId, (budget = { left: LOOT.invOpsPerSecond, second }));
+    if (budget.left <= 0) return false;
+    budget.left--;
+    const armor = this.armorFor(seatId);
+    if (op === 'drop') {
+      const out = takeOut(seat.sim, armor, a, b);
+      if (!out.item) {
+        this.bev.denied?.(seat, out.deny, a);
+        return false;
+      }
+      this.loot.dropAt(seat.sim, out.item);
+      this.bev.looted?.(seat);
+      return true;
+    }
+    const e = this.loot.items.get(`i${a}`);
+    // A closed crate answers nothing at all (no probing its contents by guessing kinds).
+    if (!e || (e.kind === Item.Crate && !e.open) || !this.loot.inReach(seat.sim, e)) return false;
+    if (b >= 0 ? e.kind !== Item.Crate || e.contents?.[b]?.kind !== c : e.kind !== c || e.kind === Item.Crate) return false;
+    this.report(seat, this.loot.take(seat.sim, armor, e, b));
+    return true;
   }
 
   protected onKilled(killer: Seat | null, victim: Seat): void {
@@ -375,7 +454,7 @@ export class BattleRoyale extends Arena {
     this.recordHistory();
   }
 
-  /** Seconds until the next thing happens (warm-up end, zone wait or shrink end). */
+  /** Seconds until the next thing happens (countdown end, zone wait or shrink end); 0 while waiting for players. */
   get secondsLeft(): number {
     if (this.phase === 'warmup') return this.warmupTicks > 0 ? Math.ceil(this.warmupTicks / TICK_RATE) : 0;
     if (this.phase === 'ended') return Math.ceil(this.endTicks / TICK_RATE);

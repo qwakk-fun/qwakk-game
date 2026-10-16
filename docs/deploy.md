@@ -95,12 +95,12 @@ App Configs:
   | Variable | Required | Notes |
   | --- | --- | --- |
   | `SESSION_SECRET` | yes | The image sets `NODE_ENV=production`, so the server refuses to start without it, and also when it is shorter than 32 characters. Rotating it resets every guest identity |
-  | `TRUST_PROXY` | yes, `1` | CapRover's nginx is one proxy. Without it every player has the proxy's IP and the per-IP join and session limits lock everyone out together |
+  | `TRUST_PROXY` | yes, `1` | CapRover's nginx is one proxy. Without it every player has the proxy's IP and the per-IP join, room creation and session limits lock everyone out together |
   | `ALLOWED_ORIGINS` | yes | `https://qwakk.fun`. Applies to `/api`, matchmaking CORS and WebSocket upgrades. Unset: `/api` is same-origin only (and `qwakk.fun` is not the same origin as `play.qwakk.fun`, so the menu breaks) and matchmaking accepts any origin |
   | `TURNSTILE_SECRET` | recommended | Must be set together with `VITE_TURNSTILE_SITEKEY` on `qwakk-game-web` (step 3), or both left unset. A secret without a site key makes every new guest fail with 403 `turnstile_failed` |
   | `DATABASE_URL` | for the leaderboard | Unset: no leaderboard and matches are not recorded, but sessions and play still work. Migrations run at start |
 
-  Optional: `QWAKK_SEED`, `QWAKK_BOTS=0`, `QWAKK_STATS=1` (prints tick timing to the logs). `QWAKK_NAV_CACHE` is set by the image; do not override it. Never set `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_WARMUP`, `QWAKK_ZONE_SCALE` or `COLYSEUS_LATENCY` in production.
+  Optional: `QWAKK_SEED`, `QWAKK_BOTS=0`, `QWAKK_STATS=1` (prints tick timing to the logs). `QWAKK_NAV_CACHE` is set by the image; do not override it. Never set `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_COUNTDOWN`, `QWAKK_BR_MIN_HUMANS`, `QWAKK_ZONE_SCALE` or `COLYSEUS_LATENCY` in production.
 
   Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, the database password) live only here in CapRover, never in the repo, an image or a log.
 - Service Update Override: paste `deploy/caprover/qwakk-game-server.service-override.yml`. It limits the server to 1.5 CPUs and 1 GiB. CapRover reapplies it on every deploy.
@@ -253,9 +253,9 @@ docker stats --no-stream | grep -E 'qwakk'
 
 ## Before public launch
 
-Done in code: `/health`, the origin check (`ALLOWED_ORIGINS`), per-IP join and session limits, Turnstile on guest creation. They only work as intended with the env from step 2, in particular `TRUST_PROXY=1`: without it the limits see CapRover's proxy IP for every player and throttle everyone together.
+Done in code: `/health`, the origin check (`ALLOWED_ORIGINS`), per-IP join, room creation, lobby and session limits, Turnstile on guest creation. They only work as intended with the env from step 2, in particular `TRUST_PROXY=1`: without it the limits see CapRover's proxy IP for every player and throttle everyone together.
 
 Still open:
 
-- Per-IP connection limits on the WebSocket itself (today the limits apply to joins, sessions and leaderboard reads). They also depend on `TRUST_PROXY=1`.
+- Per-IP connection limits on the WebSocket itself (today the limits apply to joins, new rooms, lobby connections, sessions and leaderboard reads). They also depend on `TRUST_PROXY=1`.
 - Content hashes for models, so `/game/models/` can be cached as immutable instead of revalidated.

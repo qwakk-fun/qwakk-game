@@ -510,6 +510,125 @@
   font: 600 13px/1.4 var(--qm-mono);
 }
 
+/* Battle royale rooms (Play tab): live list from the lobby. */
+.qm-rooms {
+  display: grid;
+  gap: 10px;
+  padding: 14px 16px 16px;
+  border: 1px solid var(--qm-line);
+  border-radius: var(--qm-radius);
+  background: rgba(26, 27, 31, 0.86);
+}
+.qm-rooms-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.qm-rooms-head h2 {
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+}
+.qm-rooms-rule {
+  margin-top: 2px;
+  font-size: 12.5px;
+  color: var(--qm-text-3);
+}
+.qm-rooms-create {
+  flex: none;
+}
+.qm-rooms-msg {
+  font: 500 13px/1.45 var(--qm-mono);
+  color: var(--qm-text-2);
+}
+.qm-rooms-msg[hidden],
+.qm-rooms-list[hidden] {
+  display: none;
+}
+.qm-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--qm-yellow);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.qm-rooms-list {
+  display: grid;
+  gap: 6px;
+  max-height: 252px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.qm-room {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(96px, auto) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 46px;
+  padding: 6px 6px 6px 12px;
+  border: 1px solid var(--qm-line);
+  border-radius: 10px;
+  background: var(--qm-raised);
+}
+.qm-room.is-countdown {
+  border-color: var(--qm-accent-line);
+  background: linear-gradient(90deg, rgba(255, 212, 59, 0.08), var(--qm-raised) 70%);
+}
+.qm-room.is-playing,
+.qm-room.is-ended {
+  opacity: 0.6;
+}
+.qm-room-name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.qm-room-label {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qm-room-id,
+.qm-room-count {
+  font: 500 12px/1 var(--qm-mono);
+  color: var(--qm-text-3);
+}
+.qm-room-count {
+  color: var(--qm-text-2);
+}
+.qm-room-stage {
+  font: 600 12.5px/1.2 var(--qm-mono);
+  color: var(--qm-text-2);
+}
+.qm-room.is-countdown .qm-room-stage {
+  color: var(--qm-yellow);
+}
+.qm-room.is-playing .qm-room-stage {
+  color: var(--qm-beak);
+}
+.qm-rooms-join {
+  align-items: center;
+  min-width: 64px;
+  border: 0;
+  background: var(--qm-yellow);
+  color: var(--qm-ink);
+}
+.qm-rooms-join:hover:not(:disabled) {
+  background: var(--qm-yellow-strong);
+}
+.qm-rooms-join:disabled {
+  background: var(--qm-line-strong);
+  color: var(--qm-text-2);
+}
+
 /* Panels (leaderboard, settings, how to play) */
 .qm-panel-inner {
   display: grid;
@@ -843,6 +962,22 @@ body.qm-open #overlay {
   }
   .qm-play {
     grid-template-columns: 1fr;
+  }
+  .qm-room {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px 10px;
+  }
+  .qm-room-count {
+    grid-row: 2;
+  }
+  .qm-room-stage {
+    grid-row: 2;
+    grid-column: 2;
+    justify-self: end;
+  }
+  .qm-rooms-join {
+    grid-row: 1;
+    grid-column: 2;
   }
   .qm-keys {
     grid-template-columns: minmax(0, auto) minmax(0, 1fr);

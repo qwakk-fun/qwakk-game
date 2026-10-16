@@ -1,0 +1,205 @@
+/**
+ * Lobby rooms end to end: the real server (default start rule: 3 humans, a
+ * short countdown for the test), `vite preview` of the test bundle, one
+ * headless Chrome player and two Node players (npm run build:test first).
+ *
+ *   1. Node B creates a room. A Node lobby watcher sees it listed: waiting, needs 2.
+ *   2. Chrome A opens the menu, sees the room in the live list and joins it from
+ *      there. The waiting room shows the roster and "Waiting for 1 more duck".
+ *   3. Node C picks the room from the lobby list and joins: the countdown starts
+ *      (listed as counting down; the waiting room shows the plane timer).
+ *   4. When it ends, bots fill the seats (16 ducks) and the match starts; the
+ *      room is listed as in progress and a late join by id is refused.
+ *
+ * Saves screenshots: room list, waiting room, countdown, list during the
+ * countdown, list with the room in progress.
+ *
+ * Usage: npm run e2e:lobby [-- OUTDIR]
+ */
+import { spawn, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { Client, type Room } from '@colyseus/sdk';
+import { chromium, type Page } from 'playwright';
+import { BR } from '@qwakk/shared';
+import { LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
+import { IslandState, MatchPhase } from '@qwakk/shared/net';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-lobby');
+mkdirSync(out, { recursive: true });
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
+const COUNTDOWN_S = 10;
+const server_ = `ws://localhost:${SERVER_PORT}`;
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = {}): ChildProcess {
+  return spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
+}
+
+async function waitForOutput(proc: ChildProcess, needle: string, timeoutMs = 30000): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timeout waiting for "${needle}"`)), timeoutMs);
+    const onData = (chunk: Buffer) => {
+      if (chunk.toString().includes(needle)) {
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+    proc.stdout?.on('data', onData);
+    proc.stderr?.on('data', onData);
+  });
+}
+
+async function until(label: string, test: () => boolean | Promise<boolean>, timeoutMs = 30000): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  while (!(await test())) {
+    if (Date.now() > end) throw new Error(`timeout: ${label}`);
+    await sleep(100);
+  }
+}
+
+interface Listed {
+  locked?: boolean;
+  metadata: RoomListing;
+}
+
+/** A Node menu: the lobby's live list. */
+async function watchLobby(): Promise<{ room: Room; rooms: Map<string, Listed> }> {
+  const room = await new Client(server_).joinOrCreate(LOBBY_ROOM);
+  const rooms = new Map<string, Listed>();
+  room.onMessage('rooms', (list: (Listed & { roomId: string })[]) => {
+    rooms.clear();
+    for (const r of list) rooms.set(r.roomId, r);
+  });
+  room.onMessage('+', ([id, r]: [string, Listed]) => rooms.set(id, r));
+  room.onMessage('-', (id: string) => rooms.delete(id));
+  return { room, rooms };
+}
+
+const snap = (p: Page): Promise<{ phase: number; players: number } | null> => p.evaluate(() => (window as any).__qwakk?.snapshot() ?? null);
+const text = (p: Page, sel: string): Promise<string> => p.locator(sel).first().innerText().catch(() => '');
+/** The game overlay ("Click to play") stays up until the pointer is locked; hide it for the HUD shots. */
+const hideOverlay = (p: Page): Promise<void> => p.evaluate(() => document.getElementById('overlay')?.classList.add('hidden'));
+
+async function main(): Promise<void> {
+  if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
+  const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
+    PORT: String(SERVER_PORT),
+    QWAKK_BR_COUNTDOWN: String(COUNTDOWN_S),
+    QWAKK_BR_SEED: '7',
+  });
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  const procs = [server, web];
+  const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
+  process.on('exit', cleanup);
+  const rooms: Room[] = [];
+  try {
+    await Promise.all([waitForOutput(server, 'server listening'), waitForOutput(web, String(WEB_PORT))]);
+    const lobby = await watchLobby();
+    rooms.push(lobby.room);
+    const listing = (id: string) => lobby.rooms.get(id)?.metadata;
+
+    // 1. B creates a room.
+    const b = await new Client(server_).create<IslandState>(BR.roomName, { name: 'NodeB' }, IslandState);
+    b.onMessage('*', () => {}); // match messages (kills, shots) are not read here
+    rooms.push(b);
+    const id = b.roomId;
+    await until('listed: waiting, needs 2', () => listing(id)?.stage === 'waiting' && listing(id)?.need === 2);
+    console.log(`room ${id} "${listing(id)?.label}" listed: ${JSON.stringify(listing(id))}`);
+
+    // 2. Chrome A joins it from the menu's list.
+    const browser = await chromium.launch({
+      ...((process.env.E2E_BROWSER ?? 'chrome') === 'chrome' ? { channel: 'chrome' } : {}),
+      headless: true,
+      args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'],
+    });
+    const menuUrl = `http://localhost:${WEB_PORT}/game/?server=${server_}&hud=0`;
+    const ctxA = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const a = await ctxA.newPage();
+    a.on('pageerror', (e) => console.error('[A] page error:', e.message));
+    a.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error('[A] console:', m.text()));
+    await a.goto(menuUrl);
+    const row = a.locator(`.qm-room[data-room="${id}"]`);
+    await row.waitFor({ timeout: 30000 });
+    const rowText = await row.innerText();
+    console.log(`menu list row: ${rowText.replace(/\s+/g, ' ')}`);
+    if (!rowText.includes('Needs 2 more') || !rowText.includes('1/16')) throw new Error('the room row does not show 1/16, needs 2 more');
+    await sleep(600);
+    await a.screenshot({ path: `${out}/1-room-list.png` });
+    await row.locator('button').click();
+    await until('A is in the room', async () => (await snap(a))?.players === 2, 60000);
+    await until('waiting room panel', async () => (await text(a, '.br-lobby')).includes('NodeB'), 15000);
+    const banner = await text(a, '.br-banner');
+    console.log(`waiting room: ${banner.replace(/\s+/g, ' ')} | ${(await text(a, '.br-lobby')).replace(/\s+/g, ' ')}`);
+    if (!banner.includes('Waiting for 1 more duck')) throw new Error('the waiting room does not say it waits for 1 more duck');
+    await until('listed: 2 humans, needs 1', () => listing(id)?.humans === 2 && listing(id)?.need === 1);
+    await a.screenshot({ path: `${out}/2a-waiting-overlay.png` });
+    await hideOverlay(a);
+    await sleep(300);
+    await a.screenshot({ path: `${out}/2-waiting-room.png` });
+
+    // 3. C picks the room from the lobby list (the first one it can join) and joins: the countdown starts.
+    const pick = [...lobby.rooms.entries()].find(([, r]) => !r.locked && (r.metadata.stage === 'waiting' || r.metadata.stage === 'countdown'))?.[0];
+    if (pick !== id) throw new Error(`C would pick ${pick}, not ${id}`);
+    const c = await new Client(server_).joinById<IslandState>(pick, { name: 'NodeC' }, IslandState);
+    c.onMessage('*', () => {});
+    rooms.push(c);
+    await until('listed: counting down', () => listing(id)?.stage === 'countdown' && listing(id)?.need === 0);
+    await until('A sees the countdown', async () => (await text(a, '.br-banner')).includes('The plane leaves in'), 10000);
+    await hideOverlay(a);
+    await sleep(1200);
+    await a.screenshot({ path: `${out}/3-countdown.png` });
+    console.log(`countdown: ${(await text(a, '.br-banner')).replace(/\s+/g, ' ')}; listed ${JSON.stringify(listing(id))}`);
+
+    // Another menu shows the countdown in the list.
+    const ctxD = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const d = await ctxD.newPage();
+    await d.goto(menuUrl);
+    await d.locator(`.qm-room[data-room="${id}"].is-countdown`).waitFor({ timeout: 15000 });
+    await sleep(400);
+    await d.screenshot({ path: `${out}/4-list-countdown.png` });
+
+    // 4. The countdown ends: bots fill the seats and the match starts.
+    await until('match started', () => b.state.phase === MatchPhase.Playing, (COUNTDOWN_S + 10) * 1000);
+    await until('bots fill the seats', () => b.state.total === BR.players && b.state.players.size === BR.players, 5000);
+    const humans = [...b.state.players.values()].filter((p) => !p.bot).length;
+    console.log(`match started: ${b.state.total} ducks, ${humans} humans, ${b.state.total - humans} bots`);
+    if (humans !== 3) throw new Error(`expected 3 humans, got ${humans}`);
+    await until('A is in the match', async () => (await snap(a))?.phase === MatchPhase.Playing, 10000);
+    await until('listed: in progress', () => listing(id)?.stage === 'playing' && lobby.rooms.get(id)?.locked === true, 10000);
+    let refused = false;
+    try {
+      rooms.push(await new Client(server_).joinById(id, { name: 'Late' }));
+    } catch {
+      refused = true;
+    }
+    if (!refused) throw new Error('a room in progress took a late join');
+    await d.locator(`.qm-room[data-room="${id}"].is-playing`).waitFor({ timeout: 10000 });
+    const playingRow = await d.locator(`.qm-room[data-room="${id}"]`).innerText();
+    if (!playingRow.includes('In progress')) throw new Error('the list does not show the room in progress');
+    if (!(await d.locator(`.qm-room[data-room="${id}"] button`).isDisabled())) throw new Error('Join is enabled on a room in progress');
+    await d.screenshot({ path: `${out}/5-list-in-progress.png` });
+    await hideOverlay(a);
+    await sleep(800);
+    await a.screenshot({ path: `${out}/6-match-started.png` });
+
+    await ctxA.close();
+    await ctxD.close();
+    await browser.close();
+    console.log(`screenshots in ${out}`);
+    console.log('LOBBY E2E OK');
+  } finally {
+    for (const r of rooms) await r.leave(true).catch(() => {});
+    cleanup();
+  }
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

@@ -54,6 +54,8 @@ export interface SessionHandlers {
   shotHint(weapon: number, angle: number, loud: number): void;
   /** Our pickup went through. */
   picked(kind: number, amount: number): void;
+  /** A pickup or an inventory request did nothing: the reason (Deny.*) and the item kind. */
+  denied(reason: number, kind: number): void;
   /** We are out (or won): placement, players in the match, kills, damage, survived ms. */
   result(placement: number, total: number, kills: number, damage: number, survivedMs: number): void;
   /** The local sim fired (live step only, never on replay). `state` is the post-step state. */
@@ -107,10 +109,21 @@ export class Session {
     this.input = room.input({ type: PlayerInput, mode: 'reliable' });
   }
 
-  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
+  /**
+   * Join a match. Battle royale: `roomId` joins that room from the lobby list,
+   * `create` opens a new room, neither is Quick Play (the server picks the
+   * open room with the most players, or opens one).
+   */
+  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
     const roomName = opts.mode === 'br' ? BR.roomName : ROOM.name;
-    const room = await client.joinOrCreate<IslandState>(roomName, { name: opts.name ?? '', token: opts.token, spectate }, IslandState);
+    const joinOpts = { name: opts.name ?? '', token: opts.token, spectate };
+    const room =
+      opts.mode === 'br' && opts.roomId
+        ? await client.joinById<IslandState>(opts.roomId, joinOpts, IslandState)
+        : opts.mode === 'br' && opts.create
+          ? await client.create<IslandState>(roomName, joinOpts, IslandState)
+          : await client.joinOrCreate<IslandState>(roomName, joinOpts, IslandState);
     const netsim = new NetSim(net);
     netsim.attach(room);
     const session = new Session(room, netsim);
@@ -194,6 +207,7 @@ export class Session {
       for (const d of list) handlers.shotHint(d[0] ?? 0, (d[1] ?? 0) / 1000, d[2] ?? 0);
     });
     this.room.onMessage(Msg.Picked, (d: number[]) => handlers.picked(d[0] ?? 0, d[1] ?? 0));
+    this.room.onMessage(Msg.Denied, (d: number[]) => handlers.denied(d[0] ?? 0, d[1] ?? 0));
     this.room.onMessage(Msg.Result, (d: number[]) => handlers.result(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] ?? 0, d[4] ?? 0));
   }
 
@@ -205,6 +219,11 @@ export class Session {
   }
 
   /** While dead: watch the next (1) or previous (-1) living duck. */
+  /** An inventory request (Msg.Inv); the server checks it and answers through the state, Picked or Denied. */
+  inventory(msg: number[]): void {
+    this.room.send(Msg.Inv, msg);
+  }
+
   spectate(dir: 1 | -1): void {
     this.room.send(Msg.Spectate, dir);
   }

@@ -70,7 +70,7 @@ const PITCH_LIMIT = 1.5607963267948966; // pi/2 - 0.01
 
 /**
  * Final yaw and pitch of a shot: the aim, plus the spray pattern offset
- * (deterministic: learnable and predicted), plus a random point inside the
+ * (deterministic: learnable and predicted; smaller aimed down sights), plus a random point inside the
  * spread cone from `seed`. The server's seed contains a per-round secret the
  * client never sees, so the random part cannot be predicted or cancelled out
  * by a cheat; the client draws its tracer with its own local guess.
@@ -81,8 +81,9 @@ export function shotAngles(s: PlayerSim, shot: ShotFired, seed: number): { yaw: 
   const [u, v] = spreadSample(shot.shotSeq, seed);
   const r = shot.inaccuracy * Math.sqrt(u);
   const th = 6.283185307179586 * v;
-  const pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, s.pitch + p[0] + r * dsin(th)));
-  const yaw = s.yaw - p[1] + r * dcos(th);
+  const k = shot.recoil;
+  const pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, s.pitch + p[0] * k + r * dsin(th)));
+  const yaw = s.yaw - p[1] * k + r * dcos(th);
   return { yaw, pitch };
 }
 

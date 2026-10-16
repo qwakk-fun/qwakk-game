@@ -111,9 +111,9 @@ describe('spread', () => {
 
   it('the spray pattern and spread are deterministic per shot', () => {
     const s = createPlayerSim(0, 0, 0);
-    const shot: ShotFired = { weapon: 0, sprayIndex: 7, inaccuracy: 0.01, shotSeq: 42 };
+    const shot: ShotFired = { weapon: 0, sprayIndex: 7, inaccuracy: 0.01, shotSeq: 42, recoil: 1 };
     expect(shotAngles(s, shot, 3)).toEqual(shotAngles(s, shot, 3));
-    expect(shotAngles(s, shot, 3)).not.toEqual(shotAngles(s, { ...shot, shotSeq: 43 }, 3));
+    expect(shotAngles(s, shot, 3)).not.toEqual(shotAngles(s, { ...shot, shotSeq: 43, recoil: 1 }, 3));
     // The pattern climbs: shot 10 lands well above shot 0 with no spread.
     const a = shotAngles(s, { ...shot, sprayIndex: 0, inaccuracy: 0 }, 3);
     const b = shotAngles(s, { ...shot, sprayIndex: 10, inaccuracy: 0 }, 3);
@@ -169,7 +169,7 @@ describe('fire rate and ammo (server-enforced state machine)', () => {
 describe('spread secrecy', () => {
   it('the random spread depends on the seed; the spray pattern does not', () => {
     const s = createPlayerSim(0, 0, 0);
-    const shot: ShotFired = { weapon: 0, sprayIndex: 5, inaccuracy: 0.02, shotSeq: 9 };
+    const shot: ShotFired = { weapon: 0, sprayIndex: 5, inaccuracy: 0.02, shotSeq: 9, recoil: 1 };
     // A client that does not know the server's seed lands somewhere else in the cone.
     expect(shotAngles(s, shot, 123)).not.toEqual(shotAngles(s, shot, 456));
     // With no inaccuracy, only the learnable pattern is left: identical for any seed.
@@ -184,7 +184,7 @@ describe('spread secrecy', () => {
 
   it('pattern plus spread never points past straight up or down', () => {
     const s = { ...createPlayerSim(0, 0, 0), pitch: 1.45 };
-    const a = shotAngles(s, { weapon: 0, sprayIndex: 29, inaccuracy: 0.2, shotSeq: 3 }, 7);
+    const a = shotAngles(s, { weapon: 0, sprayIndex: 29, inaccuracy: 0.2, shotSeq: 3, recoil: 1 }, 7);
     expect(a.pitch).toBeLessThan(Math.PI / 2);
   });
 });
@@ -192,7 +192,7 @@ describe('spread secrecy', () => {
 describe('crouching behind cover is fair both ways', () => {
   // Cover 1.15 m tall (the arena's low walls), 1 m in front of the crouched duck at z = 0.
   const cover: BoxDef = { kind: 'cover', c: [0, 0.575, -1], h: [2, 0.575, 0.3], q: [0, 0, 0, 1] };
-  const shot: ShotFired = { weapon: 0, sprayIndex: 0, inaccuracy: 0, shotSeq: 1 };
+  const shot: ShotFired = { weapon: 0, sprayIndex: 0, inaccuracy: 0, shotSeq: 1, recoil: 1 };
 
   it('a crouched duck can shoot over the cover its head peeks over', () => {
     const s = { ...createPlayerSim(0, 0, 0), grounded: 1, crouch: 1 };
@@ -222,7 +222,7 @@ describe('crouching behind cover is fair both ways', () => {
 });
 
 describe('hitscan resolution', () => {
-  const shot: ShotFired = { weapon: 0, sprayIndex: 0, inaccuracy: 0, shotSeq: 1 };
+  const shot: ShotFired = { weapon: 0, sprayIndex: 0, inaccuracy: 0, shotSeq: 1, recoil: 1 };
 
   /** Shooter at the origin facing -z, aiming at the chest of a target 20 m away on the right-shoulder line. */
   function setup() {

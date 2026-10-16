@@ -37,7 +37,7 @@ const idleBot = () => {
 beforeAll(async () => {
   await initPhysics();
   server = new Server({ transport: new WebSocketTransport() });
-  server.define(BR.roomName, BrRoom, { warmupSeconds: 1, seed: 3, createBot: idleBot });
+  server.define(BR.roomName, BrRoom, { countdownSeconds: 1, minHumans: 1, seed: 3, createBot: idleBot });
   await server.listen(PORT);
 });
 

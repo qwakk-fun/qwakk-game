@@ -1,11 +1,14 @@
 /**
  * Battle royale HUD: minimap and compass with the zone direction, zone timer,
- * ducks alive and kills, the inventory bar (weapon slots, armor, heals with
- * their keys), heal progress, the pickup prompt, pickup toasts, the
- * full-screen map (M), the Tab inventory and scoreboard, banners (warm-up,
- * plane, spectating) and the results card. Plain DOM; per-frame updates only
- * write what changed.
+ * ducks alive and kills, the inventory bar (weapon slots, armor, backpack
+ * load, heals with their keys), heal progress, the pickup prompt (with why
+ * an item does not fit, and an open crate's contents), pickup and refusal
+ * toasts, the full-screen map (M), the inventory screen (I,
+ * inventoryPanel.ts), the Tab gear and scoreboard, banners (warm-up, plane,
+ * spectating) and the results card. Plain DOM; per-frame updates only write
+ * what changed.
  */
+import { InventoryPanel, type InvAction, type InvScreen } from './inventoryPanel.ts';
 import { MapPainter, type MapOverlay } from './mapCanvas.ts';
 
 export interface SlotView {
@@ -24,6 +27,16 @@ export interface InventoryView {
   helmetPct: number;
   bandages: number;
   medkits: number;
+  /** Backpack level, weight carried and capacity. */
+  pack: number;
+  load: number;
+  capacity: number;
+}
+
+/** The contents of an open crate the prompt targets, with what does not fit. */
+export interface CratePanelView {
+  title: string;
+  rows: { label: string; note: string }[];
 }
 
 export interface BrHudData {
@@ -39,8 +52,10 @@ export interface BrHudData {
   inv: InventoryView | null;
   /** Heal in progress: name and 0..1. */
   heal: { name: string; progress: number } | null;
-  /** Prompt like "E  Rifle" (text, not HTML). */
-  prompt: { key: string; text: string } | null;
+  /** Prompt like "E  Rifle" (text, not HTML); `note` says why it does not fit; `alt` is a second key hint. */
+  prompt: { key: string; text: string; note?: string; alt?: { key: string; text: string } } | null;
+  /** The open crate the prompt targets. */
+  crate: CratePanelView | null;
   /** Top banner (warm-up, plane, spectating), plain text lines. */
   banner: string[] | null;
 }
@@ -90,6 +105,8 @@ export class BrHud {
   private readonly healFill: HTMLElement;
   private readonly healName: HTMLElement;
   private readonly prompt: HTMLElement;
+  private readonly cratePanel: HTMLElement;
+  private readonly invPanel: InventoryPanel;
   private readonly banner: HTMLElement;
   private readonly toasts: HTMLElement;
   private readonly board: HTMLElement;
@@ -97,12 +114,12 @@ export class BrHud {
   private readonly painter: MapPainter;
   private readonly labels: { name: string; x: number; z: number }[];
   private mapOpen = false;
-  private last = { zone: '', counts: '', inv: '', prompt: '', banner: '', board: '', outside: false };
+  private last = { zone: '', counts: '', inv: '', prompt: '', crate: '', banner: '', board: '', outside: false };
   private miniClock = 0;
   private onWatch: (() => void) | null = null;
   private onBack: (() => void) | null = null;
 
-  constructor(parent: HTMLElement, painter: MapPainter, labels: { name: string; x: number; z: number }[]) {
+  constructor(parent: HTMLElement, painter: MapPainter, labels: { name: string; x: number; z: number }[], inv: { action(a: InvAction): void; close(): void }) {
     this.painter = painter;
     this.labels = labels;
     this.root = el('div', 'br', parent);
@@ -129,6 +146,8 @@ export class BrHud {
     this.healBar.hidden = true;
     this.prompt = el('div', 'br-prompt', this.root);
     this.prompt.hidden = true;
+    this.cratePanel = el('div', 'br-crate', this.root);
+    this.cratePanel.hidden = true;
     this.banner = el('div', 'br-banner', this.root);
     this.banner.hidden = true;
     this.toasts = el('div', 'br-toasts', this.root);
@@ -142,6 +161,16 @@ export class BrHud {
     this.bigWrap.hidden = true;
     this.card = el('div', 'br-card', this.root);
     this.card.hidden = true;
+    this.invPanel = new InventoryPanel(this.root, inv.action, inv.close);
+  }
+
+  /** The inventory screen (null hides it). */
+  showInventory(d: InvScreen | null): void {
+    this.invPanel.show(d);
+  }
+
+  get inventoryVisible(): boolean {
+    return this.invPanel.visible;
   }
 
   toggleMap(): void {
@@ -191,7 +220,7 @@ export class BrHud {
       this.healName.textContent = d.heal.name;
       this.healFill.style.width = `${Math.round(d.heal.progress * 100)}%`;
     } else this.healBar.hidden = true;
-    const prompt = d.prompt ? `${d.prompt.key}|${d.prompt.text}` : '';
+    const prompt = d.prompt ? JSON.stringify(d.prompt) : '';
     if (prompt !== this.last.prompt) {
       this.last.prompt = prompt;
       this.prompt.hidden = !d.prompt;
@@ -199,6 +228,25 @@ export class BrHud {
       if (d.prompt) {
         el('kbd', 'br-key', this.prompt, d.prompt.key);
         el('span', '', this.prompt, d.prompt.text);
+        if (d.prompt.note) el('span', 'br-prompt-note', this.prompt, d.prompt.note);
+        if (d.prompt.alt) {
+          el('kbd', 'br-key alt', this.prompt, d.prompt.alt.key);
+          el('span', 'br-prompt-alt', this.prompt, d.prompt.alt.text);
+        }
+      }
+    }
+    const crate = d.crate ? JSON.stringify(d.crate) : '';
+    if (crate !== this.last.crate) {
+      this.last.crate = crate;
+      this.cratePanel.hidden = !d.crate;
+      this.cratePanel.replaceChildren();
+      if (d.crate) {
+        el('div', 'br-crate-title', this.cratePanel, d.crate.title);
+        for (const r of d.crate.rows) {
+          const row = el('div', `br-crate-row${r.note ? ' dim' : ''}`, this.cratePanel);
+          el('span', '', row, r.label);
+          if (r.note) el('span', 'br-crate-note', row, r.note);
+        }
       }
     }
     const banner = d.banner ? d.banner.join('\n') : '';
@@ -232,6 +280,12 @@ export class BrHud {
     };
     piece('Vest', inv.vest, inv.vestPct);
     piece('Helmet', inv.helmet, inv.helmetPct);
+    // The backpack: load against capacity (orange when full).
+    const share = inv.capacity > 0 ? Math.min(1, inv.load / inv.capacity) : 0;
+    const pack = el('div', `br-piece br-pack${share >= 0.999 ? ' full' : ''}`, gear);
+    el('span', 'br-piece-name', pack, `${inv.pack ? `Pack ${inv.pack}` : 'Pack'} ${Math.round(inv.load)}/${inv.capacity}`);
+    const packFill = el('div', 'br-piece-fill', el('div', 'br-piece-bar', pack));
+    packFill.style.width = `${Math.round(share * 100)}%`;
     const heals = el('div', 'br-heals', this.inv);
     for (const [k, name, n] of [['4', 'Bandage', inv.bandages], ['5', 'Medkit', inv.medkits]] as const) {
       const h = el('div', `br-healslot${n > 0 ? '' : ' empty'}`, heals);
@@ -240,9 +294,9 @@ export class BrHud {
     }
   }
 
-  /** A short line for a pickup ("+30 Rifle ammo"). */
-  toast(text: string): void {
-    const t = el('div', 'br-toast', this.toasts, text);
+  /** A short line for a pickup ("+30 Rifle ammo"), or a refusal (`no`). */
+  toast(text: string, no = false): void {
+    const t = el('div', no ? 'br-toast no' : 'br-toast', this.toasts, text);
     while (this.toasts.children.length > 4) this.toasts.firstElementChild?.remove();
     setTimeout(() => t.remove(), 2200);
   }
@@ -266,6 +320,8 @@ export class BrHud {
       el('div', 'br-board-line', left, inv.vest ? `Vest level ${inv.vest}, ${Math.round(inv.vestPct * 100)}%` : 'No vest');
       el('div', 'br-board-line', left, inv.helmet ? `Helmet level ${inv.helmet}, ${Math.round(inv.helmetPct * 100)}%` : 'No helmet');
       el('div', 'br-board-line', left, `Bandages ${inv.bandages} (4), medkits ${inv.medkits} (5)`);
+      el('div', 'br-board-line', left, `${inv.pack ? `Backpack level ${inv.pack}` : 'No backpack'}, ${Math.round(inv.load)} / ${inv.capacity} carried`);
+      el('div', 'br-board-line hint', left, 'I opens the inventory');
     }
     const right = el('div', 'br-board-list', this.board);
     el('div', 'br-board-title', right, 'Ducks');

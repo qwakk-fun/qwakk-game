@@ -17,7 +17,8 @@ REQUIRED_CLIPS = [
     "Crouch_Idle", "Crouch_Walk", "Jump_Start", "Fall_Loop", "Land", "Death_A", "Death_B", "Hit_React",
     "Rifle_Aim", "Pistol_Aim", "Rifle_Reload", "Pistol_Reload",
 ]
-OPTIONAL_CLIPS = ["Rifle_Fire", "Pistol_Fire", "Quack", "Equip"]
+OPTIONAL_CLIPS = ["Rifle_Fire", "Pistol_Fire", "Quack", "Equip", "Rifle_ADS", "Pistol_ADS"]
+RELOAD_SECONDS = {"rifle": 2.3, "pistol": 1.6}   # packages/shared/src/weapons.ts reloadTicks / 30
 MIXAMO_CORE = ["Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "LeftShoulder", "LeftArm", "LeftForeArm",
                "LeftHand", "RightShoulder", "RightArm", "RightForeArm", "RightHand", "LeftUpLeg", "LeftLeg",
                "LeftFoot", "LeftToeBase", "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase", "Jaw"]
@@ -64,18 +65,22 @@ def main():
     for kind in ("rifle", "pistol"):
         g = read(os.path.join(MODELS, "weapons", kind + ".glb"))
         nodes = g["nodes"]
-        root = [n for n in nodes if "mesh" in n]
+        # The weapon node: the mesh node with children (the magazine is a child mesh node, `Mag`).
+        root = [n for n in nodes if "mesh" in n and n.get("children")]
         if len(root) != 1:
-            problems.append(f"{kind}.glb should have one mesh node")
+            problems.append(f"{kind}.glb should have one weapon mesh node with children")
             continue
         r = root[0]
+        mag = [nodes[i] for i in r.get("children", []) if nodes[i].get("name") == "Mag"]
+        if not mag or "mesh" not in mag[0]:
+            problems.append(f"{kind}.glb missing the Mag mesh node")
         if any(k in r for k in ("translation", "rotation", "scale", "matrix")):
             problems.append(f"{kind}.glb weapon node has a transform; it must sit at the origin")
         children = [nodes[i]["name"] for i in r.get("children", [])]
         for e in EMPTIES:
             if e not in children:
                 problems.append(f"{kind}.glb missing empty {e}")
-        tris = sum(g["accessors"][p["indices"]]["count"] // 3 for p in g["meshes"][r["mesh"]]["primitives"])
+        tris = sum(g["accessors"][p["indices"]]["count"] // 3 for n in [r] + mag for p in g["meshes"][n["mesh"]]["primitives"])
         report[kind] = {"triangles": tris, "empties": {nodes[i]["name"]: nodes[i].get("translation", [0, 0, 0])
                                                        for i in r.get("children", [])}}
         if not 1500 <= tris <= 4000 and kind == "rifle":
@@ -86,6 +91,21 @@ def main():
         if kind not in attach or set(attach[kind]) != {"position", "quaternion"}:
             problems.append(f"attach.json missing {kind}")
     report["attach"] = {k: attach[k] for k in ("rifle", "pistol") if k in attach}
+    reload = attach.get("reload", {})
+    for kind, secs in RELOAD_SECONDS.items():
+        r = reload.get(kind)
+        if not r:
+            problems.append(f"attach.json missing reload.{kind}")
+            continue
+        if abs(r["seconds"] - secs) > 1e-6:
+            problems.append(f"reload.{kind}.seconds {r['seconds']} != server reload {secs}")
+        if not 0 <= r["out"] <= r["drop"] <= r["fresh"] <= r["in"] <= r["seconds"]:
+            problems.append(f"reload.{kind} events out of order")
+        if set(r.get("magInHand", {})) != {"position", "quaternion"}:
+            problems.append(f"reload.{kind}.magInHand missing")
+        clip = clips.get(("Rifle" if kind == "rifle" else "Pistol") + "_Reload")
+        if clip and abs(clip["seconds"] - secs) > 0.02:
+            problems.append(f"{kind} reload clip {clip['seconds']} s != server reload {secs} s")
     print(json.dumps(report, indent=1))
     for p in problems:
         print("PROBLEM:", p)

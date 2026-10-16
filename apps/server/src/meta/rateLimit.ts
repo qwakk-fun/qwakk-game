@@ -74,9 +74,14 @@ export class RateLimiter {
  * The limits in use. Joins: a burst of 10, then one every 4 s (a household
  * behind one address can still play). Sessions: a burst of 8, then one every
  * 20 s. Leaderboard and profile reads: a burst of 40, then 2 per second.
+ * New game rooms: a burst of 3, then one a minute. Lobby (room list)
+ * connections: a burst of 20, then one every 3 s (the menu reconnects after
+ * every match).
  */
 export const LIMITS = {
   join: { capacity: 10, refillPerSec: 1 / 4 },
+  createRoom: { capacity: 3, refillPerSec: 1 / 60 },
+  lobby: { capacity: 20, refillPerSec: 1 / 3 },
   session: { capacity: 8, refillPerSec: 1 / 20 },
   read: { capacity: 40, refillPerSec: 2 },
 } as const satisfies Record<string, BucketOptions>;

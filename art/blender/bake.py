@@ -125,10 +125,14 @@ def node_globals(gltf):
 
 def attach_json(duck_glb, sk, holds):
     """Weapon pose in RightHand joint space, computed from the exported joint transforms."""
+    return joint_pose(duck_glb, sk, "RightHand", holds.attach(sk, "Right"))
+
+
+def joint_pose(duck_glb, sk, bone, local_b):
+    """A pose given in a bone's local space (Blender axes) as {position, quaternion} in that joint's glTF space."""
     g = node_globals(read_glb(duck_glb))
-    hand = g["RightHand"]
-    rest_grip = sk.rest["RightHand"] @ holds.attach(sk, "Right")
-    want = TO_GLTF @ rest_grip @ TO_GLTF.inverted()
+    hand = g[bone]
+    want = TO_GLTF @ (sk.rest[bone] @ local_b) @ TO_GLTF.inverted()
     local = hand.inverted() @ want
     q = local.to_quaternion()
     t = local.to_translation()

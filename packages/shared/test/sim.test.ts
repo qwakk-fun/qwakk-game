@@ -13,10 +13,12 @@ import {
   MOVE,
   PLAYER_SIM_FIELDS,
   sanitizeInput,
+  SOLID_BITS,
   stepPlayer,
   terrainHeightAt,
   type InputFrame,
   type PlayerSim,
+  type ShapeDef,
   type SimWorld,
 } from '../src/index.ts';
 
@@ -222,5 +224,35 @@ describe('controller robustness', () => {
     stepPlayer(sim, p, { seq: 0, tick: 0, mx: 0.07142890922957867, mz: 0.9974456932215773, buttons: Button.Sprint, yaw: 0.22499999403953552, pitch: -0.1 });
     expect(Math.hypot(p.x - x0, p.z - z0)).toBeGreaterThan(0.2);
     expect(Math.hypot(p.vx, p.vz)).toBeGreaterThan(6);
+  });
+});
+
+describe('stairs and ramps', () => {
+  /** The house stairs' collider: a 36 degree ramp, 3 m up over 4.05 m, on a floor high above the map. */
+  function rampWorld(): SimWorld {
+    const base = 100;
+    const pts: number[] = [];
+    for (const z of [-0.55, 0.55]) for (const [x, y] of [[-0.2, 0], [4.05, 0], [4.05, 3], [3.85, 3]] as const) pts.push(x, base + y, z);
+    const shapes: ShapeDef[] = [
+      { type: 'box', bits: SOLID_BITS, kind: 'floor', c: [0, base - 0.5, 0], h: [20, 0.5, 20], q: [0, 0, 0, 1] },
+      { type: 'box', bits: SOLID_BITS, kind: 'floor', c: [9.05, base + 2.5, 0], h: [5, 0.5, 3], q: [0, 0, 0, 1] },
+      { type: 'hull', bits: SOLID_BITS, kind: 'stairs', c: [0, 0, 0], q: [0, 0, 0, 1], pts },
+    ];
+    return createSimWorld({ ...generateMap(SEED), shapes, boxes: [] });
+  }
+
+  it('a duck climbs the stair ramp at every gait, crouched included, within a few seconds', () => {
+    const sim = rampWorld();
+    for (const buttons of [0, Button.Walk, Button.Crouch, Button.Sprint]) {
+      const duck = createPlayerSim(-2, 100.05, 0);
+      const frame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 1, buttons, yaw: -Math.PI / 2, pitch: 0 };
+      let ticks = 0;
+      while (duck.y < 102.95 && ticks < 30 * 6) {
+        stepPlayer(sim, duck, frame);
+        ticks++;
+      }
+      expect(duck.y, `buttons ${buttons}`).toBeGreaterThan(102.95);
+    }
+    sim.dispose();
   });
 });

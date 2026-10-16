@@ -13,10 +13,10 @@
   "duck_glb_bytes": 343120,
   "beanie_glb_bytes": 28116,
   "rifle_triangles": 1892,
-  "rifle_glb_bytes": 45764,
-  "pistol_triangles": 1124,
-  "pistol_glb_bytes": 28384,
-  "anims_glb_bytes": 670680,
+  "rifle_glb_bytes": 46676,
+  "pistol_triangles": 1232,
+  "pistol_glb_bytes": 31736,
+  "anims_glb_bytes": 754204,
   "clips": {
     "Idle": {
       "seconds": 3.0,
@@ -159,16 +159,30 @@
       "ik_reach_error_m": 0.0
     },
     "Rifle_Reload": {
-      "seconds": 1.8,
-      "frames": 54,
+      "seconds": 2.3,
+      "frames": 69,
       "loop": false,
       "layer": "upper",
-      "ik_reach_error_m": 0.0091
+      "ik_reach_error_m": 0.0936
     },
     "Pistol_Reload": {
-      "seconds": 1.4,
-      "frames": 42,
+      "seconds": 1.6,
+      "frames": 48,
       "loop": false,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0355
+    },
+    "Rifle_ADS": {
+      "seconds": 2.0,
+      "frames": 60,
+      "loop": true,
+      "layer": "upper",
+      "ik_reach_error_m": 0.0
+    },
+    "Pistol_ADS": {
+      "seconds": 2.0,
+      "frames": 60,
+      "loop": true,
       "layer": "upper",
       "ik_reach_error_m": 0.0
     },

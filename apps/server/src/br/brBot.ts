@@ -13,12 +13,12 @@
  * every few seconds, with stuck detection (hop, re-plan, new goal).
  * Server only, so Math.random and Math.atan2 are fine here.
  */
-import { Button, Mode, planeAt, type InputFrame, type PlayerSim } from '@qwakk/shared';
+import { Button, Item, Mode, planeAt, type InputFrame, type PlayerSim } from '@qwakk/shared';
 import type { BotLike, BotTarget } from '../arena.ts';
 import { BotBrain, SKILL, type BotSkill } from '../bots.ts';
 import { PathFollower, type BotNav, type P3 } from '../nav/botNav.ts';
 import { dropSteer, planLanding, type LandingPlan } from './botLanding.ts';
-import { geared, pickItem } from './botLoot.ts';
+import { entityScore, geared, pickItem } from './botLoot.ts';
 import type { BrBotContext } from './context.ts';
 import type { LootEntity } from './loot.ts';
 
@@ -217,15 +217,22 @@ export class BrBot implements BotLike {
         if (next) this.setGoal(self, 'loot', { x: next.x, y: next.y, z: next.z });
       }
     }
+    // Nothing in it for us any more (taken, emptied, or it no longer fits): drop it.
+    if (this.item && entityScore(self, armor, this.item) <= 0) {
+      this.skipItems.add(this.item.id);
+      this.item = null;
+      this.itemUses = 0;
+    }
     if (this.item) {
       const it = this.item;
       const d3 = Math.hypot(it.x - self.x, it.y + 0.15 - (self.y + 0.9), it.z - self.z);
       if (d3 < 2.2 && this.ctx.canReach(self, it)) {
-        // Look at it and press Use (one press edge).
+        // Look at it and press Use (one press edge). A crate it just opened: wait for the lid first.
         const dx = it.x - self.x;
         const dz = it.z - self.z;
         this.look(Math.atan2(-dx, -dz), Math.atan2(it.y - (self.y + 1.5), Math.max(0.3, Math.hypot(dx, dz))));
-        if (this.tick % 2 === 0) {
+        const opening = it.kind === Item.Crate && it.open && !this.ctx.lootable(it);
+        if (!opening && this.tick % 2 === 0) {
           f.buttons |= Button.Use;
           BOT_STATS.uses++;
           // If it is still there after a few presses, it does not fit: skip it.

@@ -4,21 +4,29 @@
  * Three layers, in order, every frame:
  * 1. Clips (when models/duck_anims.glb exists): lower body blends 8-way
  *    locomotion by velocity (walk, run, sprint, crouch, air), upper body plays
- *    the weapon's aim pose or its reload. Death clips take over the whole body.
+ *    the weapon's aim pose (blended into its raised aim-down-sights pose), or
+ *    its reload, stretched to the server's reload time, with the magazine
+ *    change (reloadMag.ts). Death clips take over the whole body.
  * 2. Without clips: a procedural pose from the T-pose rest (leg swing, crouch).
  * 3. Procedural on top of both: spine and neck pitch from the camera, recoil
- *    kick, and hand IK (left hand to the gun's Support node; in procedural
- *    mode the right hand to its Grip too).
+ *    kick, and hand IK (left hand to the gun's Support node, eased off while
+ *    the reload clip moves the hand; in procedural mode the right hand to its
+ *    Grip too).
+ *
+ * Every procedural offset is applied to the pose restored at the start of the
+ * frame, and one-shot clips (hit, quack) start inside the frame, after that
+ * restore, so nothing stacks from frame to frame.
  *
  * The placeholder duck (no skeleton) just carries the gun.
  */
 import * as THREE from 'three/webgpu';
-import { BODY, WeaponId } from '@qwakk/shared';
+import { Act, BODY, TICK_RATE, weaponStats, WeaponId } from '@qwakk/shared';
 import { clips, type ClipSet } from './animations.ts';
 import { cloneDuckGlb, createPlaceholderDuck, type DuckParts } from './duckModel.ts';
 import { rotateBoneWorld, twoBoneIK } from './ik.ts';
-import { attachPose, createWeapon, disposeWeapon, type WeaponInstance } from './weaponModel.ts';
-import { createGlider, createHelmetMesh, createVestMesh } from '../world/sainte/glider.ts';
+import { attachPose, createWeapon, disposeWeapon, magTimeline, type WeaponInstance } from './weaponModel.ts';
+import { ReloadMag, type MagEvent } from './reloadMag.ts';
+import { createBackpackMesh, createGlider, createHelmetMesh, createVestMesh } from '../world/sainte/glider.ts';
 
 export interface AvatarPose {
   x: number;
@@ -32,13 +40,17 @@ export interface AvatarPose {
   alive: boolean;
   /** WeaponId, or 2 (or more) for unarmed. */
   weapon: number;
-  /** 0 idle, 1 reloading, 2 equipping, 3 healing. */
+  /** `Act`: 0 idle, 1 reloading, 2 equipping, 3 healing, 4 aiming down sights. */
   act: number;
+  /** Local player: the drawn aim-down-sights blend (0 to 1). Others: undefined, read from `act`. */
+  aim?: number;
   /** Movement mode (Mode.*): 2 freefall, 3 gliding (draws the glider). */
   fly?: number;
   /** Armor levels worn (drawn on the duck). */
   vest?: number;
   helmet?: number;
+  /** Backpack level worn (drawn on the duck's back). */
+  pack?: number;
 }
 
 /** Past this distance a duck drops its outline hull and its shadow (draw calls). */
@@ -78,6 +90,10 @@ const _q = new THREE.Quaternion();
 const _axis = new THREE.Vector3();
 const _right = new THREE.Vector3();
 const _down = new THREE.Vector3(0, -0.3, 0);
+const _hand = new THREE.Vector3();
+/** How fast the drawn aim-down-sights pose follows a remote duck's action (s), and the left-hand IK blend (s). */
+const ADS_TAU = 0.09;
+const IK_TAU = 0.06;
 
 export class Avatar {
   readonly object = new THREE.Group();
@@ -102,11 +118,30 @@ export class Avatar {
   private glider: THREE.Object3D | null = null;
   private helmetMesh: THREE.Object3D | null = null;
   private vestMesh: THREE.Object3D | null = null;
+  private packMesh: THREE.Object3D | null = null;
   private helmetLevel = 0;
   private vestLevel = 0;
+  private packLevel = 0;
   private detailNear = true;
+  /** Magazine change during reloads. */
+  private readonly mag = new ReloadMag();
+  /** Drawn aim-down-sights blend (0 hip, 1 raised). */
+  private adsBlend = 0;
+  /** Left-hand IK weight: 0 while the reload clip owns the hand. */
+  private leftIk = 1;
+  /** Seconds into the running reload clip (timeline time), or null. */
+  private reloadT: number | null = null;
+  /** Magazine moments during a reload (the game plays the clicks), with the gun's world position. */
+  onMagEvent: ((e: MagEvent, at: THREE.Vector3) => void) | null = null;
+  /** One-shots asked for between frames; started inside the next frame (see blendClips). */
+  private pendingQuack = false;
+  private pendingHit = false;
 
   constructor() {
+    this.mag.onEvent = (e) => {
+      const inst = this.weapons[this.weapon];
+      if (inst && this.onMagEvent) this.onMagEvent(e, inst.root.getWorldPosition(new THREE.Vector3()));
+    };
     this.object.add(this.body);
     this.parts = createPlaceholderDuck();
     this.body.add(this.parts.root);
@@ -123,12 +158,14 @@ export class Avatar {
     if (this.parts) this.body.remove(this.parts.root);
     if (this.glb) this.body.remove(this.glb);
     this.parts = null;
+    this.mag.reset(); // a magazine riding the old skeleton's hand goes back in the gun
     this.glb = cloneDuckGlb(source);
     this.body.add(this.glb);
     this.rig = this.buildRig(this.glb, clips());
     this.weapon = -1; // re-parent the weapon on the next update
     this.helmetLevel = -1; // re-attach the gear to the new bones
     this.vestLevel = -1;
+    this.packLevel = -1;
     this.detailNear = !this.detailNear;
     this.setDetail(this.detailNear ? 0 : 1000);
   }
@@ -149,7 +186,7 @@ export class Avatar {
     });
   }
 
-  /** Glider over the duck while gliding, helmet and vest by level. */
+  /** Glider over the duck while gliding, helmet, vest and backpack by level. */
   private updateGear(p: AvatarPose): void {
     const gliding = p.fly === 3 && p.alive;
     if (gliding && !this.glider) {
@@ -182,6 +219,22 @@ export class Avatar {
         else {
           this.vestMesh.position.set(0, 0.85, 0);
           this.body.add(this.vestMesh);
+        }
+      }
+    }
+    const pack = p.pack ?? 0;
+    if (pack !== this.packLevel) {
+      this.packLevel = pack;
+      this.packMesh?.removeFromParent();
+      this.packMesh = null;
+      if (pack > 0) {
+        this.packMesh = createBackpackMesh(pack);
+        if (this.rig) this.rig.bones.Spine2.add(this.packMesh);
+        else {
+          // The primitive duck faces -z: its back is +z (the mesh is built for bone space, back toward -z).
+          this.packMesh.position.set(0, 0.96, 0);
+          this.packMesh.rotation.y = Math.PI;
+          this.body.add(this.packMesh);
         }
       }
     }
@@ -254,16 +307,26 @@ export class Avatar {
     this.recoil = 1;
   }
 
-  /** Open the bill (kill celebration). */
+  /**
+   * Open the bill (kill celebration). Started on the next frame, after the
+   * base pose is restored: starting a clip binds bones that no running clip
+   * holds (an unarmed duck's arms and torso) and saves their current pose as
+   * the mixer's rest value. Between frames that pose still carries the
+   * procedural layer, so the binding would capture it, restore it when the
+   * clip stops, and the offset would stack once per hit or quack.
+   */
   quack(): void {
-    const a = this.rig?.full.get('Quack');
-    if (a) a.reset().setEffectiveWeight(1).play();
+    if (this.rig?.full.has('Quack')) this.pendingQuack = true;
   }
 
-  /** Short flinch when hit. */
+  /** Short flinch when hit (started on the next frame, see quack). */
   hitReact(): void {
-    const a = this.rig?.full.get('Hit_React');
-    if (a) a.reset().setEffectiveWeight(0.6).play();
+    if (this.rig?.full.has('Hit_React')) this.pendingHit = true;
+  }
+
+  /** Where the magazine is (gun, hand, none). For tests and debugging. */
+  get magState(): string {
+    return this.mag.state;
   }
 
   /** A skeleton bone by name (null for the placeholder duck). For tests and debugging. */
@@ -309,6 +372,8 @@ export class Avatar {
 
     this.selectWeapon(p.weapon);
     this.updateGear(p);
+    const adsTarget = !p.alive || p.act === Act.Reload ? 0 : (p.aim ?? (p.act === Act.Aim ? 1 : 0));
+    this.adsBlend = p.aim !== undefined && p.act !== Act.Reload ? adsTarget : this.adsBlend + (adsTarget - this.adsBlend) * (1 - Math.exp(-dt / ADS_TAU));
 
     if (this.rig) this.updateRig(this.rig, p, dt, speed, vf, vr);
     else this.updatePlaceholder(p, speed);
@@ -326,8 +391,19 @@ export class Avatar {
     } else if (this.deathT < 0) {
       this.holder.visible = true;
     }
+    this.updateMag(p, dt);
     this.lastAct = p.act;
     this.wasGrounded = p.grounded;
+  }
+
+  /** The magazine follows the reload clip (clip mode with the art's timeline only). */
+  private updateMag(p: AvatarPose, dt: number): void {
+    const rig = this.rig;
+    const inst = this.weapons[this.weapon] ?? null;
+    const tl = rig?.mixer ? magTimeline(this.weapon) : null;
+    const t = p.alive && p.act === Act.Reload ? this.reloadT : null;
+    _right.set(1, 0, 0).applyQuaternion(this.object.quaternion).negate();
+    this.mag.update(dt, inst, tl, t, rig?.bones.LeftHand ?? null, this.object.parent, this.object.position.y, _right);
   }
 
   private selectWeapon(w: number): void {
@@ -392,9 +468,11 @@ export class Avatar {
       this.blendClips(rig, p, speed, vf, vr, dead);
       rig.mixer.update(dt);
       rig.all.forEach((bone, i) => (rig.base[i] as THREE.Quaternion).copy(bone.quaternion));
+      this.reloadT = this.reloadClipTime(rig, p);
     } else {
       // Procedural: start from the rest pose every frame.
       rig.all.forEach((bone, i) => bone.quaternion.copy(rig.rest[i] as THREE.Quaternion));
+      this.reloadT = null;
       this.body.position.y = -0.3 * c;
     }
     this.object.updateMatrixWorld(true);
@@ -445,15 +523,33 @@ export class Avatar {
       _w.addScaledVector(right, 0.3).add(_down);
       twoBoneIK(b.RightArm, b.RightForeArm, b.RightHand, _v, _w);
     }
-    // Left hand to the support point.
+    // Left hand to the support point, eased off while the reload clip moves the hand to the magazine.
+    const ikTarget = this.reloadT !== null && magTimeline(this.weapon) ? 0 : 1;
+    this.leftIk += (ikTarget - this.leftIk) * (1 - Math.exp(-dt / IK_TAU));
+    if (this.leftIk < 0.01) return;
     inst.support.getWorldPosition(_v);
+    if (this.leftIk < 0.99) _v.lerp(b.LeftHand.getWorldPosition(_hand), 1 - this.leftIk);
     b.LeftArm.getWorldPosition(_w);
     _w.addScaledVector(right, -0.3).add(_down);
     twoBoneIK(b.LeftArm, b.LeftForeArm, b.LeftHand, _v, _w);
   }
 
+  /** Seconds into the running reload clip, in the art's timeline time (null when no reload plays). */
+  private reloadClipTime(rig: Rig, p: AvatarPose): number | null {
+    if (p.act !== Act.Reload || (this.weapon !== WeaponId.Rifle && this.weapon !== WeaponId.Pistol)) return null;
+    const a = rig.upper.get(this.weapon === WeaponId.Pistol ? 'Pistol_Reload' : 'Rifle_Reload');
+    if (!a?.isRunning()) return null;
+    const tl = magTimeline(this.weapon);
+    const dur = a.getClip().duration;
+    return tl && dur > 0 ? (a.time / dur) * tl.seconds : a.time;
+  }
+
   private blendClips(rig: Rig, p: AvatarPose, speed: number, vf: number, vr: number, dead: boolean): void {
     const W = (name: string, w: number) => rig.lower.get(name)?.setEffectiveWeight(w);
+    // One-shots asked for since the last frame start now, on the restored base pose.
+    if (this.pendingQuack) rig.full.get('Quack')?.reset().setEffectiveWeight(1).play();
+    if (this.pendingHit) rig.full.get('Hit_React')?.reset().setEffectiveWeight(0.6).play();
+    this.pendingQuack = this.pendingHit = false;
     // One-shot accents fade out over their length, and are off once finished.
     for (const [name, peak] of ONE_SHOTS) {
       const a = rig.full.get(name);
@@ -514,7 +610,10 @@ export class Avatar {
     const equip = rig.upper.get('Equip');
     if (p.act === 1 && this.lastAct !== 1 && reload) {
       reload.setLoop(THREE.LoopOnce, 1);
+      // Stretch the clip to the server's reload time (the art authors it at that length already).
+      const seconds = weaponStats(this.weapon).reloadTicks / TICK_RATE;
       reload.reset().play();
+      reload.timeScale = reload.getClip().duration / seconds;
     }
     if (p.act === 2 && this.lastAct !== 2 && equip) {
       equip.setLoop(THREE.LoopOnce, 1);
@@ -523,10 +622,17 @@ export class Avatar {
     if (p.act === 1 && reload?.isRunning()) reload.setEffectiveWeight(1);
     else if (p.act === 2 && equip?.isRunning()) equip.setEffectiveWeight(1);
     else {
+      // Hip aim blended into the raised aim-down-sights hold.
       const aim = rig.upper.get(`${prefix}_Aim`);
+      const ads = rig.upper.get(`${prefix}_ADS`);
+      const k = ads ? this.adsBlend : 0;
       if (aim) {
         if (!aim.isRunning()) aim.play();
-        aim.setEffectiveWeight(1);
+        aim.setEffectiveWeight(1 - k);
+      }
+      if (ads && k > 0) {
+        if (!ads.isRunning()) ads.play();
+        ads.setEffectiveWeight(k);
       }
     }
   }
@@ -538,5 +644,6 @@ export class Avatar {
       this.rig.mixer.uncacheRoot(this.glb);
     }
     for (const w of this.weapons) disposeWeapon(w);
+    this.mag.dispose();
   }
 }

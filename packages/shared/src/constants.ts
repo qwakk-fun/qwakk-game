@@ -154,6 +154,26 @@ export const DROP = {
   planeLeadSeconds: 0,
 } as const;
 
+/**
+ * Aim down sights (right mouse, held). Part of the sim: the server's copy
+ * decides spread and recoil, so the aim state ramps in and out over ticks
+ * (a one-tick flick buys nothing). Camera zoom numbers live in tpsCamera.ts.
+ */
+export const ADS = {
+  /** Ticks from hip to full aim (200 ms). */
+  inTicks: 6,
+  /** Aim lost per tick on release (out in 100 ms). */
+  outPerTick: 2,
+  /** Ground speed cap at full aim (m/s); no sprinting while aiming. */
+  moveSpeed: 3.0,
+  /** Multipliers at full aim: base spread (standing, crouched), the moving penalty and the spray bloom. Airborne spread is not reduced. */
+  spreadScale: 0.5,
+  moveSpreadScale: 0.6,
+  fireSpreadScale: 0.6,
+  /** Spray pattern (recoil) multiplier at full aim. */
+  recoilScale: 0.65,
+} as const;
+
 /** Heals: part of the sim (they slow you and can be interrupted), so prediction matches. */
 export const HEAL = {
   bandageTicks: Math.round(4 * TICK_RATE),
@@ -180,10 +200,17 @@ export const BR = {
   roomName: 'br',
   /** Ducks per match; bots fill the empty seats when the room locks. */
   players: 16,
-  /** Warm-up: starts with the first human; shorter once this many humans are in. */
-  warmupSeconds: 45,
-  warmupFullSeconds: 15,
-  warmupFullHumans: 8,
+  /**
+   * Lobby rooms. Humans wait on the village square (damage off). The countdown
+   * starts once `minHumans` real players are in a room and resets if they drop
+   * below it; when it ends, bots fill the empty seats and the match starts.
+   */
+  minHumans: 3,
+  countdownSeconds: 30,
+  /** A room full of humans starts this soon (or sooner, if the countdown is lower). */
+  fullCountdownSeconds: 10,
+  /** Battle royale rooms open at once on one server (waiting, counting down or playing). */
+  maxRooms: 20,
   /** Results stay up this long after the winner is decided, then the room closes. */
   endSeconds: 20,
   /** A dead duck's crate stays this long (it only holds what was dropped). */

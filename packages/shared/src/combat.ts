@@ -5,7 +5,8 @@
  * only ever ask; the server's copy of this state decides.
  */
 import { Button, type InputFrame } from './input.ts';
-import { MOVE } from './constants.ts';
+import { ADS, MOVE } from './constants.ts';
+import { aimScale } from './ads.ts';
 import type { PlayerSim } from './sim.ts';
 import { COMBAT, weaponStats, type WeaponStats } from './weapons.ts';
 
@@ -18,9 +19,11 @@ export interface ShotFired {
   inaccuracy: number;
   /** Per-player shot counter after this shot; seeds the spread direction. */
   shotSeq: number;
+  /** Spray pattern scale for this shot: 1 from the hip, down to ADS.recoilScale at full aim. */
+  recoil: number;
 }
 
-const shotScratch: ShotFired = { weapon: 0, sprayIndex: 0, inaccuracy: 0, shotSeq: 0 };
+const shotScratch: ShotFired = { weapon: 0, sprayIndex: 0, inaccuracy: 0, shotSeq: 0, recoil: 1 };
 
 function pressed(buttons: number, prev: number, bit: number): boolean {
   return (buttons & bit) !== 0 && (prev & bit) === 0;
@@ -52,16 +55,17 @@ function setAmmo(s: PlayerSim, weapon: number, mag: number, reserve: number): vo
 /**
  * Spread cone radius right now. Standing still (or below the accurate speed,
  * which a counter-strafe reaches in two ticks) gives first-shot accuracy;
- * running, jumping and long sprays widen it.
+ * running, jumping and long sprays widen it. Aiming down sights tightens the
+ * base spread, the moving penalty and the spray bloom (not the airborne one).
  */
 export function inaccuracy(w: WeaponStats, s: PlayerSim, sprayIndex: number): number {
-  let r = s.crouch ? w.spreadCrouch : w.spreadStand;
+  let r = (s.crouch ? w.spreadCrouch : w.spreadStand) * aimScale(s, ADS.spreadScale);
   const speed = Math.sqrt(s.vx * s.vx + s.vz * s.vz);
   const accurate = MOVE.runSpeed * COMBAT.accurateSpeedFraction;
   const t = Math.min(1, Math.max(0, (speed - accurate) / (MOVE.runSpeed - accurate)));
-  r += w.spreadMove * t;
+  r += w.spreadMove * t * aimScale(s, ADS.moveSpreadScale);
   if (!s.grounded) r += w.spreadAir;
-  r += Math.min(w.spreadFireMax, w.spreadPerShot * sprayIndex);
+  r += Math.min(w.spreadFireMax, w.spreadPerShot * sprayIndex) * aimScale(s, ADS.fireSpreadScale);
   return r;
 }
 
@@ -125,6 +129,7 @@ export function stepWeapon(s: PlayerSim, input: InputFrame): ShotFired | null {
         fired.sprayIndex = sprayIndex;
         fired.inaccuracy = inaccuracy(w, s, sprayIndex);
         fired.shotSeq = s.shotSeq;
+        fired.recoil = aimScale(s, ADS.recoilScale);
       } else if (firePressed && reserveOf(s, s.weapon) > 0) {
         s.reload = w.reloadTicks; // empty: pulling the trigger reloads
       }

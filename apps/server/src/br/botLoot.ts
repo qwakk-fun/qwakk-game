@@ -1,13 +1,16 @@
 /**
  * What a bot wants from the floor, and how much: guns first until armed,
- * then armor upgrades, ammo for the guns it has, heals. It only goes for
- * items it can see (a sight ray from its eye), like a player would.
+ * then armor upgrades, a bigger backpack, ammo for the guns it has, heals,
+ * and only what still fits in its backpack. Closed crates are worth a look
+ * (nobody can tell what is inside); an open crate is worth its best content.
+ * It only goes for items it can see (a sight ray from its eye), like a player.
  */
-import { isArmorUpgrade, Item, LOOT, SIGHT_QUERY_GROUPS, type Armor, type PlayerSim, type SimWorld } from '@qwakk/shared';
+import { isArmorUpgrade, Item, LOOT, SIGHT_QUERY_GROUPS, wantsItem, type Armor, type ItemExtra, type PlayerSim, type SimWorld } from '@qwakk/shared';
 import type { LootEntity } from './loot.ts';
 
-/** Score for picking this item up now (0: not interested). */
-export function lootScore(s: PlayerSim, a: Armor, kind: number): number {
+/** Score for picking up an item of this kind now (0: not interested, or it does not fit). */
+export function lootScore(s: PlayerSim, a: Armor, kind: number, extra: ItemExtra = {}): number {
+  if (kind !== Item.Crate && !wantsItem(s, a, kind, extra)) return 0;
   const armed = (s.arms & 3) !== 0;
   switch (kind) {
     case Item.Rifle:
@@ -22,16 +25,27 @@ export function lootScore(s: PlayerSim, a: Armor, kind: number): number {
     case Item.Vest2:
     case Item.Helmet1:
     case Item.Helmet2:
-      return isArmorUpgrade(a, kind) ? (kind === Item.Vest2 || kind === Item.Helmet2 ? 7 : 5) : 0;
+      return isArmorUpgrade(a, kind, extra.dur) ? (kind === Item.Vest2 || kind === Item.Helmet2 ? 7 : 5) : 0;
+    case Item.Backpack1:
+    case Item.Backpack2:
+    case Item.Backpack3:
+      return isArmorUpgrade(a, kind) ? 4 + (kind - Item.Backpack1) : 0;
     case Item.Bandage:
       return s.bandages < 5 ? 3 : s.bandages < LOOT.maxBandages ? 1 : 0;
     case Item.Medkit:
       return s.medkits < LOOT.maxMedkits ? 4 : 0;
-    case Item.Crate:
-      return 6;
     default:
       return 0;
   }
+}
+
+/** Score for an item in the world: a crate by what a duck looking at it can tell. */
+export function entityScore(s: PlayerSim, a: Armor, e: LootEntity): number {
+  if (e.kind !== Item.Crate) return lootScore(s, a, e.kind, e.extra ?? {});
+  if (!e.open) return 5;
+  let best = 0;
+  for (const c of e.contents ?? []) best = Math.max(best, lootScore(s, a, c.kind, c));
+  return best;
 }
 
 /** Fully geared: armed with ammo, some armor and heals. Geared bots stop detouring for loot. */
@@ -55,7 +69,7 @@ export function pickItem(sim: SimWorld, s: PlayerSim, a: Armor, items: readonly 
   const scored: { e: LootEntity; v: number }[] = [];
   for (const e of items) {
     if (skip.has(e.id)) continue;
-    const sc = lootScore(s, a, e.kind);
+    const sc = entityScore(s, a, e);
     if (sc <= 0) continue;
     const d = Math.hypot(e.x - s.x, e.z - s.z);
     if (d > radius || Math.abs(e.y - s.y) > 7) continue;

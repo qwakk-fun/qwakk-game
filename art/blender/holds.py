@@ -65,3 +65,31 @@ def support_frame(gun_world, kind):
 
 SUPPORT_YAW_DEG = {"rifle": -70.0, "pistol": -75.0}
 SUPPORT_POINT = {}   # filled from weapons.py by the build (keeps one source of truth)
+
+
+# ----------------------------------------------------------------- magazines (reloads)
+
+# The left fist on a magazine, in the magazine's frame (origin at its seat point, local -Z out of the
+# magwell). The fist's curl axis runs along the magazine, so it holds it like a grip.
+FIST_ON_MAG = {
+    "rifle": Matrix.Translation((0.0, -0.030, -0.060)) @ Matrix.Rotation(-70.0 * DEG, 4, "Z"),
+    "pistol": Matrix.Translation((0.0, 0.0, -0.095)),
+}
+
+# Where the off hand takes a fresh magazine: a pouch on the duck's left hip (armature space, rest hips).
+POUCH = Vector((0.27, -0.17, 0.80))
+
+
+def fist_on_mag(mag_world, kind):
+    """Left grip frame (world) that holds the magazine at `mag_world`."""
+    return mag_world @ FIST_ON_MAG[kind]
+
+
+def mag_from_fist(fist_world, kind):
+    """Magazine world matrix for a left grip frame holding it."""
+    return fist_world @ FIST_ON_MAG[kind].inverted()
+
+
+def mag_in_hand(sk, kind):
+    """Magazine pose in the LeftHand bone's local space (Blender axes)."""
+    return attach(sk, "Left") @ FIST_ON_MAG[kind].inverted()

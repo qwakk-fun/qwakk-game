@@ -8,6 +8,9 @@
  *   height is lightly smoothed, which hides stair steps and crouch pops.
  * - The arm is a sphere cast against the world: it pulls in instantly when a
  *   wall gets in the way and eases back out when the way clears.
+ * - Aiming down sights moves the camera in along the same line (the shoulder
+ *   point does not move, so the server's aim ray still matches the
+ *   crosshair), narrows the field of view and softens kick and shake.
  */
 import * as THREE from 'three/webgpu';
 import { AIM, eyeHeight, OPAQUE_QUERY_GROUPS, type SimWorld } from '@qwakk/shared';
@@ -33,6 +36,15 @@ export const CAMERA = {
   /** Distance of the orbit camera around the plane. */
   planeOrbit: 34,
   armTau: 0.4,
+  /** Aim down sights: arm length at full aim (the camera moves in over the shoulder). */
+  adsArmLength: 2.0,
+  /** Zoom at full aim (the view's tangent is divided by this): rifle and pistol. */
+  adsZoom: [1.5, 1.25] as readonly number[],
+  /** How fast the drawn aim follows the sim's aim ramp (s). */
+  adsTau: 0.05,
+  /** View kick and screen shake at full aim, as a share of the hip-fire amount. */
+  adsKickScale: 0.55,
+  adsShakeScale: 0.5,
 } as const;
 
 export class TpsCamera {
@@ -65,6 +77,21 @@ export class TpsCamera {
   private kickPitch = 0;
   private kickYaw = 0;
   private shakeAmp = 0;
+  /** Drawn aim-down-sights blend (0 hip, 1 full aim) and its target and zoom. */
+  private aim = 0;
+  private aimTarget = 0;
+  private zoom = 1;
+
+  /** Aim down sights from the sim (0 to 1) and the weapon's zoom. Call every frame. */
+  setAim(blend: number, weapon: number): void {
+    this.aimTarget = Math.max(0, Math.min(1, blend));
+    this.zoom = CAMERA.adsZoom[weapon] ?? 1;
+  }
+
+  /** The drawn aim blend (smoothed): sensitivity, HUD and the avatar follow it. */
+  get aimBlend(): number {
+    return this.aim;
+  }
 
   /** Base field of view from the settings (degrees). */
   setBaseFov(fov: number): void {
@@ -85,12 +112,13 @@ export class TpsCamera {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.lookTarget);
     this.pivotY = Number.NaN;
+    this.aim = this.aimTarget = 0;
     this.setFovTowards(this.baseFov, dt);
   }
 
-  private setFovTowards(target: number, dt: number): void {
+  private setFovTowards(target: number, dt: number, apply = true): void {
     this.fov += (target - this.fov) * (1 - Math.exp(-dt / CAMERA.fovTau));
-    if (Math.abs(this.camera.fov - this.fov) > 0.01) {
+    if (apply && Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
     }
@@ -102,23 +130,27 @@ export class TpsCamera {
 
   /** Visual recoil: the view jumps up and settles. Aim (and the crosshair line) is unaffected. */
   kick(pitch: number, yaw: number): void {
-    this.kickPitch = Math.min(this.kickPitch + pitch, 0.08);
-    this.kickYaw += yaw;
+    const k = 1 + (CAMERA.adsKickScale - 1) * this.aim;
+    this.kickPitch = Math.min(this.kickPitch + pitch * k, 0.08);
+    this.kickYaw += yaw * k;
   }
 
   /** Screen shake (taking damage). */
   shake(amount: number): void {
-    this.shakeAmp = Math.min(0.25, this.shakeAmp + amount);
+    const k = 1 + (CAMERA.adsShakeScale - 1) * this.aim;
+    this.shakeAmp = Math.min(0.25, this.shakeAmp + amount * k);
   }
 
   /** Death camera: pulled back and up from the body, looking at it (or at the killer). */
   deathView(dt: number, body: THREE.Vector3, lookAt: THREE.Vector3 | null, t: number): void {
     const a = t * 0.35;
     this.camera.position.set(body.x + Math.sin(a) * 4.5, body.y + 2.6 + t * 0.4, body.z + Math.cos(a) * 4.5);
+    this.aim = this.aimTarget = 0;
     this.lookTarget.copy(lookAt ?? body);
     if (!lookAt) this.lookTarget.y += 0.6;
     this.camera.lookAt(this.lookTarget);
-    void dt;
+    // Dying while aiming: zoom back out.
+    this.setFovTowards(this.baseFov, dt);
   }
 
   /** The pivot point the camera orbits (head height), for the shadow follow etc. */
@@ -134,6 +166,8 @@ export class TpsCamera {
     this.pivot.set(px, this.pivotY, pz);
 
     this.sideBlend += (this.side - this.sideBlend) * (1 - Math.exp(-dt / CAMERA.swapTau));
+    this.aim += (this.aimTarget - this.aim) * (1 - Math.exp(-dt / CAMERA.adsTau));
+    if (Math.abs(this.aimTarget - this.aim) < 1e-3) this.aim = this.aimTarget;
 
     this.kickPitch *= Math.exp(-dt * 11);
     this.kickYaw *= Math.exp(-dt * 11);
@@ -154,7 +188,8 @@ export class TpsCamera {
     // Then the arm itself, straight back along the view direction.
     this.armMax += (this.armTarget - this.armMax) * (1 - Math.exp(-dt / CAMERA.armTau));
     this.dir.copy(this.forward).negate();
-    const armHit = this.cast(this.origin, this.dir, this.armMax);
+    const armLimit = this.armMax + (CAMERA.adsArmLength - this.armMax) * this.aim;
+    const armHit = this.cast(this.origin, this.dir, armLimit);
     if (armHit < this.arm) this.arm = armHit;
     else this.arm += (armHit - this.arm) * (1 - Math.exp(-dt / CAMERA.armReturnTau));
 
@@ -173,7 +208,14 @@ export class TpsCamera {
     this.camera.up.set(0, 1, 0);
     this.camera.lookAt(this.lookTarget);
 
-    this.setFovTowards(sprinting ? this.baseFov + CAMERA.sprintFovAdd : this.baseFov, dt);
+    this.setFovTowards(sprinting && this.aim === 0 ? this.baseFov + CAMERA.sprintFovAdd : this.baseFov, dt, false);
+    // Zoom on top of the smoothed base view, following the aim directly (snappy).
+    const z = 1 + (this.zoom - 1) * this.aim;
+    const fov = z === 1 ? this.fov : (2 * Math.atan(Math.tan((this.fov * Math.PI) / 360) / z) * 180) / Math.PI;
+    if (Math.abs(this.camera.fov - fov) > 0.01) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   /** Free distance along a ray for the probe sphere, minus a small margin. */

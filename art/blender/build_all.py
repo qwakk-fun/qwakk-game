@@ -6,7 +6,7 @@ Options after `--`:
   --no-render     build and export only
   --quick         fewer render samples, for fast iteration
   --only NAME     render only shots whose name contains NAME (repeatable):
-                  turnaround, face, size, pose, beanie, weapon, hold, anim
+                  turnaround, face, size, pose, beanie, weapon, hold, tps, anim
   --no-anim       skip baking and exporting the animation clips (faster mesh iteration)
 """
 
@@ -30,6 +30,7 @@ import geo  # noqa: E402
 import holds  # noqa: E402
 import params as P  # noqa: E402
 import posing  # noqa: E402
+import reloads  # noqa: E402
 import render  # noqa: E402
 import rig  # noqa: E402
 import weapons  # noqa: E402
@@ -146,10 +147,16 @@ def main():
         select_only([gun] + empties)
         bpy.ops.export_scene.gltf(filepath=path, export_format="GLB", use_selection=True, export_extras=False)
         publish(path, "weapons", kind + ".glb")
-        info[kind + "_triangles"] = geo.triangle_count(gun)
+        info[kind + "_triangles"] = geo.triangle_count(gun) + geo.triangle_count(weapons.mag_of(empties))
         info[kind + "_glb_bytes"] = os.path.getsize(path)
         holds.SUPPORT_POINT[kind] = next(e.location.copy() for e in empties if e["contract_name"] == "Support")
         gun.hide_render = True
+    # Reload timeline and the magazine's pose in the left fist (LeftHand joint space), for the engine.
+    attach_doc["reload"] = {
+        kind: {"seconds": reloads.RELOAD_SECONDS[kind], **reloads.MAG_EVENTS[kind],
+               "magInHand": bake.joint_pose(duck_glb, sk, "LeftHand", holds.mag_in_hand(sk, kind))}
+        for kind in reloads.RELOAD_SECONDS
+    }
     attach_path = os.path.join(EXPORT, "weapons", "attach.json")
     with open(attach_path, "w") as f:
         json.dump(attach_doc, f, indent=2)

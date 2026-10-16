@@ -12,7 +12,7 @@ sh qwakk-game/art/map/build.sh
 
 Needs Blender 5.2 at `/Applications/Blender.app` (or `BLENDER=/path/to/blender`), `python3` (standard library only), Node 24 with npm (the compression tool installs its own pinned packages into `tools/node_modules` on first run) and `ffmpeg` for the sheets. A full build takes about 2 minutes on an M4 Pro, most of it the top-down map render.
 
-Options: `--no-render` (exports only), `--quick` (fewer render samples), `--only NAME` (build and render only props whose name contains NAME; skips the shared JSON), `--shots sheet,closeups,street,plane,lods,tint` (render groups), `--no-map` (skip the layout and the map render).
+Options: `--no-render` (exports only), `--quick` (fewer render samples), `--only NAME` (build and render only props whose name contains NAME; skips the shared JSON), `--shots sheet,closeups,street,plane,lods,tint` (render groups; also `interiors`), `--no-map` (skip the layout and the map render).
 
 Steps:
 
@@ -37,6 +37,7 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | `renders/kit_overview.png` | All props on one sheet with triangle counts (`renders/thumbs/` has the single tiles) |
 | `renders/closeup_*.png` | Close-ups of buildings, wrecks, the pillbox, the trench set, the plane |
 | `renders/cutaway_*.png`, `renders/cutaway_ground_*.png`, `renders/colliders_*.png` | Buildings cut open at the upper floor and at the ground floor (furniture), and the ground floor cut with the collider shapes drawn over the mesh (blue: floors and ramps, orange: stairs, yellow: walls, cover, furniture) |
+| `renders/interior_<house>_<room>.png` | Eye-level shots inside each house and one from the street (`--shots interiors`, cameras in each house's `meta["cams"]`) |
 | `renders/lod_sheet.png` | LOD0, LOD1 and LOD2 side by side for 16 props, with triangle counts |
 | `renders/tint_compare.png` | The street scene with the character shadow tint on everything (left) and with the environment tint (right) |
 | `renders/street_scene.png`, `renders/scale_duck_at_door.png` | Mock street with the duck for scale, and the duck at the farmhouse door |
@@ -48,7 +49,10 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | --- | --- |
 | `blender/kit.py` | Palette, the `Prop` builder (boxes, cylinders, tubes, blobs, hulls, prisms with one palette cell per face), walls with stacked openings, stairs, gable roofs, collider records and the glTF axis conversion |
 | `blender/props_military.py` | Pillbox, hedgehog, beach obstacle, sandbags, wire, trench tiles, crates, ammo box, fuel barrel |
-| `blender/props_buildings.py` | Farmhouse, townhouse, ruined house, church, barn, lighthouse, stone bridge |
+| `blender/house_kit.py` | Shared house parts: two-tone walls (outside stone or plaster, inside lining in height bands), windows with lintels, casements and shutters, doorways, tiled roofs with courses, fascias and gutters, dormers, chimneys, stair flights with their ramp collider, plank and flagstone floors, beams, rails, ruin helpers, LOD shell decals |
+| `blender/furniture.py` | The furniture and decoration library (tables, beds, wardrobes, hearth, range, sink, shop counter and shelves, bookcases, piano, stalls...), each piece built in its own frame with one cover collider |
+| `blender/house_farm.py`, `house_town.py`, `house_ruin.py`, `house_barn.py` | The four enterable houses (layout, furniture, loot spots, probes, walk paths, review cameras) and their LODs |
+| `blender/props_buildings.py` | Church, lighthouse, stone bridge, and the list of all building builders |
 | `blender/props_country.py` | Hedgerow, stone wall, fence, signpost, trees, bushes, rocks, crater, rubble |
 | `blender/props_vehicles.py` | Tank wreck, truck wreck, landing craft, drop plane |
 | `blender/toon.py`, `blender/render_kit.py`, `blender/render_map.py` | Toon look and the review renders |
@@ -58,7 +62,7 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 ## Conventions
 
 - Meters. Blender authoring space is Z up with the front facing -Y; the GLB is Y up with the front facing +Z (the same as the duck). Origins sit on the ground. Buildings: the origin is the footprint center at ground level, the ground floor top is 0.15 m, the upper floor top is 3.15 m.
-- Doors are 1.1 m wide and 2.1 m tall. Stairs rise 0.2 m per step (the controller steps up to 0.45 m). Ground floor windows have a 1.05 m sill (shoot through, not walk through).
+- Doors are 1.1 m wide and 2.1 m tall (open doorways; the leaf is swung flat against the inside wall, mesh only). House stairs rise 0.2 m per step visually, but their collider is one smooth ramp hull per flight through the step noses (33 to 37 degrees): Rapier's autostep never fires at walking or crouching speed on 0.27 m treads, a ramp is climbed at every gait. Ground floor windows have a 1.05 m sill (shoot through, not walk through); windows are open holes (bullets and sight pass), the casement leaves, shutters, mullions and frames are mesh only.
 - One material (`QwakkProps`) with the shared 256 px palette on every prop. The game swaps in the toon shader: 2-band ramp on a fixed light, shadow side multiplied by a tint. No outline on environment pieces; `manifest.json` flags `outline: true` on the loot containers (crates, ammo box) so the engine adds the 7.5 mm `#151619` inverted hull there only.
 - Shadow tints: characters keep `#d9a6a0` (warm, the duck recipe). Environment props and the terrain use **`#b4bccf`** (cool neutral), so stone, plaster and concrete stay stone-colored in shadow instead of turning pink. The ducks then pop a little more against the set. Both values are in `manifest.json` (`shadowTint`) and `blender/kit.py`. See `renders/tint_compare.png`.
 - Shading: organic parts (foliage blobs, trunks, the crater bowl, the fuselage and nacelles) use smooth normals; hard-surface parts (walls, roofs, crates, sandbags, wrecks, rocks) keep flat normals on purpose, because the faceted 2-band look is the style. Smoothing them would make the toon terminator wander across flat walls. Flat normals cost file size; meshopt and quantization absorb most of it.
@@ -73,7 +77,7 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 - Trees use low-poly geometry for LOD2 instead of a billboard: at 26 triangles it costs less than an alpha-tested impostor would cost in overdraw, needs no extra texture, and keeps the toon shading (a flat card cannot take the 2-band light).
 - Compression: `EXT_meshopt_compression` plus `KHR_mesh_quantization` (positions 14 bit over one volume per file, normals 10 bit, UVs 12 bit, which keeps the 16 px palette cell centers exact). Load with `GLTFLoader.setMeshoptDecoder(MeshoptDecoder)` from `three/examples/jsm/libs/meshopt_decoder.module.js`.
 - **Engine note:** quantization stores positions as normalized integers and puts one scale and translation on each `LOD` node (the same values on every LOD of a file). Three's loader applies it, but when you take `mesh.geometry` out to build an `InstancedMesh`, bake the node transform first (`geometry.applyMatrix4(lodNode.matrix)`) or put it in the instance matrices. Colliders and loot points are in the root's space, not affected.
-- Sizes: 2,675 KB uncompressed to 794 KB compressed for all 38 files (3.4 times smaller), before any gzip or brotli on the server.
+- Sizes: 4,693 KB uncompressed to 1,212 KB compressed for all 38 files (3.9 times smaller), before any gzip or brotli on the server.
 
 ## Collider format (`colliders.json`)
 
@@ -102,6 +106,7 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 - `kind` says what the shape blocks: see the `kinds` table in the file. `wire` and `fence` block movement only, `hedge` blocks movement and sight but not bullets, `foliage` (bushes) only hides players.
 - World transform for an instance: rotate the shape by the instance yaw (a quaternion around +Y built with `dsin`/`dcos`), scale center and size by the instance scale, then translate.
 - Checks run on every build: door, stair and floor probes (a 0.35 m capsule path at 0.3, 0.9 and 1.6 m) must not hit a wall or cover shape, and every collider must stay inside its prop's mesh bounds.
+- Each house also exports `walk` paths in `manifest.json` (glTF space waypoints: in through the door, up the stairs or the ruin's debris ramp, onto the upper floor). `apps/server/test/houses.test.ts` walks a sim duck along every path on every placed house, running and crouched, with the game's own movement code and colliders.
 
 ## Props
 
@@ -122,11 +127,11 @@ Triangles per LOD (LOD0 / LOD1 / LOD2), the distance in meters up to which each 
 | `crate_large` | 536 | 140 | 36 KB | 11.3 KB | 1 | 1.6 x 0.9 x 0.9 | 23 |
 | `ammo_box` | 122 | 80 | 13 KB | 6.8 KB | 1 | 0.5 x 0.4 x 0.3 | 50 |
 | `fuel_barrel` | 166 | 100 | 14 KB | 7.2 KB | 1 | 0.6 x 0.9 x 0.6 | 30 |
-| `farmhouse` | 3,750 / 156 / 72 | 60 / 180 / 700 | 280 KB | 59.3 KB | 94 | 11.0 x 11.8 x 8.9 | 10 |
-| `townhouse` | 3,234 / 150 / 70 | 60 / 180 / 700 | 242 KB | 51.9 KB | 74 | 9.0 x 10.8 x 8.3 | 14 |
-| `house_ruined` | 2,380 / 228 / 70 | 60 / 180 / 700 | 194 KB | 48.2 KB | 97 | 11.8 x 6.6 x 9.4 | 8 |
-| `church` | 3,208 / 112 / 64 | 70 / 220 / 1200 | 230 KB | 50.4 KB | 167 | 10.3 x 26.1 x 25.7 | 1 |
-| `barn` | 2,776 / 100 / 46 | 60 / 180 / 700 | 208 KB | 47.2 KB | 59 | 10.3 x 9.7 x 15.3 | 5 |
+| `farmhouse` | 12,306 / 212 / 84 | 60 / 180 / 700 | 872 KB | 176.7 KB | 100 | 12.0 x 12.3 x 9.4 | 8 |
+| `townhouse` | 12,956 / 210 / 82 | 60 / 180 / 700 | 979 KB | 205.3 KB | 93 | 9.6 x 11.1 x 9.7 | 11 |
+| `house_ruined` | 8,126 / 266 / 86 | 60 / 180 / 700 | 596 KB | 133.2 KB | 99 | 13.2 x 12.3 x 10.0 | 4 |
+| `church` | 3,244 / 112 / 64 | 70 / 220 / 1200 | 233 KB | 51.0 KB | 167 | 10.3 x 26.1 x 25.7 | 1 |
+| `barn` | 6,642 / 120 / 46 | 60 / 180 / 700 | 484 KB | 103.2 KB | 57 | 11.7 x 11.4 x 15.3 | 4 |
 | `lighthouse` | 678 | 1200 | 47 KB | 13.8 KB | 5 | 6.0 x 20.2 x 9.6 | 1 |
 | `bridge_stone` | 418 | 600 | 32 KB | 10.5 KB | 19 | 5.6 x 4.9 x 20.0 | 2 |
 | `hedgerow` | 912 / 156 / 72 | 35 / 110 / 320 | 35 KB | 17.1 KB | 2 | 9.0 x 3.3 x 2.7 | 394 |
@@ -148,16 +153,18 @@ Triangles per LOD (LOD0 / LOD1 / LOD2), the distance in meters up to which each 
 | `landing_craft` | 594 / 80 / 64 | 45 / 140 / 450 | 52 KB | 17.2 KB | 7 | 3.4 x 2.6 x 12.7 | 3 |
 | `transport_plane` | 3,376 | 2000 | 168 KB | 42.1 KB | 0 | 29.5 x 5.3 x 19.9 | flyover |
 
-All 38 props at LOD0: 36,630 triangles. GLBs: 2,675 KB uncompressed, 794 KB compressed. `colliders.json` 62 KB.
+All 38 props at LOD0: 64,556 triangles. GLBs: 4,693 KB uncompressed, 1,212 KB compressed (the four houses are 618 KB of that). `colliders.json` 66 KB.
 
 ### Building notes
 
-- **Farmhouse** (stone, slate roof, green shutters): two rooms per floor, front door to the west room, back door to the east room, 15-step stair along the back wall, stairwell rails, attic sealed by a ceiling slab. Furniture: kitchen table with two benches and a chest (west room), a shelf unit, a small table and a chair (east room), two beds, a wardrobe and a desk upstairs. 8 loot points, most on furniture tops (the shelf, the tables, the beds).
-- **Townhouse** (plaster, tile roof, blue shutters): a cafe on the ground floor (counter, two round tables with chairs, a shelf unit on the back wall), stairs along the west wall, upstairs a bed, a wardrobe and a table. 6 loot points.
-- **Ruined house**: the farmhouse footprint with jagged walls (cut into 0.7 m strips), the west half keeps its upper floor and stairs, the east half is rubble. Good half-cover fights.
+Four enterable house types, each with a real interior (rooms, furniture with cover colliders, loot on furniture tops), placed 27 times on map_v1 (8 farmhouses, 11 townhouses, 4 ruins, 4 barns; the first layout had 37 plainer houses). Shared look: two-tone walls (outside stone or plaster with proud stones, plaster patches and quoins; inside a lining in height bands: panelling, plaster, wallpaper), lintels and sills, casement windows swung open, open shutters, flower boxes, plank and flagstone floors, ceiling beams, pendant lamps, pictures, rugs. Review shots: `renders/closeup_*`, `cutaway_*` and `interior_<house>_<room>.png`.
+
+- **Farmhouse** (stone, slate roof with two dormers, a slate porch canopy over the front door, green shutters, chimney on the west gable): a farm kitchen on flagstones (stone hearth with logs and a pot, long table with benches, a plate dresser, a stone sink with a hand pump, a barrel and sacks) and a parlour (sofa, two armchairs, coffee table, radio table, bookcase, grandfather clock). A 15-step stair along the back wall climbs to the main bedroom (double bed, chest of drawers with a mirror, wardrobe, trunk) and a study bedroom (single bed, desk with a typewriter, bookcase, washstand). Outside: a woodpile on the east gable, a bench by the door, a rain barrel, a ladder. 10 loot spots.
+- **Townhouse** (plaster, tile roof, blue shutters): a bakery. The shop has a display window with mullions, a red and cream striped awning, a painted sign (a loaf and wheat ears, no lettering), terracotta and cream tiles, a glass display case, a counter with a till, shelves of bread and jars and a cafe table; behind it a bakehouse with a brick bread oven, a kneading table and a range. A 15-step stair along the west wall climbs to a living room with two Juliet balconies (French windows with iron rails: cover colliders, shoot over them), a piano, a sofa and a sideboard with a radio, and a bedroom. Outside: a produce stand under the awning, a cafe table, a wall lamp. 10 loot spots.
+- **Ruined house** (the farmhouse footprint after shelling): the west half stands to the eaves under a holed slate roof with charred rafters; the east half is broken down to waist and chest height and full of rubble mounds and fallen beams. Part of the upper floor has collapsed into a solid debris ramp (33 degrees, `ramp` collider), a second way up beside the stairs; a shell breach opens the west gable and a gap the east wall. Upstairs: a sandbagged firing position at the broken floor edge (cover) with an ammo box, a bed and a toppled wardrobe. 8 loot spots.
+- **Barn** (timber on a stone base, tile roof with a louvred ridge vent and a duck vane, X-braced door leaves swung open as cover, a hay door with a hoist beam and pulley in the front gable): two cattle stalls with a feed trough, the hay cart, a workbench and tool racks, milk churns, barrels and bales; exposed posts, tie beams and rafters. Hay loft at 2.9 m over the back half (13-step stair along the west wall) with bales, a shelf and a supply cache of crates. 8 loot spots.
+- All furniture has `cover` colliders (one box or cylinder per piece). The probes check that no furniture blocks a door, a stair foot or the upper floor paths, and the walk test climbs every staircase.
 - **Church**: nave with pews (cover), side doors, chancel with the altar, and a climbable bell tower: front and west doors, 8 flights of 7 steps around an open shaft up to the belfry at 11.35 m, sniper openings on all four sides. The weathervane is a yellow duck.
-- **Barn**: big open front door (leaves swung open as cover), back door, hay loft at 2.9 m over the back half reached by stairs along the west wall, hay bales as cover, a hay cart, a workbench with tools, barrels and a shelf in the loft. 7 loot points.
-- All furniture has `cover` colliders (boxes, the round cafe tables are cylinders). The probes check that no furniture blocks a door, a stair foot or the upper floor paths.
 - **Lighthouse**: exterior landmark only, with a keeper's hut.
 - **Stone bridge**: a 20 m deck spanning a river 3 m deep, parapets as cover, arch underneath (2.5 m clear).
 
@@ -170,7 +177,8 @@ Tiles snap to a 4 m grid. The trench floor is at ground level and the revetment 
 - Flat normals on hard-surface props keep files larger than smooth ones would be (by design, see Conventions).
 - LOD switches are hard cuts. A short dither or alpha fade in the shader would hide the pop, mostly on hedgerows at 35 m and trees at 45 m.
 - Rocks are very low poly (about 64 triangles) and plain; fine at distance, flat up close.
-- Interiors are simple furniture blocks: they give cover and loot spots, not much story.
+- The four houses are 2 to 4 times the triangles of the first ones (6.6k to 13k at LOD0) and 618 KB of the compressed props: flat normals keep vertices unshared. They are drawn at LOD0 only within 60 m.
+- Casement leaves inside the windows stick about 15 cm into the room and have no collider, so a duck can clip through them.
 - Trench berms are hulls per tile, so the inside corners overlap a little and long runs on slopes step at tile joints (the generator flattens a pad under each tile).
 - The tank and truck wrecks are boxy; they read at gameplay distance but not as hero pieces.
 - The house LOD1 and LOD2 shells are closed boxes: from far away you cannot see through windows into lit rooms, which is fine for this style.

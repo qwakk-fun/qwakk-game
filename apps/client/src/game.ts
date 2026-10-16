@@ -10,7 +10,7 @@
  * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { Button, COMBAT, inaccuracy, Mode, weaponStats } from '@qwakk/shared';
+import { actionOf, aimBlend, Button, COMBAT, inaccuracy, Mode, weaponStats } from '@qwakk/shared';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
 import { TpsCamera } from './camera/tpsCamera.ts';
@@ -27,7 +27,7 @@ import type { Session } from './net/session.ts';
 import { loadClips } from './player/animations.ts';
 import { Avatar, type AvatarPose } from './player/avatar.ts';
 import { loadDuckGlb } from './player/duckModel.ts';
-import { hasWeaponArt, loadWeaponLibrary } from './player/weaponModel.ts';
+import { hasWeaponArt, loadWeaponLibrary, magTimeline } from './player/weaponModel.ts';
 import type { RenderContext } from './render/renderer.ts';
 import type { WorldHandle } from './world/worldHandle.ts';
 
@@ -44,7 +44,7 @@ export interface ExitSummary {
 
 export interface GameOptions {
   mode: 'br' | 'dm';
-  settings: { sensitivity: number; fov: number; volume: number };
+  settings: { sensitivity: number; adsSensitivity?: number; fov: number; volume: number };
   /** The player chose to leave (results screen or the pause card). */
   exit(reason: ExitReason, summary: ExitSummary): void;
 }
@@ -77,6 +77,8 @@ export class Game {
   private readonly localMotion = new MotionProbe();
   private readonly myPos = new THREE.Vector3();
   private lastSprint = false;
+  /** Look speed multiplier while aiming down sights (settings). */
+  private readonly adsSensitivity: number;
   private hudClock = 0;
   private lagIndex = 0;
   private duckGlb: THREE.Object3D | null = null;
@@ -87,7 +89,11 @@ export class Game {
   private running = false;
   /** Dev test hook: autopilot paused until then (performance.now ms). */
   holdUntil = 0;
-  private readonly pose: AvatarPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, alive: true, weapon: 0, act: 0, fly: 0, vest: 0, helmet: 0 };
+  /** Dev test hook: buttons held down until then (screenshots of aiming and reloads). */
+  private forced = 0;
+  private forcedMz = 0;
+  private forcedUntil = 0;
+  private readonly pose: AvatarPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, alive: true, weapon: 0, act: 0, fly: 0, vest: 0, helmet: 0, pack: 0 };
 
   constructor(ctx: RenderContext, session: Session, world: WorldHandle, canvas: HTMLCanvasElement, hudEl: HTMLElement, opts: GameOptions) {
     this.ctx = ctx;
@@ -98,11 +104,13 @@ export class Game {
 
     const { scene } = ctx;
     scene.add(this.localAvatar.object);
+    this.localAvatar.onMagEvent = (e) => this.sound.magClick(e);
     this.localAvatar.object.visible = false;
     this.fx = new Effects(scene, (x, _y, z) => world.groundAt(x, z));
 
     this.controls = new Controls(canvas);
     this.controls.sensitivity = opts.settings.sensitivity;
+    this.adsSensitivity = opts.settings.adsSensitivity ?? 0.8;
     this.cam = new TpsCamera(ctx.camera, sim);
     this.cam.setBaseFov(opts.settings.fov);
     this.sound.setVolume(opts.settings.volume);
@@ -141,6 +149,8 @@ export class Game {
       if (a === 'scoreboard-on') this.showBoard = true;
       if (a === 'scoreboard-off') this.showBoard = false;
       if (a === 'map') this.br?.toggleMap();
+      if (a === 'inventory') this.br?.toggleInventory();
+      if (a === 'inventory-close') this.br?.closeInventory(false);
       if (a === 'spectate-next') this.br?.spectate(1);
       if (a === 'spectate-prev') this.br?.spectate(-1);
       if (!DEVTOOLS && (a === 'lag' || a === 'jitter' || a === 'loss')) return;
@@ -160,6 +170,7 @@ export class Game {
         ...handlers,
         shotHint: (weapon, angle, loud) => this.br?.shotHint(weapon, angle, loud, this.myPos),
         picked: (kind, amount) => this.br?.picked(kind, amount),
+        denied: (reason, kind) => this.br?.denied(reason, kind),
         result: (placement, total, kills, damage, survivedMs) => this.br?.result(placement, total, kills, damage, survivedMs),
       },
       (id, state, local) => {
@@ -169,6 +180,7 @@ export class Game {
           return;
         }
         const avatar = new Avatar();
+        avatar.onMagEvent = (e, at) => this.sound.magClick(e, at);
         if (this.duckGlb) avatar.setModel(this.duckGlb);
         scene.add(avatar.object);
         this.remotes.set(id, { state, avatar, motion: new MotionProbe(), lastAct: 0 });
@@ -247,7 +259,11 @@ export class Game {
     } else {
       s = this.controls.sample();
     }
-    this.lastSprint = (s.buttons & Button.Sprint) !== 0 && s.mz > 0 && !(s.buttons & Button.Fire);
+    if (DEVTOOLS && performance.now() < this.forcedUntil) {
+      s.buttons |= this.forced;
+      if (this.forcedMz !== 0) s = { ...s, mz: this.forcedMz };
+    }
+    this.lastSprint = (s.buttons & Button.Sprint) !== 0 && s.mz > 0 && !(s.buttons & (Button.Fire | Button.Aim));
     if (this.controls.leftShoulder) s.buttons |= Button.ShoulderLeft;
     return { ...s, yaw: this.controls.yaw, pitch: this.controls.pitch };
   };
@@ -289,10 +305,12 @@ export class Game {
       p.grounded = st.grounded === 1;
       p.alive = alive;
       p.weapon = mine.armed ? st.weapon : 2;
-      p.act = st.reload > 0 ? 1 : st.equip > 0 ? 2 : st.heal > 0 ? 3 : 0;
+      p.act = actionOf(st as never);
       p.fly = mode;
       p.vest = mine.vest;
       p.helmet = mine.helmet;
+      p.pack = mine.pack;
+      p.aim = this.cam.aimBlend;
       this.localAvatar.object.visible = mode !== Mode.Plane;
       this.localAvatar.update(p, dt);
       this.localMotion.sample(x, z, dt);
@@ -302,12 +320,15 @@ export class Game {
         // Plane orbit or spectating: placed by the battle royale view.
       } else if (alive) {
         this.cam.setAirborne(mode === Mode.Freefall || mode === Mode.Glide);
+        this.cam.setAim(mode === Mode.Ground && mine.armed ? aimBlend(st as never) : 0, st.weapon);
         this.cam.update(dt, x, y, z, this.crouchBlend, this.controls.yaw, this.controls.pitch, this.lastSprint);
       } else {
         const t = this.combat.diedAt > 0 ? (performance.now() - this.combat.diedAt) / 1000 : 0;
         const killer = this.combat.killerId ? (this.remotes.get(this.combat.killerId)?.avatar.object.position ?? null) : null;
         this.cam.deathView(dt, this.myPos, killer, t);
       }
+      this.controls.lookScale = 1 + (this.adsSensitivity - 1) * this.cam.aimBlend;
+      this.ghud.aimFocus(alive ? this.cam.aimBlend : 0);
       this.world.follow(this.myPos);
     } else if (config.spectate) {
       this.spectate(dt);
@@ -331,14 +352,16 @@ export class Game {
       a.alive = s.alive === 1;
       a.weapon = s.armed ? s.weapon : 2;
       a.act = p.act;
+      a.aim = undefined;
       a.fly = p.fly;
       a.vest = s.vest;
       a.helmet = s.helmet;
+      a.pack = s.pack;
       r.avatar.update(a, dt);
       r.avatar.setDetail(camPos.distanceTo(r.avatar.object.position));
       r.motion.sample(p.x, p.z, dt);
-      // Their reload, heard in 3D.
-      if (p.act === 1 && r.lastAct !== 1) this.sound.reload(weaponStats(s.weapon).reloadTicks / 30, r.avatar.object.position);
+      // Their reload, heard in 3D (with the art's timeline the avatar's magazine events click instead).
+      if (p.act === 1 && r.lastAct !== 1 && !magTimeline(s.weapon)) this.sound.reload(weaponStats(s.weapon).reloadTicks / 30, r.avatar.object.position);
       r.lastAct = p.act;
     }
 
@@ -459,6 +482,12 @@ export class Game {
       controls: this.controls,
       localAvatar: this.localAvatar,
       hold: (ms: number) => (this.holdUntil = performance.now() + ms),
+      press: (buttons: number, ms: number, mz = 0) => {
+        this.forced = buttons;
+        this.forcedMz = mz;
+        this.forcedUntil = performance.now() + ms;
+      },
+      camera: this.cam,
     };
   }
 }

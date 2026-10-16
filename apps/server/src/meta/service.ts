@@ -50,6 +50,8 @@ export class MetaService {
     join: new RateLimiter(LIMITS.join),
     session: new RateLimiter(LIMITS.session),
     read: new RateLimiter(LIMITS.read),
+    createRoom: new RateLimiter(LIMITS.createRoom),
+    lobby: new RateLimiter(LIMITS.lobby),
   };
   sql: Sql | null = null;
   dbState: DbState = 'off';
@@ -135,8 +137,22 @@ export class MetaService {
    * the benchmark and e2e scripts can open dozens of local clients.
    */
   allowJoin(ip: string): boolean {
+    return this.allow('join', ip);
+  }
+
+  /** Per-IP limit on new game rooms (create, or a Quick Play that has to open one). Loopback exempt outside production. */
+  allowCreateRoom(ip: string): boolean {
+    return this.allow('createRoom', ip);
+  }
+
+  /** Per-IP limit on lobby (room list) connections. Loopback exempt outside production. */
+  allowLobby(ip: string): boolean {
+    return this.allow('lobby', ip);
+  }
+
+  private allow(kind: 'join' | 'createRoom' | 'lobby', ip: string): boolean {
     if (!this.config.production && /^(127\.|::1$)/.test(normalizeIp(ip))) return true;
-    return this.limits.join.take(ipKey(ip));
+    return this.limits[kind].take(ipKey(ip));
   }
 
   /** Record a finished match. Never throws; waits a macrotask so the caller's tick is not held up. */

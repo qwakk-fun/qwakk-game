@@ -85,7 +85,23 @@ function medkit(): THREE.BufferGeometry[] {
   return [box(0.38, 0.18, 0.26, BRAND.beak, 0, 0.09, 0), box(0.39, 0.06, 0.265, WHITE, 0, 0.1, 0), box(0.12, 0.03, 0.05, GUN, 0, 0.195, 0)];
 }
 
-/** Geometry per item kind (Crate is a fallback box; the crate GLB replaces it when loaded). */
+/** Backpack: a canvas bag with a flap, side pockets and straps; one yellow band per level. */
+function backpack(level: number): THREE.BufferGeometry[] {
+  const color = level === 3 ? SLATE : level === 2 ? OLIVE : TAN;
+  const dark = level === 1 ? 0x9c7f4e : level === 2 ? 0x4d5a28 : 0x363c48;
+  const parts = [
+    box(0.34, 0.4, 0.18, color, 0, 0.2, 0),
+    box(0.35, 0.13, 0.2, dark, 0, 0.36, 0.005),
+    box(0.08, 0.18, 0.1, dark, -0.205, 0.14, 0),
+    box(0.08, 0.18, 0.1, dark, 0.205, 0.14, 0),
+    box(0.05, 0.36, 0.03, GUN, -0.09, 0.22, -0.1),
+    box(0.05, 0.36, 0.03, GUN, 0.09, 0.22, -0.1),
+  ];
+  for (let i = 0; i < level; i++) parts.push(box(0.352, 0.025, 0.185, BRAND.yellow, 0, 0.08 + i * 0.05, 0));
+  return parts;
+}
+
+/** Geometry per item kind (Crate is a fallback box: crates are drawn by crates.ts). */
 export function itemGeometry(kind: number): THREE.BufferGeometry {
   let parts: THREE.BufferGeometry[];
   switch (kind) {
@@ -99,6 +115,9 @@ export function itemGeometry(kind: number): THREE.BufferGeometry {
     case Item.Helmet2: parts = helmet(2); break;
     case Item.Bandage: parts = bandage(); break;
     case Item.Medkit: parts = medkit(); break;
+    case Item.Backpack1: parts = backpack(1); break;
+    case Item.Backpack2: parts = backpack(2); break;
+    case Item.Backpack3: parts = backpack(3); break;
     default: parts = [box(0.75, 0.7, 0.75, WOOD, 0, 0.35, 0), box(0.77, 0.12, 0.77, BRAND.yellow, 0, 0.45, 0)];
   }
   const g = mergeSimple(parts);
@@ -130,6 +149,20 @@ export function createVestMesh(level: number): THREE.Mesh {
   const mat = new THREE.MeshToonNodeMaterial({ vertexColors: true, side: THREE.DoubleSide });
   const m = new THREE.Mesh(g, mat);
   m.name = `vest-${level}`;
+  m.castShadow = true;
+  return m;
+}
+
+/** Cosmetic backpack for a duck's Spine2 bone (bone space: +y up, the duck's back toward -z), by level. */
+export function createBackpackMesh(level: number): THREE.Mesh {
+  const g = mergeSimple(backpack(level).map((p) => p.clone()));
+  // Straps toward the duck: the bag's front (-z in the item mesh) faces the back of the duck.
+  g.rotateY(Math.PI);
+  g.scale(1.1, 1.1, 1.1);
+  g.translate(0, -0.2, -0.42);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshToonNodeMaterial({ vertexColors: true }));
+  m.name = `backpack-${level}`;
   m.castShadow = true;
   return m;
 }

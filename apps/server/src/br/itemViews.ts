@@ -12,7 +12,7 @@
  * once no viewer holds them any more.
  */
 import type { StateView } from '@colyseus/schema';
-import { VIS } from '@qwakk/shared';
+import { extraValue, packContents, VIS } from '@qwakk/shared';
 import { LootItem } from '@qwakk/shared/net';
 import type { ViewerPoint } from '../interest.ts';
 import type { Visibility } from '../visibility.ts';
@@ -74,6 +74,17 @@ export class ItemViews {
     schema.x = e.x;
     schema.y = e.y;
     schema.z = e.z;
+    if (e.extra) {
+      schema.ex = extraValue(e.kind, e.extra);
+      schema.exk = 1;
+    }
+    if (e.box > 0 || e.contents) {
+      schema.box = e.box;
+      schema.pt = e.point >= 0 ? e.point + 1 : 0;
+      schema.open = e.open ? 1 : 0;
+      // A closed crate keeps its secret: contents go out only once it is open.
+      if (e.open && e.contents) schema.c = packContents(e.contents);
+    }
     this.entries.set(key, { key, schema, x: e.x, y: e.y, z: e.z, live: true });
     this.current.set(e.id, key);
     this.map.set(key, schema);

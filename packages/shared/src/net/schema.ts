@@ -17,6 +17,8 @@ import { schema, t, type SchemaType } from '@colyseus/schema';
 export const PlayerState = schema(
   {
     name: t.string(),
+    /** Guest #tag from the player's session ('' for bots and unsigned dev guests). */
+    tag: t.string(),
     /** Small numeric id: seeds spread, labels the scoreboard. */
     pid: t.uint16(),
     bot: t.boolean(),
@@ -31,6 +33,8 @@ export const PlayerState = schema(
     /** Armor levels worn (drawn on the duck). */
     vest: t.uint8(),
     helmet: t.uint8(),
+    /** Backpack level worn (drawn on the duck; sets the owner's carrying capacity). */
+    pack: t.uint8(),
     /** Battle royale: finishing place once out (1 = winner), 0 while alive. */
     placement: t.uint8(),
     // Owner only from here on.
@@ -73,6 +77,8 @@ export const PlayerState = schema(
     healKind: t.uint8().view(),
     bandages: t.uint8().view(),
     medkits: t.uint8().view(),
+    /** Aim down sights ramp (ticks), owner only: others see it as the pose action. */
+    aim: t.uint8().view(),
   },
   'PlayerState',
 );
@@ -89,8 +95,9 @@ export const Pose = schema(
     crouch: t.uint8(),
     grounded: t.uint8(),
     /**
-     * Movement mode (Mode.*: ground, freefall, glide) and action (0 idle, 1
-     * reloading, 2 equipping, 3 healing), for drawing gliders and reloads. On the
+     * Movement mode (Mode.*: ground, freefall, glide) and action (`Act`: 0 idle,
+     * 1 reloading, 2 equipping, 3 healing, 4 aiming down sights), for drawing
+     * gliders, reloads and raised guns. On the
      * pose, not the public player state, so they reach only viewers who get the
      * pose (culled like the position: a jump or a heal behind a wall stays hidden).
      */
@@ -139,7 +146,11 @@ export const Zone = schema(
 );
 export type Zone = SchemaType<typeof Zone>;
 
-/** A loot item lying in the world. Sent per viewer, only near items (StateView). */
+/**
+ * A loot item lying in the world, or a crate. Sent per viewer, only near and
+ * seen items (StateView, br/itemViews.ts). Each version of an item is its own
+ * entry, so these fields never change after the entry is added.
+ */
 export const LootItem = schema(
   {
     kind: t.uint8(),
@@ -147,6 +158,18 @@ export const LootItem = schema(
     x: t.quantized({ min: -512, max: 512 }),
     y: t.quantized({ min: -64, max: 192 }),
     z: t.quantized({ min: -512, max: 512 }),
+    /** A loose item's magazine (guns) or durability (armor), when it carries its own (extraFrom); 0 otherwise. */
+    ex: t.uint8(),
+    /** 1 when `ex` is set (a dropped item), 0 for an item as new. */
+    exk: t.uint8(),
+    /** Crates: Container.* of a map crate (1 small, 2 large, 3 ammo box), 0 for a dead duck's crate. */
+    box: t.uint8(),
+    /** Crates: map loot point id + 1 (0: not a map crate). The client draws the map's crate prop there. */
+    pt: t.uint16(),
+    /** Crates: 1 once opened (server decides; a map crate stays open). */
+    open: t.uint8(),
+    /** Crates: the contents, only once open (packContents). Nobody learns what a closed crate holds. */
+    c: t.string(),
   },
   'LootItem',
 );
@@ -172,6 +195,9 @@ export const IslandState = schema(
     poses: t.map(Pose).view(),
     farPoses: t.map(Pose).view(),
     // Battle royale.
+    /** Lobby room name (roomLabel) and, while waiting, how many more humans the countdown needs. */
+    label: t.string(),
+    need: t.uint8(),
     /** Ducks alive and ducks in the match. */
     alive: t.uint8(),
     total: t.uint8(),
@@ -233,4 +259,17 @@ export const Msg = {
   Result: 'res',
   /** Client to server: watch the next (1) or previous (-1) living duck while dead. */
   Spectate: 'spec',
+  /** To the picker: [Deny reason, itemKind] when a Use press or an inventory request did nothing. */
+  Denied: 'no',
+  /**
+   * Client to server, a request the server checks (battle royale): [InvOp.Drop, itemKind, amount]
+   * or [InvOp.Take, entityNumber, contentIndex (-1: the item itself), itemKind].
+   */
+  Inv: 'inv',
+} as const;
+
+/** Inventory requests (Msg.Inv). */
+export const InvOp = {
+  Drop: 1,
+  Take: 2,
 } as const;
