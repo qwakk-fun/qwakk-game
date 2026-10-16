@@ -11,7 +11,7 @@ import { BR, createSimWorld, emptyInput, initPhysics, TICK_RATE } from '@qwakk/s
 import { compareListings, LOBBY_ERROR, roomLabel, type RoomListing } from '@qwakk/shared/lobby';
 import { BattleRoyale, DEFAULT_BR, type BrEvents } from '../src/br/battleRoyale.ts';
 import { loadSainteCanard } from '../src/maps.ts';
-import { checkCreate, cleanClientOptions, type GuardOptions } from '../src/matchmaking.ts';
+import { checkCreate, cleanClientOptions, matchmakingMethod, type GuardOptions } from '../src/matchmaking.ts';
 
 beforeAll(async () => {
   await initPhysics();
@@ -160,6 +160,16 @@ describe('matchmaking guard', () => {
     expect(g.creates).toEqual([]);
     expect(await code(checkCreate('joinOrCreate', 'br', '1.2.3.4', guard(0, false, false)))).toBe(LOBBY_ERROR.createLimited);
     expect(await code(checkCreate('joinById', 'br', '1.2.3.4', guard(3, false, false)))).toBe(0);
+  });
+
+  it('static deathmatch rooms are join only: create is refused, Quick Play only joins', async () => {
+    const g = { ...guard(0, false, true), joinOnly: ['island'] };
+    expect(await code(checkCreate('create', 'island', '1.2.3.4', g))).toBe(LOBBY_ERROR.roomsFull);
+    expect(await code(checkCreate('joinOrCreate', 'island', '1.2.3.4', g))).toBe(0);
+    expect(g.creates).toEqual([]);
+    expect(matchmakingMethod('joinOrCreate', 'island', g)).toBe('join');
+    expect(matchmakingMethod('joinById', 'island', g)).toBe('joinById');
+    expect(matchmakingMethod('joinOrCreate', 'br', g)).toBe('joinOrCreate');
   });
 
   it('clients cannot create lobbies', async () => {

@@ -1,6 +1,6 @@
 # Qwakk game
 
-A browser third-person shooter with ducks, planned to live at `qwakk.fun/game`. This repo is at **Phase 2**: a 16-duck battle royale on **Sainte-Canard**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck is left; server bots on a navmesh fill the empty seats. The Phase 1 deathmatch (8 ducks on the greybox island) is still there. Both modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream.
+A browser third-person shooter with ducks, planned to live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Sainte-Canard**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck is left; server bots on a navmesh fill the empty seats. Next to it run always-on deathmatch rooms of 32 ducks each (at launch one, Istanbul; Paris and Hong Kong are ready in the catalog) on **Canard Quarter**, a compact village quarter from the same kit; bots fill every seat a human does not take. Both modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream.
 
 Phase 0 (the foundation: sim, netcode, camera) is described in the netcode section below.
 
@@ -25,7 +25,9 @@ qwakk-game/
     src/hitbox.ts      Head sphere and body capsule per stance, analytic ray tests
     src/net/schema.ts  Colyseus Schema 5 state, quantized poses, zone, loot items, input and message ids
     src/collision.ts   Collision groups: what each collider blocks (move, bullets, sight, opaque)
-    src/mapV1.ts       Loader for the map_v1 files (Sainte-Canard): terrain, prop colliders, BR data
+    src/mapV1.ts       Loader for the map_v1 files (Sainte-Canard, Canard Quarter): terrain, prop colliders, BR data
+    src/dmSpawns.ts    Deathmatch spawns on map_v1 maps: the map's `dmSpawns`, or derived on open ground; the play area ring
+    src/lobby.ts       Room list data for the menu: RoomListing, the static deathmatch rooms (DM_ROOMS)
     src/maps/          The shipped map files (npm run map:sync copies them from the map workstream)
     src/drop.ts        Freefall and glider (stepped in the sim, predicted)
     src/heal.ts        Bandages and medkits: timed, slow you down, interruptible (in the sim)
@@ -36,14 +38,17 @@ qwakk-game/
     test/              Vitest: determinism, movement feel, weapons, hitscan, loot, armor, heals, drop, zone
   apps/server/       Colyseus 0.18 game server (Node 24, runs the .ts sources directly)
     src/gameRoom.ts    Networking glue for both modes: auth, joins, inputs, patches, views, messages
-    src/IslandRoom.ts  The deathmatch room (greybox island)
+    src/IslandRoom.ts  A deathmatch room: static id and name (DM_ROOMS), never closes, lobby listing, map by id, culling
     src/BrRoom.ts      The battle royale room (Sainte-Canard): lock, plane, zone, loot views, spectating, results
     src/arena.ts       Authoritative combat core: one input path, shots, damage, separation, history
-    src/deathmatch.ts  Deathmatch rules: spawns, respawns, rounds, score limit
+    src/deathmatch.ts  Deathmatch rules: 32 seats (humans take bots' seats), idle when empty, spawns away from enemies, rounds
+    src/dmBot.ts       Deathmatch bot on map_v1 maps: the fighting brain plus navmesh walking (nav/navWalker.ts)
     src/br/            Battle royale rules, loot in the world, results, bots (landing, looting, fighting)
     src/nav/           Recast navmesh from the map colliders (cached), paths for the bots
     src/visibility.ts  Line-of-sight check for the anti-wallhack culling
-    src/maps.ts        Map loading and the map hash
+    src/maps.ts        Map loading by id (greybox or map_v1 folder) and the map hash; the deathmatch map id
+    src/matchmaking.ts Matchmaking guard: join options filter, room creation limits, join-only static rooms
+    src/lobby.ts       The lobby (LobbyRoom): battle royale and deathmatch rooms, listed live
     src/lagComp.ts     Hitbox history for lag compensation (rewind capped at 230 ms)
     src/bots.ts        Server bots: same input path as players, line of sight only
     src/interest.ts    Per-viewer near (30 Hz), far (10 Hz) or no pose entry (anti-wallhack)
@@ -61,11 +66,12 @@ qwakk-game/
     src/hud/           Game HUD, battle royale HUD (hud/br: minimap, map, inventory, results) and the debug HUD
     src/camera/        Over-the-shoulder spring-arm camera, recoil kick, shake, death camera
     src/player/        Duck avatar: clips, procedural layers, hand IK, weapons, the reload's magazine (reloadMag.ts)
-    src/world/         Greybox terrain and props; world/sainte: the Sainte-Canard world (instanced props with LODs, terrain, water, sky, plane, zone wall, loot)
+    src/world/         Greybox terrain and props; world/sainte: the map_v1 world by map id (instanced props with LODs, terrain, water, sky, plane, zone wall, loot)
+    src/ui/menu/       The menu: name and tag, Play, live room lists (battle royale, deathmatch), leaderboard, settings
     public/models/     Art from the art workstream (duck, animations, weapons, props, openable crates)
-  e2e/two-clients.ts Two real headless browsers in one deathmatch room
+  e2e/two-clients.ts Two real headless browsers in one deathmatch room (map hash, prediction, culling)
   e2e/br-two-clients.ts Two real headless browsers in one battle royale (plane, drop, loot, culling, victory)
-  e2e/br-lobby.ts    Lobby rooms: Chrome joins a room from the menu's live list, two Node players, countdown, bot fill
+  e2e/br-lobby.ts    Lobby rooms: Chrome joins a room from the menu's live list, two Node players, countdown, bot fill; the deathmatch rooms listed and joined from the menu
   e2e/br-perf.ts     Frame time and draw calls in a full battle royale (one browser, 15 bots)
   e2e/map-perf.ts    Frame time and draw calls of the map alone (dev map viewer, mapview.html)
   e2e/pause-resume.ts Node client: input pauses and network stalls, must recover within 1 s
@@ -91,7 +97,8 @@ npm run dev          # game server on :2567 and client on http://localhost:5173/
 Open http://localhost:5173/game/: the menu starts a battle royale or a deathmatch. In dev you can skip the menu with `?mode=br` or `?mode=dm`.
 
 - **Battle royale** (`br` rooms, up to 16 humans each): the menu lists every room live (name, ducks in, waiting / countdown / in progress). Join one, create one, or Quick Play (the open room with the most players, or a new one). You wait on the village square (damage off) with the room's roster on screen. Once 3 humans are in, a 30 s countdown starts (10 s when the room is full of humans); if they drop below 3 it goes back to waiting. When it ends, the room locks, bots fill the seats to 16 ducks and everyone boards the plane. Jump with F over land (or be thrown out before the coast), fall, open the glider (Space or F, or it opens by itself 45 m above the ground), glide about 3 m forward per meter down (W dives, S brakes), land, loot, survive the zone. The last duck standing wins; dead ducks watch their killer or any duck still alive.
-- **Deathmatch** (`island` room): bots fill the room up to 8 ducks; every human who joins replaces a bot. First to 25 kills or the most kills after 5 minutes wins the round, then a new round starts after 8 seconds. Played on the greybox island (kept: simpler, and the Phase 1 tests and benchmark stay comparable).
+- **Deathmatch** (`island` room type): static rooms from `DM_ROOM_CATALOG` in `packages/shared/src/lobby.ts` (Istanbul, Paris and Hong Kong, room ids `istanbul`, `paris`, `hongkong`); the first `DM_OPEN_ROOMS` of them (launch: 1, Istanbul) are `DM_ROOMS`, opened by the server at start and never closed; clients cannot create one. The menu lists them live with their human count ("Paris 3/32") and joins one by click; the Deathmatch button (Quick Play) joins the open room with the most humans. A room holds 32 ducks: 1 human plays with 31 bots, 2 with 30, and so on, up to 32 humans. A joining human takes a bot's seat (a dead bot first, else the bot farthest from every human), a leaving one gives it back to a new bot. With nobody in it a room keeps no seats and its tick loop sleeps until someone joins (the next human starts a fresh round). First to 50 kills or the most kills after 10 minutes wins the round, then a new round starts after 10 seconds. Respawns pick among the 6 spawn points farthest from living enemies one that no enemy within 60 m can see. Played on Canard Quarter (`MATCH.mapId`), with navmesh bots and the same line-of-sight culling as the battle royale.
+- **Version badge**: the root `package.json` version shows in the top right corner with a BETA tag on the menu and in the game (`apps/client/src/ui/buildBadge.ts`). Bump it for each release.
 
 | Key | Action |
 | --- | --- |
@@ -131,7 +138,7 @@ Add these to the client URL, for example `http://localhost:5173/game/?lat=120&ji
 | `autopilot=fight` | The duck hunts and shoots the nearest visible duck (screenshots, tests) |
 | `autopilot=br` | Battle royale: jumps out over land, glides, lands, walks to visible items and picks them up |
 | `aptarget=40,-192` | With `autopilot=br`: jump and glide toward this point (x, z) |
-| `mode=br` / `mode=dm` | Skip the menu and start a battle royale or a deathmatch (dev tools only) |
+| `mode=br` / `mode=dm` | Skip the menu and start a battle royale or a deathmatch (dev tools only); `room=paris` joins that room by id |
 | `quality=low` | Shorter prop draw distances (the menu's quality setting wins when it starts the game) |
 | `spectate=1` | Watch without playing; click to switch duck (server needs `QWAKK_SPECTATORS=1`) |
 | `server=ws://host:2567` | Game server address (dev tools only; default: the page host on port 2567) |
@@ -167,7 +174,7 @@ npm run e2e:br -- DIR # only the battle royale e2e; saves its screenshots to DIR
 npm run e2e:lobby -- DIR # lobby rooms: room list, join from the list, countdown, bot fill; screenshots to DIR
 npm run test:net     # pause and stall recovery against the real server
 npm run test:br      # headless 16-bot battle royale (server workspace)
-npm run bench        # server benchmark at 8, 16 and 32 bots (npm run bench -- 4 64 for other counts)
+npm run bench        # deathmatch benchmark: 32 clients, or 1 client and 31 server bots, in one and in all three catalog rooms, opened with QWAKK_DM_ROOMS=3 (npm run bench -- 4 64 for client counts in one room)
 npm run bench:br     # battle royale benchmark: network clients plus bots, bandwidth, CPU, culling
 npm run shots -- DIR # screenshots of a deathmatch firefight, then hip vs aim down sights and the reloads (two ducks in a battle royale warm-up; build:test first)
 npm run perf:br -- DIR # battle royale frame time, CPU per frame and draw calls in headless Chrome
@@ -177,7 +184,7 @@ npm run map:sync     # copy the map workstream's export into packages/shared/src
 
 The two e2e scripts use ports 2567 and 5173 by default. While `npm run dev` holds them, run them on others: `E2E_SERVER_PORT=2589 E2E_WEB_PORT=5189 npm run e2e`.
 
-Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 8), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder).
+Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 32), `QWAKK_DM_MAP` (deathmatch map id for one run, `greybox` works too; default `MATCH.mapId`), `QWAKK_DM_SPAWN_RADIUS` (deathmatch spawns only within this many meters of the arena center, the e2e uses it), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder), `QWAKK_CLIENT_DIR` (serve the built client from this folder on the server's port; the image sets it), `QWAKK_BR_MAX_ROOMS` (battle royale rooms open at once, default `BR.maxRooms`).
 
 ## Meta: identity, leaderboard, menu
 
@@ -195,8 +202,9 @@ The menu is the first screen at `/game/`. Guests pick a nickname, the server giv
 | --- | --- |
 | `verifySession(token)` | `{ playerId, name, tag }` for a valid session token, else `null`. No token: a random guest in dev, `null` when `NODE_ENV=production` |
 | `allowJoin(ip)` | Per-IP join limit: a burst of 10, then one join every 4 s (IPv6 counted per /64). Loopback is exempt outside production, for the benchmark and e2e |
-| `allowCreateRoom(ip)` | Per-IP limit on new game rooms (`create`, or a Quick Play that has to open one): a burst of 3, then one a minute. Checked by the matchmaking guard (`apps/server/src/matchmaking.ts`), which also caps open battle royale rooms at `BR.maxRooms` (20) and drops every join option except `name`, `token`, `spectate`. Loopback exempt outside production |
+| `allowCreateRoom(ip)` | Per-IP limit on new game rooms (`create`, or a Quick Play that has to open one): a burst of 3, then one a minute. Checked by the matchmaking guard (`apps/server/src/matchmaking.ts`), which also caps open battle royale rooms at `BR.maxRooms` (1 at launch, `QWAKK_BR_MAX_ROOMS` overrides; while that room plays, new players wait for the next one) and drops every join option except `name`, `token`, `spectate`. Loopback exempt outside production |
 | `allowLobby(ip)` | Per-IP limit on lobby (room list) connections: a burst of 20, then one every 3 s. Loopback exempt outside production |
+| `guardJoinIps(httpServer)` | Also caps open WebSockets per IP (game rooms and lobby together) at `CONNECTIONS_PER_IP` (16, IPv6 per /64, `rateLimit.ts`): an upgrade over the cap gets HTTP 429 before Colyseus sees it, and the slot comes back when the socket closes. Loopback exempt outside production |
 | `joinIp(context)` | The client IP from a Colyseus `AuthContext`. Colyseus fills `context.ip` from client-controlled headers, so `guardJoinIps(httpServer)` (installed in `index.ts`) rewrites `X-Real-IP` on every upgrade first: the socket address, or with `TRUST_PROXY` the entry our proxy appended to `X-Forwarded-For` |
 | `recordMatch(result)` | Writes a finished match. No-op without `DATABASE_URL`, never throws, yields before any work so the tick is not held up, ignores a repeated `matchId`, queues up to 200 results while the database is down. Optional per-player `deaths` (default: royale 1 unless the player won, deathmatch 0; pass it for deathmatch so K/D is right) |
 
@@ -227,9 +235,9 @@ Server:
 | `SESSION_SECRET` | HMAC key for session and device tokens, 32 characters or more. Required in production (the server refuses to start without it); a dev default is used otherwise. Rotating it resets every guest identity |
 | `TURNSTILE_SECRET` | Cloudflare Turnstile secret. Unset: new guests are not challenged |
 | `TRUST_PROXY` | Number of reverse proxies in front (CapRover: `1`). Only then is `X-Forwarded-For` read, from the right |
-| `ALLOWED_ORIGINS` | Comma-separated browser origins, for example `https://qwakk.fun`. Applies to `/api`, Colyseus matchmaking CORS and WebSocket upgrades. Unset: all three are same-origin only in production (a client served from another host cannot join; the server logs a loud warning at startup) and open in dev |
+| `ALLOWED_ORIGINS` | Comma-separated browser origins, for example `https://play.qwakk.fun` (the one-container hosting serves the page from the game server's own origin). Applies to `/api`, Colyseus matchmaking CORS and WebSocket upgrades. Unset: all three are same-origin only in production (a client served from another host cannot join; the server logs a loud warning at startup) and open in dev |
 
-Client (build time): `VITE_API_BASE` (API origin; default: derived from `VITE_GAME_SERVER`, else the page host on port 2567), `VITE_TURNSTILE_SITEKEY` (shows the Turnstile check for new guests; unset: no widget and no request to Cloudflare).
+Client (build time, `apps/client/src/net/endpoint.ts`): `VITE_GAME_SERVER` (game server; default: the page's own origin in public builds, the page host on port 2567 in dev and test builds), `VITE_API_BASE` (API origin; default: the game server's origin over HTTP(S)), `VITE_TURNSTILE_SITEKEY` (shows the Turnstile check for new guests; unset: no widget and no request to Cloudflare).
 
 ### Database setup
 
@@ -324,17 +332,27 @@ Pickups are server decisions: E is an input button, and the server checks reach 
 
 ### The map: Sainte-Canard
 
-The map workstream exports `map_v1` (format v2) to `art/map/export/` and the prop kit to `apps/client/public/models/props/`. `npm run map:sync` copies `map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` and `colliders.json` into `packages/shared/src/maps/sainte-canard/`: the server reads them from there and the client bundles the same files, so both build the same 6,137 colliders. `npm test` fails when the copy is stale. `apps/server/test/houses.test.ts` walks a sim duck through every placed house (doors, stairs, the ruin's debris ramp, upper floors), running and crouched, along the `walk` paths in the prop manifest. The room sends the map id and a hash of the three files the sim uses; a client with different files refuses to play.
+The map workstream exports `map_v1` (format v2) to `art/map/export/` and the prop kit to `apps/client/public/models/props/`. `npm run map:sync` copies `map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` and `colliders.json` into `packages/shared/src/maps/sainte-canard/` (and the deathmatch arena into `canard-quarter/`): the server reads them from there and the client bundles the same files, so both build the same 6,137 colliders. `npm test` fails when the copy is stale. `apps/server/test/houses.test.ts` walks a sim duck through every placed house (doors, stairs, the ruin's debris ramp, upper floors), running and crouched, along the `walk` paths in the prop manifest. The room sends the map id and a hash of the three files the sim uses; a client with different files refuses to play.
 
 Collider kinds follow the map's table: `wire` and `fence` block movement only, `hedge` blocks movement and sight but not bullets, `foliage` (bushes) only hides. The river and the shallow sea slow you down (70% when the water is over 25 cm, 45% over 1 m).
 
 The client draws the props as instanced meshes per prop type and LOD level, refilled from the visible chunks with per-instance LOD by distance (`manifest.json` switch distances, 0.6 times on the low quality setting), terrain with the ground paint, river and sea, and a sky and fog that hide the cull distance. Ducks past 35 m drop their outline and shadow.
 
+### The deathmatch arena: Canard Quarter
+
+`canard-quarter`, a compact village quarter from the same kit for the 32-duck deathmatch (`art/map/layout/gen_quarter.py`, renders in `art/map/renders/canard-quarter/`, details in `art/map/README.md`): a church square on a crossroads with five enterable houses, about 162 x 162 m inside a closed hedgerow ring, 1,542 colliders. `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`; `apps/server/test/canardQuarter.test.ts` checks it and its 48 `dmSpawns` (`[x, y, z, yaw]`, player yaw).
+
 ### Anti-wallhack
 
-The server sends an enemy's pose only when the viewer could plausibly see it: within 10 m always, otherwise within 320 m and with a clear line through opaque geometry from the viewer's eye or either camera shoulder to the target's head, chest, feet or sides (a 0.6 m margin), tested every 3 ticks, also at the positions both will have 150 ms plus half a round trip later (so a duck coming round a corner is already there), and kept for 1 s after it was last visible. A hidden enemy is removed from the client's state, so the client has nothing to reveal. Shots from a duck you cannot see arrive as a direction and a loudness only (for the sound); kill messages carry the victim's position only to viewers who saw it; damage indicators carry a direction, never the attacker's position. A duck's movement mode (plane, freefall, glider) and action (reload, heal) ride on its pose entry, so they are culled with it. Loot is sent within 100 m and only once its spot is in sight (or within 10 m): a death crate behind a wall shows up when you see it, and an item taken behind a wall stays as a stale copy until you see that spot again (pressing E on it does nothing, the server decides pickups on its own list). Crates work the same way: a crate opened behind a wall stays closed for you until you see it again, and a closed crate's contents are never sent to anyone.
+Battle royale and deathmatch rooms on map_v1 maps (the greybox deathmatch keeps everyone in view). The server sends an enemy's pose only when the viewer could plausibly see it: within 10 m always, otherwise within 320 m and with a clear line through opaque geometry from the viewer's eye or either camera shoulder to the target's head, chest, feet or sides (a 0.6 m margin), tested every 3 ticks (a third of the viewers each tick, so the ray casts do not spike), also at the positions both will have 150 ms plus half a round trip later (so a duck coming round a corner is already there), and kept for 1 s after it was last visible. A hidden enemy is removed from the client's state, so the client has nothing to reveal. Shots from a duck you cannot see arrive as a direction and a loudness only (for the sound); kill messages carry the victim's position only to viewers who saw it; damage indicators carry a direction, never the attacker's position. A duck's movement mode (plane, freefall, glider) and action (reload, heal) ride on its pose entry, so they are culled with it. Loot is sent within 100 m and only once its spot is in sight (or within 10 m): a death crate behind a wall shows up when you see it, and an item taken behind a wall stays as a stale copy until you see that spot again (pressing E on it does nothing, the server decides pickups on its own list). Crates work the same way: a crate opened behind a wall stays closed for you until you see it again, and a closed crate's contents are never sent to anyone.
+
+### Switching the deathmatch map
+
+The deathmatch map is one constant, `MATCH.mapId` in `packages/shared/src/constants.ts` (`'canard-quarter'`; `'sainte-canard'` and `'greybox'` work too). Any folder `packages/shared/src/maps/<id>/` with `map_v1.json`, `map_v1_heights.bin`, `colliders.json` (and optionally `map_v1_ground.bin`) is a valid id: the server reads it by id, the client bundles every map folder (an `import.meta.glob` in `apps/client/src/world/sainte/assets.ts`) and fetches only the one in play, and the join still refuses a client whose files hash differently. Spawns come from the map's optional `dmSpawns` field (`[[x, y, z, yaw], ...]`, yaw as the input yaw); without it they are derived on open ground within 60 m of the map's plaza (`MATCH.derived*`). The optional `playArea.ring` keeps the bots' roaming goals inside the play area. The navmesh for the new id is built on server start (a few seconds for Canard Quarter, cached by map hash) and baked into the server image (`deploy/server/build-navmesh.ts`).
 
 ### Bots
+
+Deathmatch bots on map_v1 maps (`dmBot.ts`) fight with the deathmatch brain and walk navmesh paths between fights (`nav/navWalker.ts`): chase the last sighting, else roam between spawn points and random walkable spots inside the play area, pausing now and then. A bot that gives up a goal without getting anywhere (on a table, in a corner off the navmesh) walks off toward the most open direction first. On the greybox they keep the ray-steering brain.
 
 Battle royale bots run on a tiled recast navmesh built from the map colliders (`recast-navigation` 0.43.1, MIT): cell 0.2 m, about 64 s to build, cached in `apps/server/.navcache/` by map hash (under a second to load), built on a worker thread at server start when the cache is cold (bots steer directly until it is ready). They pick a landing spot by zone heat and tier along the plane's route, jump at the right moment, dive or glide there, loot what they see, heal when safe, rotate into the announced circle and fight with the deathmatch brain (same input path, same line-of-sight rules, softer skill: reaction 14 to 26 ticks, 50 m view range).
 
@@ -401,7 +419,7 @@ Movement below 34% of run speed adds no inaccuracy, which a counter-strafe reach
 
 ### Two clients in real browsers (e2e)
 
-Two headless Chrome pages (WebGPU backend, 1280x720) on the same machine as the server (bots off), both on autopilot, 15 s per phase:
+Two headless Chrome pages (WebGPU backend, 1280x720) on the same machine as the server (bots off), both on autopilot, 15 s per phase. Measured on the greybox; the same test now runs on Canard Quarter with culling (`QWAKK_DM_SPAWN_RADIUS=21` spawns both on the square): map hash `bd7d95fa:1542` and the sim scenario on it identical in Node and Chrome, B sent in 30 of 30 samples, no close duck missed, 0 of about 450 reconciles corrected without added latency. One of three runs showed 10 to 11 small corrections (up to 25 cm) at 120 ms, from the two ducks bumping into each other (player collision is server only, see Known issues); the other two had 0.
 
 | Condition | Predicted local player | Remote player drawn | Corrections |
 | --- | --- | --- | --- |
@@ -415,12 +433,27 @@ The test also runs a fixed 600-tick, 6-player scenario in Node and in Chrome: th
 
 ### Deathmatch with bots
 
-- Headless (`apps/server/test/combat.test.ts`, and a 3-minute run of the same code): 8 bots, 143 kills in 3 minutes (48 per minute), 2,658 shots, 19.8% hit rate, 18% of hits on the head. The bot brains and the sim cost 0.16 ms per tick for 8 bots.
-- In the browser (`npm run shots`, one autopilot player and 7 bots, about 45 s): 36 kills, deaths and respawns on the local player, hit markers and kill confirmations from the server.
+- Headless on Canard Quarter (`apps/server/test/deathmatch.test.ts` and longer runs of the same code): a full room of 32 navmesh bots scores about 220 kills a minute (the leader reaches 44 in 4 minutes); the bots spend about 62% of their time fighting, 34% dead (3 s respawn) and the rest walking. With 6 bots, 8 runs of 10 minutes had no bot stuck for a 10 s window while walking. The bots and the sim cost 0.7 ms per tick for 32 bots in a tight loop (see the benchmark note on macOS timings).
+- Greybox (Phase 1, 8 bots): 143 kills in 3 minutes, 2,658 shots, 19.8% hit rate, 18% of hits on the head, 0.16 ms per tick.
+- In the browser (`npm run shots`, one autopilot player and 31 bots on Canard Quarter, about 40 s): 98 kills in the room, 7 kills and 3 deaths for the local player, hit markers and kill confirmations from the server.
 
 ### Server benchmark
 
-`npm run bench` on an Apple M4 Pro (Node 24.12), network bots on the same machine (server bots off), 30 s per run. Each bot sends 30 inputs per second with random movement, sprint, crouch and jumps, and fires a third of the time (so shot effects are in the numbers).
+`npm run bench` on an Apple M4 Pro (Node 24.12), the deathmatch on Canard Quarter with culling, 30 s per run, network clients on the same machine. Each network client sends 30 inputs per second with random movement, sprint, crouch and jumps, and fires a third of the time; server bots are the real navmesh bots. "Poses held" is how many of the other 31 ducks a client has a pose entry for on average (the rest are culled). CPU is the whole server process (three rooms plus the lobby), tick time is per room.
+
+| Rooms x (clients + bots) | Tick avg / p95 / max per room (ms) | Patch avg / p95 / max (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Up per client (KB/s) | Messages/s | Poses held / others | Visibility rays/s |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 x (32 + 0) | 9.184 / 10.878 / 11.66 | 0.313 / 0.479 / 0.54 | 34.0 | 491 | 6.91 | 0.63 | 50.0 | 19.0 / 31.0 | 88857 |
+| 1 x (1 + 31) | 3.849 / 7.121 / 9.05 | 0.081 / 0.168 / 0.37 | 14.4 | 392 | 5.59 | 0.63 | 72.4 | 20.6 / 31.0 | 2333 |
+| 3 x (32 + 0) | 6.002 / 7.240 / 8.88 | 0.241 / 0.364 / 0.46 | 62.7 | 582 | 6.97 | 0.64 | 61.0 | 19.5 / 31.0 | 252606 |
+| 3 x (1 + 31) | 2.742 / 6.108 / 8.19 | 0.052 / 0.106 / 0.20 | 28.3 | 487 | 5.02 | 0.64 | 70.4 | 17.5 / 31.0 | 8449 |
+
+- With `--no-interest` (culling still on, every visible duck at the full rate): 9.91 KB/s down per client at 32 humans, 6.43 KB/s with 1 human and 31 bots; the near/far split saves about 30%.
+- The culling is the largest cost with many humans: 32 human viewers test about 1,000 pairs every 3 ticks (89,000 rays a second per room). It runs for a third of the viewers each tick; before that change the 32-human room had a 27.6 ms tick p95 (now 10.9 ms).
+- Tick times on this Mac are pessimistic for light loads: the same 32-bot room costs 0.7 ms per tick in a tight loop but 3.4 ms when it wakes every 33 ms like the server (macOS moves a mostly idle process to slower cores and clocks), which is why one room shows a higher tick time than each of three. Measure on the target box before tuning the CapRover CPU limit.
+- An empty room sleeps (no tick loop) until someone joins: 0 CPU.
+
+Phase 1 numbers (greybox, 8 ducks per room, no culling, network bots only):
 
 | Bots | Tick avg / p95 / max (ms) | Patch avg / p95 / max (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Up per client (KB/s) | Messages/s |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -437,7 +470,7 @@ Down bandwidth per client, before and after interest management:
 | 32 | 26.31 KB/s | 15.97 KB/s | 9.89 KB/s |
 
 - Bandwidth is WebSocket payload only (no TCP/IP overhead). The 10 KB/s per client target is met at 8 to 32 players.
-- One tick has 33 ms; a 32-player room uses about 2.6 ms of it. A CPU profile at 32 bots (Phase 0) showed the process idle 82% of the time, with socket writes and Rapier as the largest costs.
+- One tick has 33 ms; a 32-player greybox room used about 2.6 ms of it. A CPU profile at 32 bots (Phase 0) showed the process idle 82% of the time, with socket writes and Rapier as the largest costs.
 - Phone frame time is not measured yet; use `npm run dev:lan` and `?autopilot=1`.
 
 ### Battle royale
@@ -518,7 +551,7 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 ## Known issues
 
 - Player collision is server-only (see above), so bumping into another duck gives a small correction.
-- Deathmatch bots navigate by steering and ray casts, not a navmesh; they can get stuck on complex geometry for a moment (they pick a new goal after a second). Battle royale bots use the navmesh; on a cold cache (first start after a map change) they steer directly for about a minute while it builds.
+- Bots on the navmesh steer directly while it builds on a cold cache (first start after a map change): about a minute for Sainte-Canard, a few seconds for Canard Quarter. Greybox deathmatch bots steer by ray casts and can get stuck on complex geometry for a moment. Once in about a dozen 10-minute headless runs on Sainte-Canard a deathmatch bot stayed stuck for a while despite the walk-off recovery (not seen on Canard Quarter).
 - Battle royale bots do not use vertical cover on purpose and can bump into each other while looting. Matches with 16 bots last 5 to 9 minutes, a little short of the 8 to 12 minute plan, because many fights happen right after landing.
 - A crate that was opened while you could not see it swings open when you next see it (the client cannot tell an old opening from a new one without learning when it happened).
 - The inventory screen has no drag and drop; every action is a button.
@@ -534,4 +567,5 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 - Rapier's character controller sometimes refuses to move off the ground it rests on; the sim retries from 4 mm up (see `sim.ts`), which fixed every case seen in a 12,000-step scan.
 - Rapier's autostep does not fire at walking or crouching speed on 0.27 m stair treads, and the wall clip in `moveCapsule` used to treat climbing a slope as a wall hit (with stop-speed friction a walking duck went up a 36 degree ramp at 0.2 m/s, a crouched one at 0.1). The clip now skips steps where the controller lifts a grounded duck, and house stairs use one ramp collider per flight under the visual steps: 4 m of stairs take 1.3 s sprinting, 1.7 s running, 3.7 s walking, 4.3 s crouched (`sim.test.ts`, `houses.test.ts`).
 - No touch controls yet.
-- The deathmatch stays on the greybox island; it does not use Sainte-Canard yet.
+- A full deathmatch room is a bloodbath: 32 ducks on 162 x 162 m score about 3.7 kills a second with bots, and ducks that spawn at the same moment (a round start) can see each other at once.
+- The deathmatch rooms are created once per server process with fixed ids: run a single server instance (more replicas would each open their own copies of the same rooms).

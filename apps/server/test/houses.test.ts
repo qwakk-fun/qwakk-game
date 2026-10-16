@@ -1,5 +1,5 @@
 /**
- * Every enterable house on Sainte-Canard can be walked: a sim duck runs the
+ * Every enterable house on Sainte-Canard and Canard Quarter can be walked: a sim duck runs the
  * waypoints the map kit exports per house type (`walk` in the prop manifest:
  * in through the door, across the rooms, up the stairs or the debris ramp,
  * onto the upper floor), on every placed instance of that house, running and
@@ -10,24 +10,36 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Button, createPlayerSim, createSimWorld, dcos, dsin, initPhysics, sanitizeInputFields, stepPlayer, type InputFrame } from '@qwakk/shared';
+import { Button, buildMapDef, createPlayerSim, createSimWorld, dcos, dsin, initPhysics, sanitizeInputFields, stepPlayer, type InputFrame, type LoadedMap } from '@qwakk/shared';
 import { loadSainteCanard } from '../src/maps.ts';
 
 const manifestUrl = new URL('../../../apps/client/public/models/props/manifest.json', import.meta.url);
 
 type Vec3 = [number, number, number];
 
+/** The deathmatch arena, read from its shipped copy (canardQuarter.test.ts covers the rest of that map). */
+function loadCanardQuarter(): LoadedMap {
+  const dir = new URL('../../../packages/shared/src/maps/canard-quarter/', import.meta.url);
+  const read = (f: string) => readFileSync(new URL(f, dir));
+  return buildMapDef('canard-quarter', JSON.parse(read('map_v1.json').toString()), new Uint8Array(read('map_v1_heights.bin')), JSON.parse(read('colliders.json').toString()));
+}
+
+const MAPS: [string, () => LoadedMap, number][] = [
+  ['Sainte-Canard', () => loadSainteCanard().loaded!, 20],
+  ['Canard Quarter', loadCanardQuarter, 6],
+];
+
 beforeAll(async () => {
   await initPhysics();
 });
 
-describe.skipIf(!existsSync(manifestUrl))('house walkthroughs on Sainte-Canard', () => {
+describe.skipIf(!existsSync(manifestUrl)).each(MAPS)('house walkthroughs on %s', (_name, loadMap, minWalks) => {
   it.each([
     ['running', 0],
     ['crouched', Button.Crouch],
   ])('a duck walks every house path (doors, stairs, ramps, upper floors) on every placed house, %s', (_gait, gait) => {
     const manifest = JSON.parse(readFileSync(manifestUrl, 'utf8')) as { props: Record<string, { walk?: Vec3[][] }> };
-    const loaded = loadSainteCanard().loaded!;
+    const loaded = loadMap();
     const sim = createSimWorld(loaded.def);
     const failures: string[] = [];
     let walked = 0;
@@ -74,6 +86,6 @@ describe.skipIf(!existsSync(manifestUrl))('house walkthroughs on Sainte-Canard',
     }
     sim.dispose();
     expect(failures).toEqual([]);
-    expect(walked).toBeGreaterThanOrEqual(20);
+    expect(walked).toBeGreaterThanOrEqual(minWalks);
   }, 120_000);
 });

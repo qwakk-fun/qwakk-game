@@ -1,119 +1,145 @@
 # Deploying the Qwakk game
 
-This runbook hosts the game on the owner's Hetzner 8 GB CapRover server, next to the DEX, the indexer and PostgreSQL. Nothing here has been deployed yet.
+This runbook hosts the game at `https://play.qwakk.fun` on the owner's Hetzner 8 GB CapRover server, next to the DEX, the indexer and their PostgreSQL. Nothing here has been deployed yet.
 
-Steps marked **[OWNER APPROVAL]** change something outward-facing (CapRover, DNS, GitHub, the live landing). Run them only after the owner says yes. Unmarked steps are local and safe.
+Steps marked **[OWNER APPROVAL]** change something outward-facing (CapRover, DNS, GitHub, Cloudflare). Run them only after the owner says yes. Unmarked steps are local and safe.
 
 ## What runs where
 
 | CapRover app | Image | Container port | Public address | Role |
 | --- | --- | --- | --- | --- |
-| `qwakk-game-server` | `deploy/server/Dockerfile` | 2567 (`PORT`) | `https://play.qwakk.fun` (HTTPS and WSS) | Colyseus game server, 1 instance, CPU and memory capped |
-| `qwakk-game-web` | `deploy/web/Dockerfile` | 80 | none of its own; reached as `https://qwakk.fun/game/` | nginx serving the Vite build |
-| `qwakk-landing` (exists) | unchanged | 3000 | `https://qwakk.fun` | gets one extra nginx `location /game/` that proxies to `qwakk-game-web` |
+| `qwakk-game` | `deploy/server/Dockerfile` (root `captain-definition`) | 2567 (`PORT`) | `https://play.qwakk.fun` (HTTPS and WSS) | One container: the Colyseus game server (WebSocket, matchmaking, `/api`, `/health`) and the built client on the same origin. Exactly 1 instance |
+| `qwakk-game-db` | CapRover one-click PostgreSQL | 5432 | none (internal only) | Leaderboard and guest names. Only the game server talks to it |
 
-Flow: the browser loads `qwakk.fun/game/` (landing nginx, proxied to `srv-captain--qwakk-game-web`), then the client opens matchmaking and a WebSocket to `wss://play.qwakk.fun`, baked into the bundle at build time (`VITE_GAME_SERVER`).
+Flow: the browser loads `https://play.qwakk.fun/`, and the client then opens matchmaking, `/api` and the WebSocket on the origin it was loaded from (`wss://play.qwakk.fun`). Nothing is baked per domain, so the same image works on any hostname.
 
-Files:
+At launch the server opens one deathmatch room (Istanbul, `DM_OPEN_ROOMS` in `packages/shared/src/lobby.ts`) and allows one battle royale room at a time (`BR.maxRooms`, `QWAKK_BR_MAX_ROOMS` overrides it). Both are listed in the menu.
+
+### Files
 
 | File | Purpose |
 | --- | --- |
-| `deploy/server/Dockerfile` | Node 24 slim, production deps of `@qwakk/server` and `@qwakk/shared` only, the bot navmesh baked in at build time, runs as user `node`, healthcheck on `/health` |
-| `deploy/server/build-navmesh.ts` | Build step that writes the Sainte-Canard navmesh into the image (`QWAKK_NAV_CACHE=/srv/navcache`) |
-| `deploy/server/.env.example` | Server env vars (placeholders only) |
-| `deploy/web/Dockerfile`, `deploy/web/nginx.conf` | Vite build, then nginx at `/game/` with caching, MIME types and gzip |
-| `captain-definition-server`, `captain-definition-web` | CapRover entry points. They live at the repo root because CapRover uses the folder of the captain-definition file as the Docker build context, and both images need the whole monorepo |
-| `deploy/caprover/*.service-override.yml` | CPU and memory limits for CapRover's Service Update Override |
-| `deploy/landing/game-proxy.conf` | The `location /game/` block for the landing app |
-| `deploy/smoke/join.ts` | Checks `/health`, gets a session, joins a room over WSS and waits for the first state patch |
-| `docker-compose.yml` | Local PostgreSQL 17 on port 5439 (leaderboard, tests) |
+| `captain-definition` | CapRover's default entry point, points at `deploy/server/Dockerfile`. It lives at the repo root because CapRover uses its folder as the Docker build context, and the image needs the whole monorepo |
+| `deploy/server/Dockerfile` | Node 24 slim. Stages: server production deps, the public client build (minified, no source maps, no dev tools, precompressed), the baked bot navmeshes, then the runtime as user `node` with a healthcheck on `/health` |
+| `deploy/server/build-navmesh.ts` | Build step: bakes the Sainte-Canard and Canard Quarter navmeshes into `/srv/navcache` |
+| `deploy/server/precompress.ts` | Build step: `.br` and `.gz` copies of the client files |
+| `deploy/server/.env.example` | Every env var, with comments (placeholders only) |
+| `deploy/caprover/qwakk-game.service-override.yml` | CPU and memory limits plus stop-first updates for the game app |
+| `deploy/caprover/qwakk-game-db.service-override.yml` | Optional limits for the PostgreSQL app |
+| `deploy/smoke/join.ts` | `npm run smoke`: health, a session, the lobby lists the deathmatch rooms, a join into each, a battle royale join |
+| `apps/server/src/staticClient.ts` | How the server serves the client (see "What the website exposes") |
+| `docker-compose.yml` | Local PostgreSQL 17 on port 5439 for development and tests |
+
+Kept for the optional split hosting later (see the last section), not used by this plan: `captain-definition-web`, `deploy/web/`, `deploy/landing/game-proxy.conf`.
 
 ## 0. Local checks before any deploy
 
-Run from the `qwakk-game` folder. The lockfile check matters: npm 11 on macOS can drop lockfile entries that Linux `npm ci` needs.
+Run from the `qwakk-game` folder.
 
 ```bash
 npm run typecheck && npm test && npm run build
+npm run build:test && npm run e2e && npm run test:net   # netcode and determinism (ports 2567, 5173, 2596)
 
-# Lockfile still valid for Linux npm ci (run in a temp copy, see the note below)
+# The lockfile must still be valid for Linux npm ci (npm 11 on macOS can drop
+# entries). Copy package.json, package-lock.json and the three workspace
+# package.json files (apps/server, apps/client, packages/shared) into an empty
+# folder and run there, so the real node_modules is untouched:
 npx -y npm@10 ci --dry-run
 
-# Both images build and start
-docker build -f deploy/server/Dockerfile -t qwakk-game-server:check .   # or npm run docker:server
-docker build -f deploy/web/Dockerfile -t qwakk-game-web:check .         # or npm run docker:web
-
-# The image runs with NODE_ENV=production, so it refuses to start without SESSION_SECRET.
-docker run -d --name qwakk-game-server-check -p 2597:2567 \
-  -e SESSION_SECRET="$(openssl rand -hex 32)" qwakk-game-server:check
-docker logs qwakk-game-server-check 2>&1 | grep '\[nav\]'   # expect "navmesh ready: cache"
-npm run smoke -- ws://localhost:2597
-docker rm -f qwakk-game-server-check
-
-docker run -d --name qwakk-game-web-check -p 8097:80 qwakk-game-web:check
-curl -sI http://localhost:8097/game/ | grep -i -E '^(HTTP|content-type|cache-control)'
-curl -sI http://localhost:8097/game/models/duck.glb | grep -i -E '^(HTTP|content-type)'
-docker rm -f qwakk-game-web-check
+# Build the image exactly as CapRover will
+npm run docker:game          # docker build -f deploy/server/Dockerfile -t qwakk-game .
 ```
+
+Run it against a throwaway PostgreSQL, with the same limits as production (ports 2610 and none for the database, so nothing collides with `./dev.sh` or the e2e):
+
+```bash
+docker network create qwakk-game-check
+docker run -d --name qwakk-game-check-db --network qwakk-game-check \
+  -e POSTGRES_DB=qwakk_game -e POSTGRES_USER=qwakk_game -e POSTGRES_PASSWORD=localcheck postgres:17-alpine
+docker run -d --name qwakk-game-check --network qwakk-game-check -p 127.0.0.1:2610:2567 \
+  --cpus 1.5 --memory 1g \
+  -e SESSION_SECRET="$(openssl rand -hex 32)" -e TRUST_PROXY=1 -e ALLOWED_ORIGINS=http://127.0.0.1:2610 \
+  -e NODE_OPTIONS=--max-old-space-size=768 \
+  -e DATABASE_URL=postgres://qwakk_game:localcheck@qwakk-game-check-db:5432/qwakk_game qwakk-game
+docker logs qwakk-game-check 2>&1 | grep '^\['
+#   [meta] database ready, applied 001_init.sql
+#   [web] serving the client from /srv/public (72 files)
+#   [nav] sainte-canard navmesh ready: cache in 7 ms
+#   [nav] canard-quarter navmesh ready: cache in 1 ms
+#   [qwakk-game] server listening ... (deathmatch rooms istanbul on canard-quarter, "br" battle royale)
+npm run smoke -- ws://127.0.0.1:2610      # ends with "OK ws://127.0.0.1:2610"
+# open http://127.0.0.1:2610/ in a browser and play a round
+docker rm -f qwakk-game-check qwakk-game-check-db && docker network rm qwakk-game-check
+```
+
+If the database starts slower than the server, the log shows `[meta] database start failed, retrying in 30 s`; the game runs meanwhile and the migration follows on the retry.
 
 If `docker build` hangs at "load metadata for docker.io/...", the macOS keychain credential helper is waiting for a prompt. Unlock the keychain or answer the prompt, then retry.
 
-For the lockfile check, copy `package.json`, `package-lock.json` and every workspace `package.json` (`apps/server`, `apps/client`, `packages/shared`) into an empty folder and run it there, so the real `node_modules` is untouched.
+The code must be committed and pushed to `qwakk-fun/qwakk-game` before a GitHub or `caprover deploy` build can see it. **[OWNER APPROVAL]** for the commit and push.
 
-The code must be committed and pushed to `qwakk-fun/qwakk-game` before a GitHub or `caprover deploy` build can see it. **[OWNER APPROVAL]** for the push.
+## 1. Create the database app **[OWNER APPROVAL]**
 
-## 1. Create the two apps **[OWNER APPROVAL]**
+CapRover > Apps > One-Click Apps/Databases > PostgreSQL:
 
-In the CapRover dashboard, Apps > Create a New App:
+- App name: `qwakk-game-db`
+- Version: `17` (or the newest 17.x offered)
+- Username: `qwakk_game`
+- Password: generate with `openssl rand -hex 24` and paste it straight into the field (it is stored only in CapRover)
+- Default database: `qwakk_game`
 
-1. `qwakk-game-server`, "Has Persistent Data" off.
-2. `qwakk-game-web`, "Has Persistent Data" off.
+Do not map its port to the host: only `qwakk-game` reaches it, over CapRover's internal network as `srv-captain--qwakk-game-db:5432`. Optionally paste `deploy/caprover/qwakk-game-db.service-override.yml` into its Service Update Override (0.5 CPU, 256 MiB).
 
-## 2. Configure `qwakk-game-server` **[OWNER APPROVAL]**
+Alternative that saves memory: use the existing PostgreSQL app with its own role and database (`CREATE ROLE qwakk_game LOGIN PASSWORD '...'; CREATE DATABASE qwakk_game OWNER qwakk_game;`) and point `DATABASE_URL` at that app's `srv-captain--<name>` host instead.
 
-HTTP Settings:
+Skipping the database is fine for a first test: the game runs without a leaderboard (`/health` then says `"db":"off"`).
+
+## 2. Create and configure `qwakk-game` **[OWNER APPROVAL]**
+
+Apps > Create a New App: `qwakk-game`, "Has Persistent Data" off.
+
+### HTTP Settings
 
 - Container HTTP Port: `2567`.
-- Websocket Support: on. Without it the WebSocket upgrade fails and players cannot join.
-- Leave "Force HTTPS" until SSL exists (step 4).
+- Websocket Support: **on**. Without it the WebSocket upgrade fails and nobody can join. Nothing else in CapRover's nginx needs changing: the server pings every socket every 3 s (Colyseus) and once a second (round-trip probe), far inside nginx's 60 s proxy timeout, and dead sockets are dropped after about 9 s.
+- Domain: added in step 4 (DNS first).
 
-App Configs:
+### App Configs
 
-- Instance Count: `1`. Rooms live in one process; there is no shared presence or sticky sessions, so never scale this app above 1. Scale later with more apps or nodes, each with its own hostname.
-- Environmental Variables (the full list with comments is `deploy/server/.env.example`; the source of truth is `apps/server/src/meta/config.ts`):
+- Instance Count: **1**. The deathmatch rooms are created inside the process at boot; a second instance would open its own Istanbul with its own players, and there is no shared presence or sticky routing. Never scale this app above 1. The service override below also sets stop-first updates, so a redeploy never runs two side by side.
+- Environmental Variables (full list with comments: `deploy/server/.env.example`):
 
   ```
-  PORT=2567
-  QWAKK_MAX_CLIENTS=8
-  NODE_OPTIONS=--max-old-space-size=768
-  SESSION_SECRET=<from step 2a, 32+ characters>
+  SESSION_SECRET=<step 2a, 32+ characters>
   TRUST_PROXY=1
-  ALLOWED_ORIGINS=https://qwakk.fun
-  TURNSTILE_SECRET=<from step 2b, or leave unset>
-  DATABASE_URL=postgres://qwakk_game:<password>@srv-captain--<postgres-app>:5432/qwakk_game
+  ALLOWED_ORIGINS=https://play.qwakk.fun
+  DATABASE_URL=postgres://qwakk_game:<db password>@srv-captain--qwakk-game-db:5432/qwakk_game
+  NODE_OPTIONS=--max-old-space-size=768
+  TURNSTILE_SECRET=<step 2b, or leave unset>
+  VITE_TURNSTILE_SITEKEY=<step 2b, or leave unset>
   ```
 
-  | Variable | Required | Notes |
-  | --- | --- | --- |
-  | `SESSION_SECRET` | yes | The image sets `NODE_ENV=production`, so the server refuses to start without it, and also when it is shorter than 32 characters. Rotating it resets every guest identity |
-  | `TRUST_PROXY` | yes, `1` | CapRover's nginx is one proxy. Without it every player has the proxy's IP and the per-IP join, room creation and session limits lock everyone out together |
-  | `ALLOWED_ORIGINS` | yes | `https://qwakk.fun`. Applies to `/api`, matchmaking CORS and WebSocket upgrades. Unset: `/api` is same-origin only (and `qwakk.fun` is not the same origin as `play.qwakk.fun`, so the menu breaks) and matchmaking accepts any origin |
-  | `TURNSTILE_SECRET` | recommended | Must be set together with `VITE_TURNSTILE_SITEKEY` on `qwakk-game-web` (step 3), or both left unset. A secret without a site key makes every new guest fail with 403 `turnstile_failed` |
-  | `DATABASE_URL` | for the leaderboard | Unset: no leaderboard and matches are not recorded, but sessions and play still work. Migrations run at start |
+  | Variable | Required | When | Notes |
+  | --- | --- | --- | --- |
+  | `SESSION_SECRET` | yes | runtime | The image sets `NODE_ENV=production`, so the server refuses to start without it or with fewer than 32 characters. Rotating it resets every guest identity |
+  | `TRUST_PROXY` | yes, `1` | runtime | CapRover's nginx is one proxy. Without it every player has the proxy's IP and the per-IP limits throttle everyone together. Use `2` only if Cloudflare proxying (orange cloud) is ever turned on for `play` |
+  | `ALLOWED_ORIGINS` | yes | runtime | `https://play.qwakk.fun`. Applies to `/api`, matchmaking CORS and WebSocket upgrades. Unset also works (same origin only), but the explicit value documents it and silences the startup warning |
+  | `DATABASE_URL` | for the leaderboard | runtime | Migrations run at start. Unset: no leaderboard, play still works |
+  | `NODE_OPTIONS` | recommended | runtime | Keeps the V8 heap under the 1 GiB limit |
+  | `TURNSTILE_SECRET` | recommended before wide sharing | runtime | Set together with `VITE_TURNSTILE_SITEKEY`, or neither. A secret without a site key makes every new guest fail with 403 `turnstile_failed` |
+  | `VITE_TURNSTILE_SITEKEY` | with the secret | build | Public value. CapRover passes app env vars to the Docker build as build args; a change needs Save, then Force Build |
+  | `QWAKK_BR_MAX_ROOMS` | no | runtime | Battle royale rooms open at once. Default `BR.maxRooms` (1). Raise it only after watching CPU (step 6) |
+  | `QWAKK_STATS` | no | runtime | `1` prints per-room tick time, CPU and RSS to the logs every `QWAKK_STATS_MS` (default 5000) |
+  | `PORT` | no | runtime | Default 2567, must match the Container HTTP Port |
 
-  Optional: `QWAKK_SEED`, `QWAKK_BOTS=0`, `QWAKK_STATS=1` (prints tick timing to the logs). `QWAKK_NAV_CACHE` is set by the image; do not override it. Never set `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_COUNTDOWN`, `QWAKK_BR_MIN_HUMANS`, `QWAKK_ZONE_SCALE` or `COLYSEUS_LATENCY` in production.
+  Do not set: `VITE_GAME_SERVER` and `VITE_API_BASE` (leave them empty so the client uses its own origin), `QWAKK_NAV_CACHE`, `QWAKK_CLIENT_DIR` and `NODE_ENV` (the image sets them), and the test switches `QWAKK_MAX_CLIENTS` (a value below 32 caps every deathmatch room), `QWAKK_DM_ROOMS`, `QWAKK_BOTS`, `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_COUNTDOWN`, `QWAKK_BR_MIN_HUMANS`, `QWAKK_BR_SEED`, `QWAKK_ZONE_SCALE`, `QWAKK_DM_MAP`, `QWAKK_DM_SPAWN_RADIUS`, `COLYSEUS_LATENCY`.
 
-  Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, the database password) live only here in CapRover, never in the repo, an image or a log.
-- Service Update Override: paste `deploy/caprover/qwakk-game-server.service-override.yml`. It limits the server to 1.5 CPUs and 1 GiB. CapRover reapplies it on every deploy.
+  Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, the database password) live only in CapRover, never in the repo, an image or a log. The Dockerfile declares no build arg for them, so Docker ignores them at build time.
+- Service Update Override: paste `deploy/caprover/qwakk-game.service-override.yml` (1.5 CPUs, 1 GiB, 0.5 CPU and 256 MiB reserved, stop-first updates). CapRover reapplies it on every deploy.
 
-  The same limit as a one-off command on the server (for a quick test; CapRover drops it on the next deploy unless the override is set):
+### Deployment
 
-  ```bash
-  docker service update --limit-cpu 1.5 --limit-memory 1g srv-captain--qwakk-game-server
-  ```
-
-Deployment:
-
-- Captain Definition Relative Path: `./captain-definition-server`.
+- Captain Definition Relative Path: leave the default `./captain-definition`.
 
 ### 2a. Generate `SESSION_SECRET` **[OWNER APPROVAL]**
 
@@ -125,39 +151,20 @@ openssl rand -hex 32    # 64 characters
 
 Keep it stable. Changing it later resets every guest identity.
 
-### 2b. Create the Turnstile widget **[OWNER APPROVAL]**
+### 2b. Turnstile (optional at first) **[OWNER APPROVAL]**
 
-Cloudflare dashboard > Turnstile > Add widget: hostname `qwakk.fun`, mode "Managed". It gives two keys:
+Cloudflare dashboard > Turnstile > Add widget: hostname `play.qwakk.fun`, mode "Managed". The secret key goes to `TURNSTILE_SECRET`, the site key to `VITE_TURNSTILE_SITEKEY`, both on `qwakk-game`. Set both or neither. Adding them later needs one Force Build.
 
-- the secret key goes to `TURNSTILE_SECRET` on `qwakk-game-server` (step 2);
-- the site key (public) goes to `VITE_TURNSTILE_SITEKEY` on `qwakk-game-web` (step 3).
+## 3. Resource sizing
 
-Set both or neither. To launch without Turnstile, leave both unset; add them later in the same deploy window (web rebuild plus server restart).
+Measured on an Apple M4 Pro with the production image under `--cpus 1.5 --memory 1g`, every network player sending inputs at 30 Hz and firing a third of the time:
 
-### 2c. Database for the leaderboard **[OWNER APPROVAL]**
+| Load | Process CPU | Memory | Tick rate | Notes |
+| --- | --- | --- | --- | --- |
+| Idle (rooms open, nobody in) | about 0 | 163 MiB | rooms sleep | an empty room has no tick loop |
+| 3 deathmatch rooms x 32 network players + 20 battle royale matches (1 player + 15 bots each), 116 sockets | about 1.1 CPUs | 415 MiB | 30 Hz held in every room, no client dropped | deathmatch tick 6.9 ms avg, 8.2 ms p95 of 33 ms; battle royale 0.5 to 0.7 ms |
 
-To save memory on the 8 GB host, use the existing CapRover PostgreSQL app with its own role and database instead of a second PostgreSQL. In that app's `psql`:
-
-```sql
-CREATE ROLE qwakk_game LOGIN PASSWORD '<generated with openssl rand -hex 24, stored only in CapRover>';
-CREATE DATABASE qwakk_game OWNER qwakk_game;
-```
-
-Then set `DATABASE_URL` on `qwakk-game-server` only. The server applies its migrations at start, and only the game server writes the leaderboard. Skipping this step is fine for a first test: the game runs without a leaderboard.
-
-## 3. Configure `qwakk-game-web` **[OWNER APPROVAL]**
-
-- HTTP Settings: Container HTTP Port `80` (default). No custom domain is needed, because the landing proxies to it. Websocket Support is not needed.
-- App Configs > Environmental Variables. CapRover passes app env vars to the Docker build as build args, and these are baked into the bundle, so changing one needs a rebuild (Force Build):
-
-  | Variable | Value | Notes |
-  | --- | --- | --- |
-  | `VITE_GAME_SERVER` | `wss://play.qwakk.fun` | The Dockerfile default; set it anyway to make it visible |
-  | `VITE_TURNSTILE_SITEKEY` | the site key from step 2b | Public value. Set it together with `TURNSTILE_SECRET` on the server, or leave both unset |
-  | `VITE_API_BASE` | leave unset | Default: derived from `VITE_GAME_SERVER` (`https://play.qwakk.fun`) |
-- App Configs > Instance Count: `1`.
-- Service Update Override: paste `deploy/caprover/qwakk-game-web.service-override.yml` (0.5 CPU, 128 MiB).
-- Deployment > Captain Definition Relative Path: `./captain-definition-web`.
+That stress case is far above launch (one deathmatch room and one battle royale room). The game loop runs on one thread: in the stress case it used most of one M4 Pro core, and Hetzner cores are slower, so before raising `DM_OPEN_ROOMS` or `QWAKK_BR_MAX_ROOMS` a lot, measure on the server with `QWAKK_STATS=1` (step 6). The 1 GiB limit leaves about 600 MiB of headroom; a full launch load (32 humans in Istanbul plus a full royale) is about a third of the stress case.
 
 ## 4. DNS and SSL for `play.qwakk.fun` **[OWNER APPROVAL]**
 
@@ -167,95 +174,115 @@ Then set `DATABASE_URL` on `qwakk-game-server` only. The server applies its migr
    | --- | --- | --- | --- |
    | A | `play` | the Hetzner server's public IPv4 (the same IP `qwakk.fun` points to) | 300 |
 
-   Add an AAAA record too only if the server has IPv6 configured in CapRover. If `qwakk.fun` is on Cloudflare, keep the record "DNS only" (grey cloud) so CapRover's Let's Encrypt check reaches the server directly.
+   Add an AAAA record only if the server has IPv6 configured in CapRover. If `qwakk.fun` is on Cloudflare, keep the record "DNS only" (grey cloud): Let's Encrypt must reach the server directly, and `TRUST_PROXY=1` assumes CapRover's nginx is the only proxy.
 2. Wait until it resolves: `dig +short play.qwakk.fun` prints the server IP.
-3. CapRover > `qwakk-game-server` > HTTP Settings > Connect New Domain: `play.qwakk.fun`.
+3. CapRover > `qwakk-game` > HTTP Settings > Connect New Domain: `play.qwakk.fun`.
 4. Click "Enable HTTPS" next to it, then turn on "Force HTTPS by redirecting all HTTP traffic to HTTPS". Save.
 
-## 5. Deploy the images **[OWNER APPROVAL]**
-
-Deploy the server first, so the client has something to connect to.
+## 5. Deploy **[OWNER APPROVAL]**
 
 Option A, from GitHub (repeatable, can be wired to a webhook later):
 
 1. GitHub `qwakk-fun/qwakk-game` > Settings > Deploy keys: add a read-only key whose private half goes into CapRover (or use a fine-grained token with read access to this one repo). **[OWNER APPROVAL]** for the GitHub setting.
-2. CapRover > each app > Deployment > "Deploy from Github/Bitbucket/Gitlab": repository `github.com/qwakk-fun/qwakk-game`, branch `main`, the key or token. Save and Update, then Force Build.
+2. CapRover > `qwakk-game` > Deployment > "Deploy from Github/Bitbucket/Gitlab": repository `github.com/qwakk-fun/qwakk-game`, branch `main`, the key or token. Save and Update, then Force Build.
 
 Option B, from the owner's machine with the CapRover CLI (it uploads the last commit of the branch, not uncommitted files):
 
 ```bash
 cd ~/Desktop/qwakk/qwakk-game
-npx caprover deploy -n <captain-machine-name> -a qwakk-game-server -b main
-npx caprover deploy -n <captain-machine-name> -a qwakk-game-web -b main
+npx caprover deploy -n <captain-machine-name> -a qwakk-game -b main
 ```
 
-Both options rely on the Captain Definition Relative Path from steps 2 and 3. On the first build, check that the build log shows the expected Dockerfile (`deploy/server/Dockerfile` or `deploy/web/Dockerfile`).
+Build cost on the server: about 2.5 minutes, most of it the navmesh bake (about a minute of one core) and two `npm ci` runs. Prefer a quiet moment for the DEX. On the first build, check the log shows `deploy/server/Dockerfile`, `[precompress]` and both `[nav] ... baked and verified` lines. After start, the app log must show `[nav] ... navmesh ready: cache in` a few ms for both maps; `built (worker)` means the baked file did not match and the server spent a minute rebuilding it. Any deploy restarts the process, so rooms in progress end and players see the reconnect screen.
 
-Build cost on the server: the server build bakes the bot navmesh (about a minute of one core), and the web build runs Vite and installs about 120 packages. Prefer a quiet moment. After the server deploy, its log should show `[nav] navmesh ready: cache` within a second of start; `built (worker)` means the baked file did not match and the server spent a minute rebuilding it.
-
-## 6. Add the `/game/` proxy to the landing **[OWNER APPROVAL]**
-
-Do this only after `qwakk-game-web` is deployed and healthy.
-
-1. CapRover > `qwakk-landing` > HTTP Settings > "Edit Default Nginx Configurations".
-2. Copy the current template into a local file first (this is the rollback).
-3. Paste the contents of `deploy/landing/game-proxy.conf` inside the main `server { ... }` block (the one with `set $upstream ...` and the `listen 443 ssl` lines), directly above the existing `location / {`. Not into the small port-80 block that only redirects to HTTPS.
-4. Save and Update. CapRover reloads its nginx.
-
-The snippet resolves `srv-captain--qwakk-game-web` per request through a variable. If the game web app is down or missing, only `/game/` returns 502; the rest of `qwakk.fun` and the CapRover nginx keep working.
-
-## 7. Smoke tests
+## 6. Smoke tests
 
 ```bash
-# Game server: health, origin rules, and a real join over WSS
-curl -s https://play.qwakk.fun/health                                  # expect {"ok":true,"db":"up"} ("off" without DATABASE_URL)
-curl -s -o /dev/null -w '%{http_code}\n' -H 'Origin: https://evil.example' https://play.qwakk.fun/api/leaderboard   # expect 403
+curl -s https://play.qwakk.fun/health
+#   {"ok":true,"db":"up"}   ("off" without DATABASE_URL)
 npm run smoke -- wss://play.qwakk.fun
-#   With Turnstile on it stops after the session check ("join skipped"). For the full join,
-#   play once at qwakk.fun/game, copy `token` from localStorage `qwakk.identity`, then:
-#   SMOKE_SESSION=<token> npm run smoke -- wss://play.qwakk.fun      (expect "OK wss://play.qwakk.fun")
+#   health, session, "lobby lists ... deathmatch istanbul", "joined istanbul ... 32 ducks seated",
+#   "joined battle royale", then "OK wss://play.qwakk.fun".
+#   With Turnstile on it stops after the session check ("joins skipped"). For the full run,
+#   play once at play.qwakk.fun, copy `token` from localStorage `qwakk.identity`, then:
+#   SMOKE_SESSION=<token> npm run smoke -- wss://play.qwakk.fun
 
-# Client through the landing proxy
-curl -sI https://qwakk.fun/game/ | grep -i -E '^(HTTP|content-type|cache-control)'
-#   HTTP/2 200, text/html, cache-control: no-cache
-curl -sI https://qwakk.fun/game | grep -i -E '^(HTTP|location)'
-#   301 to /game/
-curl -sI https://qwakk.fun/game/models/duck.glb | grep -i -E '^(HTTP|content-type)'
+# Origins
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Origin: https://evil.example' https://play.qwakk.fun/api/leaderboard   # 403
+curl -s -o /dev/null -w '%{http_code}\n' -H 'Origin: https://play.qwakk.fun' https://play.qwakk.fun/api/leaderboard  # 200
+
+# The page and its caching
+curl -sI https://play.qwakk.fun/ | grep -i -E '^(HTTP|content-type|cache-control)'
+#   200, text/html, cache-control: no-cache
+JS=$(curl -s https://play.qwakk.fun/ | grep -o '/assets/main-[^"]*\.js' | head -1)
+curl -sI -H 'Accept-Encoding: br, gzip' "https://play.qwakk.fun$JS" | grep -i -E '^(HTTP|cache-control|content-encoding)'
+#   200, public, max-age=31536000, immutable, content-encoding: br
+curl -sI https://play.qwakk.fun/models/duck.glb | grep -i -E '^(HTTP|content-type)'
 #   200, model/gltf-binary
-curl -s https://qwakk.fun/game/ | grep -o '/game/assets/[^"]*\.js' | head -1   # then:
-curl -sI -H 'Accept-Encoding: gzip' https://qwakk.fun/game/assets/<that file> | grep -i -E '^(HTTP|cache-control|content-encoding)'
-#   200, immutable, content-encoding: gzip
 
-# The landing itself still works
-curl -s -o /dev/null -w '%{http_code}\n' https://qwakk.fun/            # expect 200
+# Nothing but the client is served (every line must print 404)
+for p in /apps/server/src/index.ts /.git/config /.env /package.json /node_modules/postgres/package.json \
+         /packages/shared/src/index.ts /navcache/x.bin /apps/server/db/migrations/001_init.sql /etc/passwd; do
+  printf '%-44s %s\n' "$p" "$(curl -s --path-as-is -o /dev/null -w '%{http_code}' "https://play.qwakk.fun$p")"
+done
 ```
 
-Then in a browser: open `https://qwakk.fun/game/`, check the console has no errors, create a guest (the Turnstile check appears when it is on), check the leaderboard tab loads, then play a deathmatch and a battle royale: move, shoot, and check the bots walk paths (navmesh). Open a second browser or phone and check both ducks see each other. After a match, the result shows on the leaderboard.
+Then in a browser: open `https://play.qwakk.fun/`, check the console has no errors and the `v0.1.0 BETA` badge shows, create a guest, check the leaderboard tab loads, join Istanbul and a battle royale, move, shoot, watch the bots walk paths. Open a second browser or a phone on mobile data and check both ducks see each other. After a match, the result shows on the leaderboard.
 
-On the server, watch that the DEX is not starved while a room runs:
+On the server, watch the DEX is not starved while rooms run:
 
 ```bash
 docker stats --no-stream | grep -E 'qwakk'
 ```
 
-`qwakk-game-server` should stay under its 1.5 CPU cap; the app's logs (CapRover > App Logs) should show no restarts.
+`qwakk-game` should stay under its 1.5 CPU cap and the app log should show no restarts. For tick timings, set `QWAKK_STATS=1` for a while (Save restarts the app).
 
-## 8. Rollback
+## 7. Rollback
 
-- Bad game build: CapRover > app > Deployment > version history, deploy the previous version. Rooms in progress end on any server redeploy.
-- Broken `/game/` or landing: CapRover > `qwakk-landing` > HTTP Settings > Edit Default Nginx Configurations, paste back the template saved in step 6 (or remove the two `location` blocks), Save and Update.
-- Game server overloading the host: set Instance Count to `0` for `qwakk-game-server` (players see the reconnect screen), or lower the CPU limit in the override and Save.
-- Remove everything: delete the `/game/` proxy first, then the two apps, then the `play` DNS record. **[OWNER APPROVAL]**
+- Bad build: CapRover > `qwakk-game` > Deployment > version history, deploy the previous version.
+- Game overloading the host: set Instance Count to `0` (players see the reconnect screen), or lower the CPU limit in the override and Save.
+- Remove everything: delete `qwakk-game`, then `qwakk-game-db` (this deletes the leaderboard data), then the `play` DNS record. **[OWNER APPROVAL]**
+
+## What the website exposes
+
+The server answers HTTP only from a fixed table of the files in the client build (`/srv/public` in the image, `apps/server/src/staticClient.ts`): `/` is `index.html`, hashed files under `/assets/` are cached for a year, everything else revalidates. Nothing is looked up from the request path on disk, so server source, `packages/`, `.git`, `.env`, `node_modules`, the navmesh cache and the migrations are never reachable; dot paths and unknown paths are 404 (there is no catch-all), and `/game/...` redirects to `/...` for links made for the old plan. `/api`, `/health` and `/matchmake` belong to the game server. The image itself holds no `.git`, `.env`, `art/`, tests, benchmarks or docs (`.dockerignore`), and runs as the unprivileged `node` user with read-only files.
+
+The public client bundle is minified with local identifier mangling, has no source maps and no `sourceMappingURL`, no comments, no original file paths, and no dev tools (autopilot, test hook, map viewer, `?server=`, spectate and the fake network controls are compiled out; the image build fails if a source map or the map viewer appears). Property names are not mangled on purpose: the shared sim runs in the browser and on the server and must match bit for bit, and property mangling or float-changing transforms would break that (the e2e map hash and sim scenario checks prove the build matches).
+
+Browser JavaScript can never be fully hidden, only made hard to read: anyone can download and study what their browser runs. What protects the game is the server-authoritative design: the client sends inputs only, the server decides movement, hits, damage, loot and the leaderboard, and hidden enemies are never sent. Reading the client gives no way to cheat past that.
+
+## Per-IP limits (all in memory, never stored)
+
+All need `TRUST_PROXY=1` behind CapRover, or every player shares the proxy's address.
+
+| Limit | Value |
+| --- | --- |
+| Open WebSockets (game rooms and lobby together) | 16 at once per IP (IPv6 per /64); more get HTTP 429 at the upgrade |
+| Room joins | a burst of 10, then one every 4 s |
+| New battle royale rooms | a burst of 3, then one a minute; at most `BR.maxRooms` open |
+| Lobby connections | a burst of 20, then one every 3 s |
+| New sessions (`POST /api/session`) | a burst of 8, then one every 20 s; Turnstile on new guests when configured |
+| Leaderboard and profile reads | a burst of 40, then 2 a second |
+
+Plus the deathmatch rooms cannot be created by clients (matchmaking returns 530), every input is sanitized and rate-limited, and frames over 1 KB are refused.
+
+## Optional later: client at `qwakk.fun/game`
+
+The first plan served the client from its own nginx app behind the landing (`qwakk.fun/game`) with the server at `play.qwakk.fun`. The files are kept and still work:
+
+- `qwakk-game-web` app from `captain-definition-web` (`deploy/web/Dockerfile`, nginx on port 80, `VITE_GAME_SERVER=wss://play.qwakk.fun` baked in, base `/game/`), 0.5 CPU and 128 MiB (`deploy/caprover/qwakk-game-web.service-override.yml`).
+- `deploy/landing/game-proxy.conf` pasted into the landing app's nginx template above `location / {` (instructions in the file).
+- `ALLOWED_ORIGINS=https://play.qwakk.fun,https://qwakk.fun` on `qwakk-game`, and the Turnstile widget extended to the hostname `qwakk.fun`.
 
 ## Local PostgreSQL
 
-`docker compose up -d postgres` (or `npm run db:up`) starts PostgreSQL 17 on `localhost:5439` (database `qwakk_game`, local-only password in `docker-compose.yml`). `docker compose down` (or `npm run db:down`) stops it and keeps the data volume. Production uses step 2c instead.
+`docker compose up -d postgres` (or `npm run db:up`) starts PostgreSQL 17 on `localhost:5439` (database `qwakk_game`, local-only password in `docker-compose.yml`). `docker compose down` (or `npm run db:down`) stops it and keeps the data volume.
 
 ## Before public launch
 
-Done in code: `/health`, the origin check (`ALLOWED_ORIGINS`), per-IP join, room creation, lobby and session limits, Turnstile on guest creation. They only work as intended with the env from step 2, in particular `TRUST_PROXY=1`: without it the limits see CapRover's proxy IP for every player and throttle everyone together.
+Done in code: the one-origin hosting, `/health`, the origin check, the per-IP limits above, Turnstile on guest creation, the single-instance setup.
 
 Still open:
 
-- Per-IP connection limits on the WebSocket itself (today the limits apply to joins, new rooms, lobby connections, sessions and leaderboard reads). They also depend on `TRUST_PROXY=1`.
-- Content hashes for models, so `/game/models/` can be cached as immutable instead of revalidated.
+- Content hashes for models, so `/models/` can be cached as immutable instead of revalidated.
+- A Content-Security-Policy header (needs the Turnstile origin `challenges.cloudflare.com` allowed).

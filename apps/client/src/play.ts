@@ -20,7 +20,7 @@ export type { ExitReason, ExitSummary } from './game.ts';
 
 export interface StartGameOptions {
   mode: 'br' | 'dm';
-  /** Battle royale: a room from the lobby list, or a new room; neither is Quick Play. */
+  /** A room from the lobby list (battle royale or deathmatch), or a new battle royale room; neither is Quick Play. */
   roomId?: string;
   create?: boolean;
   token?: string;

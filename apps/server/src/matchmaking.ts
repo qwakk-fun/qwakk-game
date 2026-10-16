@@ -10,6 +10,10 @@
  *     lobby takes none). Everything else a client sends would otherwise reach
  *     onCreate merged over nothing (seat counts, seeds, timers);
  *   - refuse `create` on rooms that are not player-creatable (the lobby);
+ *   - never create a join-only room (the static deathmatch rooms, opened by
+ *     the server at start): `create` is refused and Quick Play's
+ *     `joinOrCreate` becomes a plain `join` (the open room with the most
+ *     players, by the room type's sort; an error when every one is full);
  *   - limit new rooms per IP (`create`, or a joinOrCreate that finds no open
  *     room) and cap the rooms open per room type (BR.maxRooms).
  *
@@ -29,6 +33,8 @@ export interface GuardOptions {
   maxRooms: Record<string, number>;
   /** Room names a client may never `create` (they are joined with joinOrCreate only). */
   noCreate: string[];
+  /** Room names a client never creates in any way (static rooms): joinOrCreate becomes join. */
+  joinOnly?: string[];
   /** Rooms currently open with this name. */
   countRooms(roomName: string): Promise<number>;
   /** Is there an open room a joinOrCreate would join (so nothing new gets created)? */
@@ -56,12 +62,21 @@ export function cleanClientOptions(roomName: string, lobbyName: string, raw: unk
  */
 export async function checkCreate(method: string, roomName: string, ip: string, o: GuardOptions): Promise<void> {
   if (method !== 'create' && method !== 'joinOrCreate') return;
+  if (o.joinOnly?.includes(roomName)) {
+    if (method === 'create') throw new ServerError(LOBBY_ERROR.roomsFull, 'rooms of this kind cannot be created');
+    return; // joinOrCreate runs as join (matchmakingMethod)
+  }
   if (method === 'create' && o.noCreate.includes(roomName)) throw new ServerError(LOBBY_ERROR.roomsFull, 'rooms of this kind cannot be created');
   // joinOrCreate only opens a room when none is open; joining is limited elsewhere (allowJoin).
   if (method === 'joinOrCreate' && (o.noCreate.includes(roomName) || (await o.hasOpenRoom(roomName)))) return;
   const cap = o.maxRooms[roomName];
   if (cap !== undefined && (await o.countRooms(roomName)) >= cap) throw new ServerError(LOBBY_ERROR.roomsFull, 'every room is taken, join one of the open rooms');
   if (!o.allowCreate(ip)) throw new ServerError(LOBBY_ERROR.createLimited, 'too many new rooms, join one or try again in a minute');
+}
+
+/** The matchmaking method actually run: Quick Play on a join-only room only joins. */
+export function matchmakingMethod(method: string, roomName: string, o: Pick<GuardOptions, 'joinOnly'>): string {
+  return method === 'joinOrCreate' && o.joinOnly?.includes(roomName) ? 'join' : method;
 }
 
 /** Wrap the controller's invokeMethod with the option filter and the creation limits. */
@@ -71,6 +86,6 @@ export function installMatchmakingGuard<A extends { ip?: string | undefined }>(c
     // Reconnection carries its own token and nothing a room reads at creation.
     if (method === 'reconnect') return inner(method, roomName, clientOptions, authOptions);
     await checkCreate(method, roomName, o.ipOf(authOptions), o);
-    return inner(method, roomName, cleanClientOptions(roomName, lobbyName, clientOptions), authOptions);
+    return inner(matchmakingMethod(method, roomName, o), roomName, cleanClientOptions(roomName, lobbyName, clientOptions), authOptions);
   };
 }

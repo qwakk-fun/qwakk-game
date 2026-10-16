@@ -1,0 +1,18 @@
+# Paste into: Apps > qwakk-game > App Configs > Service Update Override.
+# CapRover reapplies this on every deploy, unlike a one-off `docker service update`.
+# Caps the game server so it cannot starve the DEX, the indexer and PostgreSQL on
+# the shared 8 GB host. Measured worst case (3 deathmatch rooms with 32 network
+# players each plus 20 full battle royale matches, M4 Pro): about 1.1 CPUs and
+# 415 MiB. Tune after real traffic (QWAKK_STATS=1, docker stats).
+TaskTemplate:
+  Resources:
+    Limits:
+      NanoCPUs: 1500000000      # 1.5 CPUs (the game loop is one thread; the rest is GC and sockets)
+      MemoryBytes: 1073741824   # 1 GiB (keep NODE_OPTIONS --max-old-space-size=768 below it)
+    Reservations:
+      NanoCPUs: 500000000       # 0.5 CPU
+      MemoryBytes: 268435456    # 256 MiB
+# One instance only: the static deathmatch rooms live in the process. Stop the
+# old task before starting the new one on a deploy, so two never run side by side.
+UpdateConfig:
+  Order: stop-first

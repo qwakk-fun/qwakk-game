@@ -5,6 +5,7 @@ import {
   createSimWorld,
   generateMap,
   initPhysics,
+  MATCH,
   NET,
   TICK_RATE,
   weaponStats,
@@ -202,12 +203,12 @@ describe('fire rate and ammo against a spamming client', () => {
 });
 
 describe('headless deathmatch', () => {
-  it('eight bots fight: kills, deaths and respawns happen', () => {
+  it('a full room of bots fights on the greybox: kills, deaths and respawns happen', () => {
     const { log, ev } = recorder();
     const dm = new Deathmatch(createSimWorld(generateMap(1337)), { ...DEFAULT_DM, bots: true }, ev);
     dm.allowBotsAlone = true;
     dm.fillBots();
-    expect(dm.seats.size).toBe(8);
+    expect(dm.seats.size).toBe(MATCH.players);
     const ticks = 60 * TICK_RATE; // one minute
     let respawns = 0;
     const wasDead = new Set<string>();

@@ -127,10 +127,17 @@ export class Interest {
     return cur;
   }
 
-  /** Re-classify every pair. `self` gives the viewer's viewpoint (null: a free spectator, sees all). */
-  update(seats: Iterable<InterestSeat>, nowMs: number, self: (viewerId: string) => ViewerPoint | null): void {
+  /**
+   * Re-classify every pair. `self` gives the viewer's viewpoint (null: a free
+   * spectator, sees all). With `part`, only the viewers whose join order
+   * modulo `of` is `index` (the room staggers the culling over ticks).
+   */
+  update(seats: Iterable<InterestSeat>, nowMs: number, self: (viewerId: string) => ViewerPoint | null, part?: { index: number; of: number }): void {
     const list = [...seats];
+    let i = -1;
     for (const v of this.viewers.values()) {
+      i++;
+      if (part && i % part.of !== part.index) continue;
       const me = self(v.id);
       for (const s of list) {
         if (s.id === v.id) continue;

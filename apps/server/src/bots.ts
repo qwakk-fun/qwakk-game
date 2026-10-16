@@ -25,7 +25,12 @@ import type { BotLike, BotTarget } from './arena.ts';
 
 export type { BotTarget } from './arena.ts';
 
-export const BOT_NAMES = ['Quackers', 'Puddles', 'Waddles', 'Bill', 'Feathers', 'Drake', 'Mallard', 'Ducky', 'Paddle', 'Splash', 'Nugget', 'Dabble'];
+/** Enough names for a full 32-duck deathmatch room without repeats. */
+export const BOT_NAMES = [
+  'Quackers', 'Puddles', 'Waddles', 'Bill', 'Feathers', 'Drake', 'Mallard', 'Ducky', 'Paddle', 'Splash', 'Nugget', 'Dabble',
+  'Pintail', 'Teal', 'Wigeon', 'Muscovy', 'Pekin', 'Eider', 'Scoter', 'Gadwall', 'Bufflehead', 'Goldeneye', 'Ruddy', 'Mandarin',
+  'Pebble', 'Biscuit', 'Noodle', 'Pickles', 'Waffles', 'Sprout', 'Bubbles', 'Ripple', 'Marsh', 'Reed', 'Lily', 'Breezy',
+];
 
 const TAU = Math.PI * 2;
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);

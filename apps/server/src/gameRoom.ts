@@ -213,6 +213,11 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     // simulation interval that starts a hidden 60 Hz clock ticker.
     this.patchRate = 1000 / TICK_RATE;
     this.loop = new TickLoop(TICK_RATE, (first, count) => {
+      // Nobody here and nothing to simulate (an empty static room): stop waking up until someone joins.
+      if (this.clients.length === 0 && this.idleWhenEmpty()) {
+        this.loop?.stop();
+        return;
+      }
       this.clock.tick(); // fresh server time for input ages
       for (let i = 0; i < count; i++) this.tick(first + i);
       this.flushShots();
@@ -226,6 +231,11 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     if (options.statsMs && options.statsMs > 0) {
       this.stats.start(options.statsMs, (s) => console.log(`[stats] ${JSON.stringify({ ...s, ...this.extraStats() })}`));
     }
+  }
+
+  /** May the tick loop sleep while no client is connected (the match holds no seats)? */
+  protected idleWhenEmpty(): boolean {
+    return false;
   }
 
   /** Extra numbers for the stats line. */
@@ -263,6 +273,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   }
 
   override onJoin(client: Client, options: JoinOptions = {}, auth?: JoinAuth): void {
+    this.loop?.resume();
     client.view = new StateView();
     this.interest.addViewer(client.sessionId, client.view);
     if (auth) this.auths.set(client.sessionId, auth);
@@ -361,13 +372,14 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     }
   }
 
-  protected updateInterest(): void {
+  /** Re-classify every viewer's pairs, or only one share of the viewers (`part`, staggered culling). */
+  protected updateInterest(part?: { index: number; of: number }): void {
     const seats = [...this.match.seats.values()].map((s) => {
       const ns = this.net.get(s.id) as NetSeat;
       const p = s.sim;
       return { id: s.id, x: p.x, y: p.y, z: p.z, vx: p.vx, vz: p.vz, yaw: p.yaw, crouch: p.crouch, inWorld: p.mode !== Mode.Plane, pose: ns.pose, farPose: ns.farPose };
     });
-    this.interest.update(seats, this.clock.elapsedTime, (viewerId) => this.viewpointOf(viewerId));
+    this.interest.update(seats, this.clock.elapsedTime, (viewerId) => this.viewpointOf(viewerId), part);
   }
 
   private tick(tick: number): void {
@@ -418,8 +430,11 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
       const seat = m.seats.get(id);
       if (seat) this.writeSeat(seat, ns, far);
     }
-    const every = this.cullHidden() ? VIS.retestTicks : INTEREST.updateEveryTicks;
-    if (tick % every === 0) this.updateInterest();
+    // With culling every viewer is re-tested every VIS.retestTicks, a third of them
+    // each tick: the same work as all at once, without a ray-cast spike every third
+    // tick (32 humans in one room cost about 1,000 pairs per round).
+    if (this.cullHidden()) this.updateInterest({ index: tick % VIS.retestTicks, of: VIS.retestTicks });
+    else if (tick % INTEREST.updateEveryTicks === 0) this.updateInterest();
 
     this.state.tick = tick;
     this.writeMatchState(tick);

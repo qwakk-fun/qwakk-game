@@ -340,7 +340,10 @@ export class Game {
       const s = r.state;
       const p = session.pose(id);
       r.avatar.object.visible = p !== null;
-      if (!p) continue;
+      if (!p) {
+        r.motion.gap();
+        continue;
+      }
       const a = this.pose;
       a.x = p.x;
       a.y = p.y;

@@ -1,13 +1,14 @@
 /**
- * Worker thread that builds the Sainte-Canard navmesh (about a minute of
- * WASM work) off the main thread, so the server keeps ticking rooms while it
- * runs. Posts the exported navmesh bytes back.
+ * Worker thread that builds a map_v1 map's navmesh (about a minute of WASM
+ * work for Sainte-Canard) off the main thread, so the server keeps ticking
+ * rooms while it runs. Gets the map id as workerData, posts the exported
+ * navmesh bytes back.
  */
-import { parentPort } from 'node:worker_threads';
+import { parentPort, workerData } from 'node:worker_threads';
 import { exportNavMesh } from 'recast-navigation';
-import { loadSainteCanard } from '../maps.ts';
+import { loadMapV1 } from '../maps.ts';
 import { buildNavMesh, initNav } from './navmesh.ts';
 
 await initNav();
-const bytes = exportNavMesh(buildNavMesh(loadSainteCanard().def));
+const bytes = exportNavMesh(buildNavMesh(loadMapV1(String(workerData)).def));
 parentPort?.postMessage(bytes);

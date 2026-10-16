@@ -134,16 +134,16 @@ export async function loadOrBuildNavMesh(map: MapDef, mapHash: string): Promise<
 }
 
 /**
- * Sainte-Canard for the server: from the cache, or built on a worker thread
+ * A map_v1 map for the server: from the cache, or built on a worker thread
  * so the server keeps running rooms meanwhile (bots steer without paths until
- * it is ready).
+ * it is ready). The worker loads the map by its id.
  */
 export async function loadOrBuildInBackground(map: MapDef, mapHash: string): Promise<NavLoad> {
   const cached = await loadCachedNavMesh(map, mapHash);
   if (cached) return cached;
   const t0 = performance.now();
   const bytes = await new Promise<Uint8Array>((resolve, reject) => {
-    const w = new Worker(new URL('./buildWorker.ts', import.meta.url));
+    const w = new Worker(new URL('./buildWorker.ts', import.meta.url), { workerData: map.id });
     w.once('message', (b: Uint8Array) => {
       resolve(b);
       void w.terminate();

@@ -110,19 +110,22 @@ export class Session {
   }
 
   /**
-   * Join a match. Battle royale: `roomId` joins that room from the lobby list,
-   * `create` opens a new room, neither is Quick Play (the server picks the
-   * open room with the most players, or opens one).
+   * Join a match. `roomId` joins that room from the lobby list (battle
+   * royale or one of the static deathmatch rooms). Battle royale: `create`
+   * opens a new room, neither is Quick Play (the server picks the open room
+   * with the most players, or opens one). Deathmatch Quick Play joins the open
+   * room with the most humans; deathmatch rooms are never created by a client.
    */
   static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
     const roomName = opts.mode === 'br' ? BR.roomName : ROOM.name;
     const joinOpts = { name: opts.name ?? '', token: opts.token, spectate };
-    const room =
-      opts.mode === 'br' && opts.roomId
-        ? await client.joinById<IslandState>(opts.roomId, joinOpts, IslandState)
-        : opts.mode === 'br' && opts.create
-          ? await client.create<IslandState>(roomName, joinOpts, IslandState)
+    const room = opts.roomId
+      ? await client.joinById<IslandState>(opts.roomId, joinOpts, IslandState)
+      : opts.mode === 'br' && opts.create
+        ? await client.create<IslandState>(roomName, joinOpts, IslandState)
+        : opts.mode === 'dm'
+          ? await client.join<IslandState>(roomName, joinOpts, IslandState)
           : await client.joinOrCreate<IslandState>(roomName, joinOpts, IslandState);
     const netsim = new NetSim(net);
     netsim.attach(room);

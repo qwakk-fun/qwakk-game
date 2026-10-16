@@ -4,6 +4,9 @@
  * list, the countdown starts, resets when one leaves, and when it ends bots
  * fill the seats and the match starts; a room in progress cannot be joined;
  * creation is limited per IP and capped; join options cannot tune a room.
+ * The static deathmatch rooms are listed with their names and live human
+ * counts, Quick Play joins the busiest one, nobody can create one, and they
+ * stay open (and idle, without bots) when everyone has left.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
@@ -11,8 +14,8 @@ import type { AddressInfo } from 'node:net';
 import { matchMaker, Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Client, type Room } from '@colyseus/sdk';
-import { BR, emptyInput, initPhysics } from '@qwakk/shared';
-import { LOBBY_ERROR, LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
+import { BR, emptyInput, initPhysics, MATCH, ROOM } from '@qwakk/shared';
+import { DM_ROOMS, LOBBY_ERROR, LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
 import { IslandState, MatchPhase } from '@qwakk/shared/net';
 
 let createAllowed = true;
@@ -29,6 +32,7 @@ vi.mock('../src/meta/index.ts', () => ({
 }));
 
 const { BrRoom } = await import('../src/BrRoom.ts');
+const { IslandRoom } = await import('../src/IslandRoom.ts');
 const { QwakkLobby } = await import('../src/lobby.ts');
 const { installMatchmakingGuard } = await import('../src/matchmaking.ts');
 
@@ -47,16 +51,19 @@ beforeAll(async () => {
   const http = createServer();
   server = new Server({ transport: new WebSocketTransport({ server: http }) });
   server.define(BR.roomName, BrRoom, { countdownSeconds: COUNTDOWN_S, seed: 3, createBot: idleBot }).enableRealtimeListing().sortBy({ clients: -1 });
+  server.define(ROOM.name, IslandRoom, { mapId: 'greybox' }).enableRealtimeListing().sortBy({ 'metadata.humans': -1, clients: -1 });
   server.define(LOBBY_ROOM, QwakkLobby);
   installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
     maxRooms: { [BR.roomName]: MAX_ROOMS },
     noCreate: [LOBBY_ROOM],
+    joinOnly: [ROOM.name],
     countRooms: async (name) => (await matchMaker.query({ name })).length,
     hasOpenRoom: async (name) => Boolean(await matchMaker.findOneRoomAvailable(name, {})),
     allowCreate: () => createAllowed,
     ipOf: () => '10.0.0.1',
   });
   await server.listen(0);
+  for (const r of DM_ROOMS) await matchMaker.createRoom(ROOM.name, { dmRoom: r.id });
   url = `ws://localhost:${(http.address() as AddressInfo).port}`;
 });
 
@@ -171,4 +178,45 @@ describe('lobby rooms', () => {
     createAllowed = true;
     expect(await failCode(new Client(url).create(LOBBY_ROOM, {}))).toBe(LOBBY_ERROR.roomsFull);
   }, 20_000);
+
+  it('lists the open deathmatch rooms; Quick Play joins the busiest, bots fill to 32, nobody creates one', async () => {
+    const lobby = await openLobby();
+    await waitUntil('the deathmatch rooms listed', () => [...lobby.rooms.values()].filter((r) => r.name === ROOM.name).length === DM_ROOMS.length);
+    for (const r of DM_ROOMS) {
+      const l = lobby.rooms.get(r.id)?.metadata;
+      expect(l).toEqual({ mode: 'dm', label: r.label, stage: 'playing', humans: 0, cap: ROOM.maxClients, need: 0, left: 0 });
+    }
+    const dmRoom = (id: string) => matchMaker.getLocalRoomById(id) as unknown as { dm: { seats: Map<string, { bot: unknown }> } };
+    expect(dmRoom(DM_ROOMS[0]!.id).dm.seats.size).toBe(0); // idle: no bots without players
+
+    const a = await new Client(url).joinOrCreate<IslandState>(ROOM.name, { token: 'tok-30' }, IslandState);
+    expect(DM_ROOMS.some((r) => r.id === a.roomId)).toBe(true);
+    await waitUntil('bots fill the room', () => a.state.players.size === MATCH.players);
+    expect([...a.state.players.values()].filter((p) => p.bot).length).toBe(MATCH.players - 1);
+    await waitUntil('listed with 1 human', () => lobby.rooms.get(a.roomId)?.metadata.humans === 1);
+
+    // Quick Play again: the room with the most humans.
+    const b = await new Client(url).joinOrCreate<IslandState>(ROOM.name, { token: 'tok-31' }, IslandState);
+    expect(b.roomId).toBe(a.roomId);
+    await waitUntil('2 humans, 30 bots', () => [...b.state.players.values()].filter((p) => p.bot).length === MATCH.players - 2 && b.state.players.size === MATCH.players);
+    await waitUntil('listed with 2 humans', () => lobby.rooms.get(a.roomId)?.metadata.humans === 2);
+
+    // A pick from the list by id.
+    const other = DM_ROOMS.find((r) => r.id !== a.roomId) ?? DM_ROOMS[0]!;
+    const already = other.id === a.roomId ? 2 : 0;
+    const c = await new Client(url).joinById<IslandState>(other.id, { token: 'tok-32' }, IslandState);
+    await waitUntil('the picked room lists one more human', () => lobby.rooms.get(other.id)?.metadata.humans === already + 1);
+    expect(JSON.stringify([...lobby.rooms.values()])).not.toMatch(/tok-|Duck3|10\.0\.0\.1|0000-4000/);
+
+    // Nobody creates a deathmatch room, not even through Quick Play.
+    expect(await failCode(new Client(url).create(ROOM.name, { token: 'tok-33' }))).toBe(LOBBY_ERROR.roomsFull);
+
+    for (const r of [a, b, c]) await r.leave(true);
+    await waitUntil('everyone gone, listed with 0', () => DM_ROOMS.every((r) => lobby.rooms.get(r.id)?.metadata.humans === 0));
+    await sleep(300);
+    // The rooms stay open, idle without bots.
+    expect((await matchMaker.query({ name: ROOM.name })).length).toBe(DM_ROOMS.length);
+    expect(dmRoom(a.roomId).dm.seats.size).toBe(0);
+    await lobby.room.leave(true);
+  }, 30_000);
 });

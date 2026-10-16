@@ -1,8 +1,9 @@
 /**
  * The world a game runs in, built from what the server says: the greybox
- * island from its seed (deathmatch), or Sainte-Canard from the shipped map
- * files (battle royale), checked against the server's map hash first. Both
- * give the same SimWorld the server built, so prediction matches.
+ * island from its seed, or a map_v1 map by id (Sainte-Canard, the deathmatch
+ * map) from the shipped map files, checked against the server's map hash
+ * first, drawn by the Sainte-Canard world renderer (same prop kit). Both give
+ * the same SimWorld the server built, so prediction matches.
  */
 import * as THREE from 'three/webgpu';
 import { createSimWorld, generateMap, terrainHeightAt, type MapDef, type SimWorld } from '@qwakk/shared';
@@ -10,12 +11,12 @@ import type { RenderContext } from '../render/renderer.ts';
 import { createEnvironment } from './environment.ts';
 import { createPropsGroup } from './propsMesh.ts';
 import { createTerrainMesh } from './terrainMesh.ts';
-import { createSainteWorld, loadSainteCanard, type MapAssets, type SainteWorld } from './sainte/index.ts';
+import { createSainteWorld, loadMapAssets, UnknownMapError, type MapAssets, type SainteWorld } from './sainte/index.ts';
 
 export interface WorldHandle {
   map: MapDef;
   sim: SimWorld;
-  /** Sainte-Canard only: props, terrain and sky facade. */
+  /** map_v1 maps only: props, terrain and sky facade. */
   sainte: SainteWorld | null;
   assets: MapAssets | null;
   groundAt(x: number, z: number): number;
@@ -36,9 +37,16 @@ export interface WorldOptions {
 
 export async function buildWorld(ctx: RenderContext, mapId: string, seed: number, mapHash: string, opts: WorldOptions): Promise<WorldHandle> {
   const { scene } = ctx;
-  if (mapId === 'sainte-canard') {
-    opts.onProgress?.('Loading Sainte-Canard...');
-    const assets = await loadSainteCanard();
+  if (mapId !== 'greybox') {
+    opts.onProgress?.('Loading the map...');
+    let assets: MapAssets;
+    try {
+      assets = await loadMapAssets(mapId);
+    } catch (err) {
+      // The server plays a map this page does not ship: an old page.
+      if (err instanceof UnknownMapError) throw new MapMismatchError(err.message);
+      throw err;
+    }
     if (mapHash && assets.hash !== mapHash) throw new MapMismatchError(`map files differ from the server (${assets.hash} vs ${mapHash})`);
     const sim = createSimWorld(assets.def);
     opts.onProgress?.('Building the village...');

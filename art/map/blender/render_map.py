@@ -311,4 +311,5 @@ def main():
     print("RENDERED", out)
 
 
-main()
+if __name__ == "__main__":      # render_arena.py imports the helpers above
+    main()

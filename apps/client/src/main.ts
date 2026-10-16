@@ -5,6 +5,9 @@
  * directly, as the browser tests expect.
  */
 import { bootMenu, directStart } from './ui/menu/index.ts';
+import { mountBuildBadge } from './ui/buildBadge.ts';
+
+mountBuildBadge();
 
 // Same build-time switch as config.DEVTOOLS, spelled out here: importing
 // config.ts would pull @qwakk/shared (Rapier) into this first chunk and the

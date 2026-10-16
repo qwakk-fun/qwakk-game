@@ -3,6 +3,8 @@
 
 .git
 .gitignore
+# Local agent worktrees and settings (can be gigabytes).
+.claude
 **/node_modules
 **/dist
 **/.vite
@@ -20,11 +22,13 @@ playwright-report
 **/.env.*
 !**/.env.example
 
-# Not needed by either image.
+# Not needed by any image (tests, benchmarks, art sources and renders, docs).
 art
 e2e
 docs
 scripts
+**/test
+apps/server/bench
 **/*.blend
 **/*.blend1
 **/__pycache__

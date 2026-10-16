@@ -1,11 +1,13 @@
 /**
  * Meta API client (/api/session, /api/leaderboard, /api/me on the game server).
  *
- * Base URL: VITE_API_BASE when set at build time, else derived from
- * VITE_GAME_SERVER (ws -> http, wss -> https), else the page host on port 2567
- * (the same default the game uses). Kept free of game imports so the menu
- * loads without Three.js or Rapier.
+ * Base URL: VITE_API_BASE when set at build time, else the game server's
+ * origin (net/endpoint.ts: VITE_GAME_SERVER, else the page's own origin in
+ * public builds, else the page host on port 2567 in dev and test builds).
+ * Kept free of game imports so the menu loads without Three.js or Rapier.
  */
+import { defaultApiBase, defaultGameServer } from '../../net/endpoint.ts';
+
 export interface SessionInfo {
   token: string;
   expiresAt: number;
@@ -57,24 +59,19 @@ export class ApiError extends Error {
 }
 
 export function apiBase(): string {
-  const env = import.meta.env as Record<string, string | undefined>;
-  if (env.VITE_API_BASE) return env.VITE_API_BASE.replace(/\/+$/, '');
-  if (env.VITE_GAME_SERVER) return env.VITE_GAME_SERVER.replace(/^ws(s?):/, 'http$1:').replace(/\/+$/, '');
-  return `${location.protocol}//${location.hostname}:2567`;
+  return defaultApiBase();
 }
 
 /**
  * Game server WebSocket endpoint for the lobby (room list): the same default
- * as the game (config.ts): VITE_GAME_SERVER, else the page host on port 2567;
- * `?server=` only in dev and test builds.
+ * as the game (net/endpoint.ts); `?server=` only in dev and test builds.
  */
 export function gameServer(): string {
-  const env = import.meta.env as Record<string, string | undefined>;
   if (import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') {
     const fromUrl = new URLSearchParams(location.search).get('server');
     if (fromUrl) return fromUrl;
   }
-  return env.VITE_GAME_SERVER ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:2567`;
+  return defaultGameServer();
 }
 
 async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 8000): Promise<T> {

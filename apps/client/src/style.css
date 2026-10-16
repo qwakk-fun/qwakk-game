@@ -252,7 +252,7 @@ body {
 .ghud-feed {
   position: absolute;
   right: 18px;
-  top: 16px;
+  top: 34px; /* below the build badge */
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -390,7 +390,7 @@ body {
 .br-topright {
   position: absolute;
   right: 18px;
-  top: 16px;
+  top: 34px; /* below the build badge */
   width: 200px;
   text-align: right;
 }
@@ -1080,4 +1080,28 @@ body {
 .br [hidden],
 .ghud [hidden] {
   display: none !important;
+}
+
+/* Version and BETA badge, top right on every screen (ui/buildBadge.ts). */
+#build-badge {
+  position: fixed;
+  top: 8px;
+  right: 10px;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  font: 700 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+#build-badge .beta {
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: #ffd43b;
+  color: #151619;
+  text-shadow: none;
+  letter-spacing: 0.08em;
 }

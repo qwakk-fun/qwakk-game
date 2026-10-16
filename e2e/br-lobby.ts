@@ -10,6 +10,9 @@
  *      (listed as counting down; the waiting room shows the plane timer).
  *   4. When it ends, bots fill the seats (16 ducks) and the match starts; the
  *      room is listed as in progress and a late join by id is refused.
+ *   5. The three static deathmatch rooms are listed (name, 0/32) in the lobby
+ *      and the menu; a menu clicks Join on one: the lobby lists 1 human there
+ *      and the player is in a 32-duck room (31 bots).
  *
  * Saves screenshots: room list, waiting room, countdown, list during the
  * countdown, list with the room in progress.
@@ -23,8 +26,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, type Room } from '@colyseus/sdk';
 import { chromium, type Page } from 'playwright';
-import { BR } from '@qwakk/shared';
-import { LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
+import { BR, MATCH, ROOM } from '@qwakk/shared';
+import { DM_ROOMS, LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
 import { IslandState, MatchPhase } from '@qwakk/shared/net';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
@@ -64,6 +67,7 @@ async function until(label: string, test: () => boolean | Promise<boolean>, time
 }
 
 interface Listed {
+  name?: string;
   locked?: boolean;
   metadata: RoomListing;
 }
@@ -144,7 +148,7 @@ async function main(): Promise<void> {
     await a.screenshot({ path: `${out}/2-waiting-room.png` });
 
     // 3. C picks the room from the lobby list (the first one it can join) and joins: the countdown starts.
-    const pick = [...lobby.rooms.entries()].find(([, r]) => !r.locked && (r.metadata.stage === 'waiting' || r.metadata.stage === 'countdown'))?.[0];
+    const pick = [...lobby.rooms.entries()].find(([, r]) => r.name === BR.roomName && !r.locked && (r.metadata.stage === 'waiting' || r.metadata.stage === 'countdown'))?.[0];
     if (pick !== id) throw new Error(`C would pick ${pick}, not ${id}`);
     const c = await new Client(server_).joinById<IslandState>(pick, { name: 'NodeC' }, IslandState);
     c.onMessage('*', () => {});
@@ -187,6 +191,28 @@ async function main(): Promise<void> {
     await hideOverlay(a);
     await sleep(800);
     await a.screenshot({ path: `${out}/6-match-started.png` });
+
+    // 5. The deathmatch rooms: listed with their names and 0/32, joinable from the menu.
+    for (const r of DM_ROOMS) {
+      const l = listing(r.id);
+      if (lobby.rooms.get(r.id)?.name !== ROOM.name || l?.mode !== 'dm' || l.label !== r.label || l.humans !== 0 || l.cap !== ROOM.maxClients) throw new Error(`deathmatch room ${r.id} is not listed right: ${JSON.stringify(lobby.rooms.get(r.id))}`);
+    }
+    const dmId = DM_ROOMS[DM_ROOMS.length - 1]!.id;
+    const dmRow = d.locator(`.qm-dm-room[data-room="${dmId}"]`);
+    await dmRow.waitFor({ timeout: 10000 });
+    const dmText = (await dmRow.innerText()).replace(/\s+/g, ' ');
+    console.log(`deathmatch rows: ${(await d.locator('.qm-dm-rooms').innerText()).replace(/\s+/g, ' ')}`);
+    if (!dmText.includes(DM_ROOMS[DM_ROOMS.length - 1]!.label) || !dmText.includes(`0/${ROOM.maxClients}`)) throw new Error(`the deathmatch row shows "${dmText}"`);
+    await d.locator('.qm-dm-rooms').scrollIntoViewIfNeeded();
+    await sleep(300);
+    await d.screenshot({ path: `${out}/7-deathmatch-rooms.png` });
+    await dmRow.locator('button').click();
+    await until('listed: 1 human in the deathmatch room', () => listing(dmId)?.humans === 1, 60000);
+    await until('D plays a full deathmatch room', async () => (await snap(d))?.players === MATCH.players, 60000);
+    console.log(`deathmatch: joined ${dmId} from the menu, ${MATCH.players} ducks, listed ${JSON.stringify(listing(dmId))}`);
+    await hideOverlay(d);
+    await sleep(1500);
+    await d.screenshot({ path: `${out}/8-deathmatch-joined.png` });
 
     await ctxA.close();
     await ctxD.close();

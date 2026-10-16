@@ -1,6 +1,6 @@
 /**
  * The main menu at qwakk.fun/game: nickname and #tag, Play (battle royale or
- * deathmatch), leaderboard, settings, how to play. Pure DOM and no game
+ * deathmatch), the live room lists, leaderboard, settings, how to play. Pure DOM and no game
  * imports, so it paints before the Three.js and Rapier bundle has loaded.
  */
 import { loadSettings, toGameSettings, type GameSettings } from '../../settings.ts';
@@ -31,7 +31,7 @@ export interface MatchSummary {
 
 export interface StartOptions {
   mode: GameMode;
-  /** Battle royale: join this room from the list (joinById) ... */
+  /** Join this room from the list (joinById; battle royale or deathmatch) ... */
   roomId?: string;
   /** ... or open a new room (create). Neither: Quick Play (joinOrCreate). */
   create?: boolean;
@@ -55,6 +55,8 @@ type Tab = 'play' | 'leaderboard' | 'settings' | 'howto';
 const JOIN_ERRORS: Record<number, string> = {
   [LOBBY_ERROR.createLimited]: 'create_limited',
   [LOBBY_ERROR.roomsFull]: 'rooms_full',
+  /** Colyseus MATCHMAKE_INVALID_CRITERIA: no open room (deathmatch Quick Play with every room full). */
+  521: 'dm_full',
   /** Colyseus MATCHMAKE_INVALID_ROOM_ID: the room is gone, locked (started) or full. */
   522: 'room_closed',
   /** gameRoom.ts JOIN_ERROR.alreadyInMatch. */
@@ -87,6 +89,7 @@ export class Menu {
     this.rooms = new RoomsPanel({
       join: (roomId) => void this.play('br', { roomId }),
       create: () => void this.play('br', { create: true }),
+      joinDm: (roomId) => void this.play('dm', { roomId }),
     });
     const id = loadIdentity();
 
@@ -148,6 +151,7 @@ export class Menu {
       this.status,
       this.result,
       this.rooms.el,
+      this.rooms.dmEl,
     );
 
     const howto = h(
@@ -339,7 +343,9 @@ export class Menu {
     } catch (err) {
       console.error('[menu] start failed', err);
       this.setBusy(false);
-      const known = JOIN_ERRORS[(err as { code?: number } | null)?.code ?? 0];
+      const code = (err as { code?: number } | null)?.code ?? 0;
+      // A deathmatch room never closes: a refused join by id means it is full.
+      const known = mode === 'dm' && code === 522 ? 'dm_room_full' : JOIN_ERRORS[code];
       this.status.replaceChildren(h('p', { class: 'qm-error' }, COPY.errors[known ?? 'start_failed'] ?? COPY.errors.start_failed!));
     }
   }

@@ -66,6 +66,12 @@ export class MotionProbe {
     this.lastZ = z;
   }
 
+  /** The thing was not drawn (culled): the next sample starts fresh instead of counting the jump. */
+  gap(): void {
+    this.lastX = Number.NaN;
+    this.lastZ = Number.NaN;
+  }
+
   reset(): void {
     this.maxSpeed = 0;
     this.snapFrames = 0;

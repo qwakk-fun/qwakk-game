@@ -17,6 +17,7 @@ export * from './shot.ts';
 export * from './collision.ts';
 export * from './brMapData.ts';
 export * from './mapV1.ts';
+export * from './dmSpawns.ts';
 export * from './items.ts';
 export * from './inventory.ts';
 export * from './drop.ts';

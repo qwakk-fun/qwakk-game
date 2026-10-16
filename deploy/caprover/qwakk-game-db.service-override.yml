@@ -1,0 +1,8 @@
+# Optional. Paste into: Apps > qwakk-game-db (the one-click PostgreSQL app) >
+# App Configs > Service Update Override. The leaderboard is small; this keeps
+# a second PostgreSQL from taking memory the DEX needs on the 8 GB host.
+TaskTemplate:
+  Resources:
+    Limits:
+      NanoCPUs: 500000000       # 0.5 CPU
+      MemoryBytes: 268435456    # 256 MiB

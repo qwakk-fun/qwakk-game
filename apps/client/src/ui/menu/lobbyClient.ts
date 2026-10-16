@@ -1,5 +1,5 @@
 /**
- * Live battle royale room list: a connection to the server's lobby room
+ * Live room list (battle royale rooms and the static deathmatch rooms): a connection to the server's lobby room
  * (Colyseus' built-in LobbyRoom, see apps/server/src/lobby.ts). The server
  * sends the full list on join, then `+` (added or changed) and `-` (removed).
  *
@@ -30,6 +30,7 @@ function toEntry(roomId: string, row: CacheRow): LobbyEntry | null {
   const m = row.metadata as Partial<RoomListing> | undefined;
   if (!m || typeof m.stage !== 'string' || typeof m.humans !== 'number') return null;
   const listing: RoomListing = {
+    mode: m.mode === 'dm' ? 'dm' : 'br',
     label: String(m.label ?? ''),
     stage: m.stage,
     humans: m.humans,

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Rebuild the Qwakk WWII map art: prop kit (GLBs with LODs, compression, colliders.json, manifest.json, renders),
-# the map placement data (export/map_v1.json + heights) and the top-down map render.
+# the map placement data (export/map_v1.json + heights) and the top-down map render,
+# and the Canard Quarter deathmatch arena (export/canard-quarter/, renders/canard-quarter/).
 # Usage: sh qwakk-game/art/map/build.sh [--no-render] [--quick] [--only NAME] [--shots sheet,closeups,colliders,street,plane] [--no-map]
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
@@ -22,7 +23,10 @@ node "$HERE/tools/compress.mjs" "$HERE/export/glb_src" "$PROPS" "$PROPS/manifest
 cp "$PROPS/manifest.json" "$HERE/export/manifest.json"
 if [ "$NO_MAP" = 0 ]; then
   "$PYTHON" "$HERE/layout/gen_map.py"
+  # the deathmatch arena (export/canard-quarter/), same kit
+  "$PYTHON" "$HERE/layout/gen_quarter.py"
   if [ "$NO_RENDER" = 0 ]; then
     "$BLENDER" -b --factory-startup -P "$HERE/blender/render_map.py" -- "$@"
+    "$BLENDER" -b --factory-startup -P "$HERE/blender/render_arena.py" -- --map canard-quarter "$@"
   fi
 fi

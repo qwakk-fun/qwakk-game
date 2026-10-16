@@ -510,7 +510,7 @@
   font: 600 13px/1.4 var(--qm-mono);
 }
 
-/* Battle royale rooms (Play tab): live list from the lobby. */
+/* Room lists (Play tab): battle royale and deathmatch rooms, live from the lobby. */
 .qm-rooms {
   display: grid;
   gap: 10px;
@@ -627,6 +627,13 @@
 .qm-rooms-join:disabled {
   background: var(--qm-line-strong);
   color: var(--qm-text-2);
+}
+/* Deathmatch rooms: name, players in, Join (no stage: always on). */
+.qm-dm-room {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+.qm-dm-room.has-players {
+  border-color: var(--qm-accent-line);
 }
 
 /* Panels (leaderboard, settings, how to play) */

@@ -71,6 +71,10 @@ export interface MapDef {
   arena: { x: number; z: number; radius: number };
   /** Deathmatch spawn points inside the arena, on open ground. */
   arenaSpawns: Vec3[];
+  /** Facing per arena spawn (map_v1 `dmSpawns`); missing: face the arena center. */
+  arenaYaws?: number[];
+  /** Deathmatch play area outline ([x, z], map_v1 `playArea.ring`); bots keep their goals inside it. */
+  playRing?: [number, number][];
   /** Loaded maps: prop colliders (empty for the greybox). */
   shapes: ShapeDef[];
   /** Water surfaces for the wading rule (null: no water slow-down). */

@@ -2,9 +2,17 @@
  * Deathmatch rules on top of the shared combat core (arena.ts): spawns,
  * respawns, rounds and the score limit. The room feeds it human inputs;
  * bots think here and go through the very same `applyInput` path.
+ *
+ * Seats: humans plus bots are always `players` (32) while anyone plays or
+ * watches. A joining human takes a bot's seat (a dead bot first, else the bot
+ * farthest from every human, so nobody sees a duck vanish mid-fight); a
+ * leaving human's seat goes back to a new bot. With no humans and no
+ * spectators the room holds no seats at all and its clock stands still
+ * (idle: no bots think, nothing is simulated); the next human starts a fresh
+ * round.
  */
-import { COMBAT, createPlayerSim, groundHeightAt, MATCH, TICK_RATE, type SimWorld } from '@qwakk/shared';
-import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type Seat } from './arena.ts';
+import { COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, type SimWorld, type Vec3 } from '@qwakk/shared';
+import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from './arena.ts';
 import { BOT_NAMES, BotBrain } from './bots.ts';
 
 export type { BotTarget, Seat } from './arena.ts';
@@ -21,6 +29,8 @@ export interface DeathmatchOptions extends ArenaOptions {
   scoreLimit: number;
   roundSeconds: number;
   intermissionSeconds: number;
+  /** Bot brain factory (the server passes navmesh bots on map_v1 maps); default: the steering brain. */
+  createBot?: (sim: SimWorld, seatId: string) => BotLike;
 }
 
 export class Deathmatch extends Arena {
@@ -30,6 +40,8 @@ export class Deathmatch extends Arena {
   private botCount = 0;
   private readonly o: DeathmatchOptions;
   private readonly dev: DeathmatchEvents;
+  /** Spawn points used lately (index to tick), so two ducks do not spawn on the same spot. */
+  private readonly usedSpawns = new Map<number, number>();
 
   constructor(sim: SimWorld, options: DeathmatchOptions, events: DeathmatchEvents) {
     super(sim, options, events);
@@ -42,7 +54,13 @@ export class Deathmatch extends Arena {
     return this.phase === 'playing';
   }
 
+  /** No seats: nobody plays or watches, the room idles. */
+  get idle(): boolean {
+    return this.seats.size === 0;
+  }
+
   addHuman(id: string, name: string): Seat {
+    if (this.idle) this.freshRound();
     const seat = this.addSeat(id, name, null);
     this.fillBots();
     return seat;
@@ -53,52 +71,95 @@ export class Deathmatch extends Arena {
     this.fillBots();
   }
 
-  /** Keep humans plus bots at the configured player count. */
+  /** Keep humans plus bots at the configured player count (none at all without a human or spectator). */
   fillBots(): void {
-    if (!this.o.bots) return;
     const humans = this.humans;
-    let total = this.seats.size;
-    // Bots only exist while at least one human is playing or watching.
-    const want = humans > 0 || this.allowBotsAlone ? this.o.players : 0;
-    while (total > want) {
-      const bot = [...this.seats.values()].find((s) => s.bot);
+    const want = !this.o.bots ? humans : humans > 0 || this.allowBotsAlone ? Math.max(humans, this.o.players) : 0;
+    if (this.idle && want > 0) this.freshRound();
+    while (this.seats.size > want) {
+      const bot = this.botToRemove();
       if (!bot) break;
       this.seats.delete(bot.id);
-      total--;
     }
-    while (total < want) {
+    while (this.seats.size < want) {
       this.botCount++;
-      const name = `${BOT_NAMES[(this.botCount - 1) % BOT_NAMES.length]} (bot)`;
-      this.addSeat(`bot-${this.botCount}`, name, new BotBrain(this.sim));
-      total++;
+      const id = `bot-${this.botCount}`;
+      this.addSeat(id, this.botName(), this.o.createBot ? this.o.createBot(this.sim, id) : new BotBrain(this.sim));
     }
   }
 
   /** Spectators count as watchers, so bots keep playing for them. */
   allowBotsAlone = false;
 
-  private addSeat(id: string, name: string, bot: BotBrain | null): Seat {
+  /**
+   * The bot whose seat a joining human takes: a dead one (it is off screen
+   * anyway), else the one farthest from every human.
+   */
+  private botToRemove(): Seat | null {
+    let best: Seat | null = null;
+    let bestScore = -Infinity;
+    const humans = [...this.seats.values()].filter((s) => !s.bot && s.sim.alive);
+    for (const s of this.seats.values()) {
+      if (!s.bot) continue;
+      let d = 1e6;
+      for (const h of humans) d = Math.min(d, Math.hypot(h.sim.x - s.sim.x, h.sim.z - s.sim.z));
+      const score = (s.sim.alive ? 0 : 2e6) + d;
+      if (score > bestScore) {
+        best = s;
+        bestScore = score;
+      }
+    }
+    return best;
+  }
+
+  /** A bot name nobody in the room uses right now. */
+  private botName(): string {
+    const used = new Set([...this.seats.values()].map((s) => s.name));
+    for (let i = 0; i < BOT_NAMES.length; i++) {
+      const name = `${BOT_NAMES[(this.botCount - 1 + i) % BOT_NAMES.length]} (bot)`;
+      if (!used.has(name)) return name;
+    }
+    return `Duck ${this.botCount} (bot)`;
+  }
+
+  private addSeat(id: string, name: string, bot: BotLike | null): Seat {
     const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0));
     this.spawn(seat);
     return seat;
   }
 
-  /** Spawn at the arena point farthest from living enemies (random among the best few). */
+  /**
+   * Respawn at a point far from living enemies: the MATCH.spawnCandidates
+   * points farthest from the nearest enemy (a point used in the last
+   * spawnReuseTicks counts as an enemy), then a random one of those no enemy
+   * within spawnSightRange has a clear line of sight to (else a random one of
+   * the best three).
+   */
   spawn(seat: Seat): void {
-    const pts = this.sim.map.arenaSpawns.length > 0 ? this.sim.map.arenaSpawns : this.sim.map.spawns;
+    const map = this.sim.map;
+    const fromArena = map.arenaSpawns.length > 0;
+    const pts = fromArena ? map.arenaSpawns : map.spawns;
     const enemies = [...this.seats.values()].filter((s) => s !== seat && s.sim.alive && s.respawnAt < 0);
-    const scored = pts.map((p) => {
+    for (const [i, t] of this.usedSpawns) if (this.tick - t > MATCH.spawnReuseTicks || t > this.tick) this.usedSpawns.delete(i);
+    const scored = pts.map((p, i) => {
       let d = Infinity;
       for (const e of enemies) d = Math.min(d, Math.hypot(e.sim.x - p[0], e.sim.z - p[2]));
-      return { p, d };
+      if (this.usedSpawns.has(i)) d = Math.min(d, 0.5);
+      return { p, i, d };
     });
     scored.sort((a, b) => b.d - a.d);
-    const pick = scored[Math.floor(Math.random() * Math.min(3, scored.length))]?.p ?? [0, 10, 0];
-    const y = groundHeightAt(this.sim, pick[0], pick[1] + 3, pick[2]);
-    // Face the arena center.
-    const arena = this.sim.map.arena;
-    const yaw = Math.atan2(pick[0] - arena.x, pick[2] - arena.z);
-    const fresh = createPlayerSim(pick[0], y, pick[2], yaw);
+    const top = scored.slice(0, Math.max(1, MATCH.spawnCandidates));
+    const unseen = top.filter((c) => !this.seenByEnemy(c.p, enemies));
+    const pool = unseen.length > 0 ? unseen : top.slice(0, 3);
+    const pick = pool[Math.floor(Math.random() * pool.length)];
+    const p: Vec3 = pick?.p ?? [0, 10, 0];
+    if (pick) this.usedSpawns.set(pick.i, this.tick);
+    // Greybox spawns are open ground (cast from above); map spawns can be under a roof, so cast from just above.
+    const y = groundHeightAt(this.sim, p[0], p[1] + (map.id === 'greybox' ? 3 : 0.3), p[2]);
+    const arena = map.arena;
+    const given = fromArena && pick ? map.arenaYaws?.[pick.i] : undefined;
+    const yaw = given ?? Math.atan2(p[0] - arena.x, p[2] - arena.z);
+    const fresh = createPlayerSim(p[0], y, p[2], yaw);
     Object.assign(seat.sim, fresh);
     seat.protect = COMBAT.protectTicks;
     seat.respawnAt = -1;
@@ -108,13 +169,32 @@ export class Deathmatch extends Arena {
     seat.bot?.respawned(seat.sim);
   }
 
+  /** Does a living enemy within MATCH.spawnSightRange have a clear line of sight to this spawn point? */
+  private seenByEnemy(p: Vec3, enemies: readonly Seat[]): boolean {
+    const r2 = MATCH.spawnSightRange * MATCH.spawnSightRange;
+    for (const e of enemies) {
+      const dx = p[0] - e.sim.x;
+      const dz = p[2] - e.sim.z;
+      if (dx * dx + dz * dz > r2) continue;
+      const ey = e.sim.y + 1.55;
+      const dy = p[1] + 0.9 - ey;
+      const d = Math.hypot(dx, dy, dz);
+      if (d < 0.5) return true;
+      const ray = new this.sim.rapier.Ray({ x: e.sim.x, y: ey, z: e.sim.z }, { x: dx / d, y: dy / d, z: dz / d });
+      const hit = this.sim.world.castRay(ray, d, true, undefined, OPAQUE_QUERY_GROUPS);
+      if (!hit || hit.timeOfImpact > d - 0.3) return true;
+    }
+    return false;
+  }
+
   protected onKilled(killer: Seat | null, victim: Seat): void {
     victim.respawnAt = this.tick + COMBAT.respawnTicks;
     if (killer && killer.kills >= this.o.scoreLimit) this.endRound(killer);
   }
 
-  /** End of a tick: bots, timers, respawns, player separation, round clock, lag history. */
+  /** End of a tick: bots, timers, respawns, player separation, round clock, lag history. Nothing while idle. */
   endTick(): void {
+    if (this.idle) return;
     this.thinkBots();
 
     for (const s of this.seats.values()) {
@@ -146,15 +226,21 @@ export class Deathmatch extends Arena {
   }
 
   private startRound(): void {
-    this.phase = 'playing';
-    this.secret = randomSecret();
-    this.winner = '';
-    this.ticksLeft = this.o.roundSeconds * TICK_RATE;
+    this.freshRound();
     for (const s of this.seats.values()) {
       s.kills = 0;
       s.deaths = 0;
     }
     for (const s of this.seats.values()) this.spawn(s);
+  }
+
+  /** A new round clock and spread secret (after the intermission, or when an idle room wakes up). */
+  private freshRound(): void {
+    this.phase = 'playing';
+    this.secret = randomSecret();
+    this.winner = '';
+    this.ticksLeft = this.o.roundSeconds * TICK_RATE;
+    this.usedSpawns.clear();
     this.dev.roundStart();
   }
 

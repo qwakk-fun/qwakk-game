@@ -71,12 +71,50 @@ export class RateLimiter {
 }
 
 /**
+ * Open connections per key (one process, nothing persisted): a cap on what is
+ * open at once, not a rate. `open` counts one more or refuses; `close` gives
+ * it back. A key is dropped when its count reaches 0, so memory only holds
+ * addresses with a socket open right now.
+ */
+export class ConnectionCounter {
+  readonly max: number;
+  private readonly open = new Map<string, number>();
+
+  constructor(max: number) {
+    this.max = max;
+  }
+
+  /** Count one more open connection for `key`. False means: at the cap, refuse. */
+  tryOpen(key: string): boolean {
+    const n = this.open.get(key) ?? 0;
+    if (n >= this.max) return false;
+    this.open.set(key, n + 1);
+    return true;
+  }
+
+  close(key: string): void {
+    const n = (this.open.get(key) ?? 0) - 1;
+    if (n > 0) this.open.set(key, n);
+    else this.open.delete(key);
+  }
+
+  count(key: string): number {
+    return this.open.get(key) ?? 0;
+  }
+
+  get size(): number {
+    return this.open.size;
+  }
+}
+
+/**
  * The limits in use. Joins: a burst of 10, then one every 4 s (a household
  * behind one address can still play). Sessions: a burst of 8, then one every
  * 20 s. Leaderboard and profile reads: a burst of 40, then 2 per second.
  * New game rooms: a burst of 3, then one a minute. Lobby (room list)
  * connections: a burst of 20, then one every 3 s (the menu reconnects after
- * every match).
+ * every match). Open WebSockets (game rooms plus the lobby, see
+ * `CONNECTIONS_PER_IP`) are capped separately.
  */
 export const LIMITS = {
   join: { capacity: 10, refillPerSec: 1 / 4 },
@@ -85,3 +123,13 @@ export const LIMITS = {
   session: { capacity: 8, refillPerSec: 1 / 20 },
   read: { capacity: 40, refillPerSec: 2 },
 } as const satisfies Record<string, BucketOptions>;
+
+/**
+ * Most WebSockets one address (IPv6: one /64) may hold open at once: game
+ * rooms and the lobby together. A browser tab holds one or two (the menu's
+ * room list, then the room), and a dropped socket can linger a few seconds
+ * until the server's ping notices, so 16 leaves room for a household or a
+ * small LAN party behind one address while one script cannot fill the 96
+ * deathmatch seats.
+ */
+export const CONNECTIONS_PER_IP = 16;

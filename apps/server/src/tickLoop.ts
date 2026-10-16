@@ -39,6 +39,17 @@ export class TickLoop {
     this.timer = null;
   }
 
+  get running(): boolean {
+    return this.timer !== null;
+  }
+
+  /** Start again after stop(), with the tick count going on from where it stopped (no catch-up). */
+  resume(): void {
+    if (this.timer !== null) return;
+    this.origin = performance.now() - this.tick * this.stepMs;
+    this.schedule();
+  }
+
   private schedule(): void {
     const deadline = this.origin + (this.tick + 1) * this.stepMs;
     // Round up: Node truncates fractional delays, and waking early wastes a wake-up.

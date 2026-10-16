@@ -3,7 +3,9 @@ import { createServer, request as httpRequest, type IncomingMessage } from 'node
 import type { AddressInfo } from 'node:net';
 import { createAuthContext } from '@colyseus/core';
 import { clientIp, guardClientIp, installClientIpGuard, ipKey, normalizeIp } from '../../src/meta/ip.ts';
-import { LIMITS, RateLimiter } from '../../src/meta/rateLimit.ts';
+import { CONNECTIONS_PER_IP, ConnectionCounter, LIMITS, RateLimiter } from '../../src/meta/rateLimit.ts';
+import { MetaService } from '../../src/meta/service.ts';
+import { EventEmitter } from 'node:events';
 
 describe('token bucket', () => {
   it('allows a burst, then refills at the set rate', () => {
@@ -47,6 +49,37 @@ describe('token bucket', () => {
     expect(ok).toBe(10);
     expect(rl.take('ip', 3900)).toBe(false);
     expect(rl.take('ip', 4000)).toBe(true);
+  });
+});
+
+describe('open connections per IP', () => {
+  it('caps what is open at once and gives slots back on close', () => {
+    const c = new ConnectionCounter(2);
+    expect([c.tryOpen('a'), c.tryOpen('a'), c.tryOpen('a'), c.tryOpen('b')]).toEqual([true, true, false, true]);
+    c.close('a');
+    expect(c.tryOpen('a')).toBe(true);
+    c.close('a');
+    c.close('a');
+    c.close('b');
+    expect(c.size).toBe(0);
+    c.close('ghost'); // never below zero, never a stray key
+    expect(c.size).toBe(0);
+  });
+
+  it('MetaService counts each socket until it closes, per /64, loopback exempt only outside production', () => {
+    const prod = new MetaService({ env: { NODE_ENV: 'production', SESSION_SECRET: 'x'.repeat(32) } });
+    const sockets = Array.from({ length: CONNECTIONS_PER_IP + 1 }, () => new EventEmitter());
+    const admitted = sockets.map((s, i) => prod.admitSocket(`2001:db8:1:2::${i + 1}`, s));
+    expect(admitted.filter(Boolean).length).toBe(CONNECTIONS_PER_IP);
+    expect(admitted.at(-1)).toBe(false);
+    expect(prod.admitSocket('203.0.113.9', new EventEmitter())).toBe(true); // another address is not affected
+    sockets[0]!.emit('close');
+    expect(prod.admitSocket('2001:db8:1:2::99', new EventEmitter())).toBe(true);
+    // Production limits loopback too (only the dev server exempts it for the benchmarks).
+    const local = Array.from({ length: CONNECTIONS_PER_IP + 1 }, () => prod.admitSocket('127.0.0.1', new EventEmitter()));
+    expect(local.at(-1)).toBe(false);
+    const dev = new MetaService({ env: {} });
+    expect(Array.from({ length: CONNECTIONS_PER_IP + 5 }, () => dev.admitSocket('127.0.0.1', new EventEmitter())).every(Boolean)).toBe(true);
   });
 });
 
@@ -115,6 +148,38 @@ describe('join IP guard (what Colyseus puts in context.ip)', () => {
     req.on('error', () => {});
     req.end();
     expect(await seen).toBe('127.0.0.1');
+    server.close();
+  });
+
+  it('refuses upgrades over the connection cap with 429 before any other listener', async () => {
+    const server = createServer();
+    let open = 0;
+    installClientIpGuard(server, 1, (ip) => ip !== '198.51.100.1' || open++ < 1);
+    const reached: string[] = [];
+    server.on('upgrade', (req: IncomingMessage, socket) => {
+      reached.push(String(req.headers['x-real-ip']));
+      socket.end('HTTP/1.1 101 Switching Protocols\r\nConnection: close\r\n\r\n');
+    });
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', r));
+    const port = (server.address() as AddressInfo).port;
+    const status = (xff: string) =>
+      new Promise<number>((resolve) => {
+        const req = httpRequest({ port, host: '127.0.0.1', headers: { Connection: 'Upgrade', Upgrade: 'websocket', 'X-Forwarded-For': xff } });
+        req.on('upgrade', (res, socket) => {
+          socket.destroy();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on('response', (res) => {
+          res.resume();
+          resolve(res.statusCode ?? 0);
+        });
+        req.on('error', () => resolve(-1));
+        req.end();
+      });
+    expect(await status('198.51.100.1')).toBe(101);
+    expect(await status('198.51.100.1')).toBe(429);
+    expect(await status('198.51.100.2')).toBe(101);
+    expect(reached).toEqual(['198.51.100.1', '198.51.100.2']);
     server.close();
   });
 

@@ -3,6 +3,7 @@
  * without a rebuild. Example: /game/?lat=120&jit=20&webgl=1&autopilot=1 (dev tools options need a dev or test build)
  */
 import { NET } from '@qwakk/shared';
+import { defaultGameServer } from './net/endpoint.ts';
 
 const params = new URLSearchParams(location.search);
 
@@ -28,10 +29,10 @@ function flag(name: string): boolean {
 export const DEVTOOLS: boolean = import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1';
 const devtools = DEVTOOLS;
 
-const defaultServer = import.meta.env.VITE_GAME_SERVER ?? `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.hostname}:2567`;
+const defaultServer = defaultGameServer();
 
 export const config = {
-  /** Colyseus endpoint. Defaults to the page host on port 2567 so LAN phones work. `?server=` is a dev tool. */
+  /** Colyseus endpoint (see defaultGameServer). `?server=` is a dev tool. */
   server: (devtools ? params.get('server') : null) ?? defaultServer,
   name: params.get('name') ?? '',
   /** Force the WebGL2 backend (default: WebGPU when available, WebGL2 fallback). */

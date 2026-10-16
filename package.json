@@ -1,7 +1,7 @@
 {
   "name": "qwakk-game",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "description": "Qwakk browser battle royale: client, server and shared sim.",
   "engines": {
@@ -31,7 +31,7 @@
     "e2e:br": "node --disable-warning=ExperimentalWarning e2e/br-two-clients.ts",
     "e2e:lobby": "node --disable-warning=ExperimentalWarning e2e/br-lobby.ts",
     "perf:br": "node --disable-warning=ExperimentalWarning e2e/br-perf.ts",
-    "docker:server": "docker build -f deploy/server/Dockerfile -t qwakk-game-server .",
+    "docker:game": "docker build -f deploy/server/Dockerfile -t qwakk-game .",
     "docker:web": "docker build -f deploy/web/Dockerfile -t qwakk-game-web .",
     "smoke": "node --disable-warning=ExperimentalWarning deploy/smoke/join.ts",
     "db:up": "docker compose up -d postgres",

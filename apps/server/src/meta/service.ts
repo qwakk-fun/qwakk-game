@@ -12,7 +12,7 @@ import { insertMatch, normalizeMatch, type MatchResult } from './matches.ts';
 import { migrate, readMigrations, MIGRATIONS_DIR } from './migrate.ts';
 import { checkName } from './names.ts';
 import { offlineTag, upsertPlayer } from './players.ts';
-import { LIMITS, RateLimiter } from './rateLimit.ts';
+import { CONNECTIONS_PER_IP, ConnectionCounter, LIMITS, RateLimiter } from './rateLimit.ts';
 import { SCORE } from './score.ts';
 import { mintDeviceToken, signSession, verifyDeviceToken, verifySessionToken } from './token.ts';
 import { verifyTurnstile, type FetchLike } from './turnstile.ts';
@@ -53,6 +53,8 @@ export class MetaService {
     createRoom: new RateLimiter(LIMITS.createRoom),
     lobby: new RateLimiter(LIMITS.lobby),
   };
+  /** Open WebSockets per address (game rooms plus the lobby). */
+  readonly connections = new ConnectionCounter(CONNECTIONS_PER_IP);
   sql: Sql | null = null;
   dbState: DbState = 'off';
   private readonly fetchImpl: FetchLike | undefined;
@@ -150,9 +152,26 @@ export class MetaService {
     return this.allow('lobby', ip);
   }
 
+  /**
+   * Per-IP cap on open WebSockets (every upgrade, before Colyseus sees it).
+   * True: counted until the socket closes. False: refuse it. Loopback exempt
+   * outside production, like the other limits.
+   */
+  admitSocket(ip: string, socket: { once(event: 'close', listener: () => void): unknown }): boolean {
+    if (this.loopbackExempt(ip)) return true;
+    const key = ipKey(ip);
+    if (!this.connections.tryOpen(key)) return false;
+    socket.once('close', () => this.connections.close(key));
+    return true;
+  }
+
   private allow(kind: 'join' | 'createRoom' | 'lobby', ip: string): boolean {
-    if (!this.config.production && /^(127\.|::1$)/.test(normalizeIp(ip))) return true;
+    if (this.loopbackExempt(ip)) return true;
     return this.limits[kind].take(ipKey(ip));
+  }
+
+  private loopbackExempt(ip: string): boolean {
+    return !this.config.production && /^(127\.|::1$)/.test(normalizeIp(ip));
   }
 
   /** Record a finished match. Never throws; waits a macrotask so the caller's tick is not held up. */

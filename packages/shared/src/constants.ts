@@ -96,18 +96,48 @@ export const NET = {
 
 export const ROOM = {
   name: 'island',
-  /** Human clients per room (deathmatch). The benchmark raises it with QWAKK_MAX_CLIENTS. */
-  maxClients: 8,
+  /**
+   * Human clients per deathmatch room. The deathmatch rooms are static (lobby.ts
+   * DM_ROOMS, created at server start, never by clients); the benchmark raises
+   * this with QWAKK_MAX_CLIENTS.
+   */
+  maxClients: 32,
   defaultSeed: 1337,
 } as const;
 
 /** Deathmatch rules. */
 export const MATCH = {
-  /** Bots fill the room up to this many players. */
-  players: 8,
-  scoreLimit: 25,
-  roundSeconds: 300,
-  intermissionSeconds: 8,
+  /**
+   * The deathmatch map: 'greybox' (generated from ROOM.defaultSeed) or a map_v1
+   * id under packages/shared/src/maps/<id>/. Change it here to switch every
+   * deathmatch room (QWAKK_DM_MAP overrides it for one server run).
+   */
+  mapId: 'canard-quarter',
+  /** Humans plus bots per room: 1 human plays with 31 bots, 2 with 30, and so on. */
+  players: 32,
+  /**
+   * First to this many kills wins the round. A full room is busy: a headless
+   * room of 32 navmesh bots on Canard Quarter scores about 3.7 kills a second
+   * in total, so the leader reaches 50 in about 4.5 minutes; the time limit
+   * caps quieter rooms.
+   */
+  scoreLimit: 50,
+  roundSeconds: 600,
+  intermissionSeconds: 10,
+  /** Respawns pick among the spawn points farthest from living enemies: this many candidates... */
+  spawnCandidates: 6,
+  /** ...and skip those an enemy within this range has a clear line of sight to (m). */
+  spawnSightRange: 60,
+  /** A spawn point used this recently counts as occupied (ticks), so two ducks never spawn on top of each other. */
+  spawnReuseTicks: 90,
+  /**
+   * Maps without `dmSpawns` (map_v1): spawns are derived on open ground within
+   * this radius of the map's plaza (or its center), every this many meters,
+   * at most this many points.
+   */
+  derivedSpawnRadius: 60,
+  derivedSpawnStep: 5,
+  derivedSpawnMax: 48,
 } as const;
 
 /** Interest management: how often and how precisely other players are sent. */
@@ -209,8 +239,8 @@ export const BR = {
   countdownSeconds: 30,
   /** A room full of humans starts this soon (or sooner, if the countdown is lower). */
   fullCountdownSeconds: 10,
-  /** Battle royale rooms open at once on one server (waiting, counting down or playing). */
-  maxRooms: 20,
+  /** Battle royale rooms open at once on one server (waiting, counting down or playing). Launch: one room; QWAKK_BR_MAX_ROOMS overrides. */
+  maxRooms: 1,
   /** Results stay up this long after the winner is decided, then the room closes. */
   endSeconds: 20,
   /** A dead duck's crate stays this long (it only holds what was dropped). */

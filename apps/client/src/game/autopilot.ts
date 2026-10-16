@@ -73,12 +73,14 @@ export class Autopilot {
       bestD = dist;
     }
     if (!best) {
-      // Wander toward the arena center.
-      const yaw = Math.atan2(me.x, me.z);
+      // Wander toward the arena center (the deathmatch play area).
+      const c = this.sim.map.arena;
+      const yaw = Math.atan2(me.x - c.x, me.z - c.z);
       view.yaw += Math.max(-0.1, Math.min(0.1, ((yaw - view.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
       view.pitch *= 0.9;
       this.burst = 0;
-      return { mx: 0, mz: Math.hypot(me.x, me.z) > 12 ? 1 : 0.3, buttons: me.mag0 === 0 && me.reload === 0 ? Button.Reload : 0 };
+      const hop = this.t % 45 === 0 ? Button.Jump : 0;
+      return { mx: 0, mz: Math.hypot(me.x - c.x, me.z - c.z) > 12 ? 1 : 0.3, buttons: hop | (me.mag0 === 0 && me.reload === 0 ? Button.Reload : 0) };
     }
     const w = weaponStats(me.weapon);
     const p = w.pattern[Math.min(Math.floor(me.spray), w.pattern.length - 1)] ?? [0, 0];

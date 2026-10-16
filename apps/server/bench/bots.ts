@@ -1,7 +1,9 @@
 /**
- * Headless bots: N fake clients join one room and send random inputs at the
- * tick rate, like real players would. Reports downstream and upstream payload
- * bandwidth per client (WebSocket payload bytes, excluding TCP/IP overhead).
+ * Headless bots: N fake clients join deathmatch rooms (Quick Play, or spread
+ * over the given room ids) and send random inputs at the tick rate, like real
+ * players would. Reports downstream and upstream payload bandwidth per client
+ * (WebSocket payload bytes, excluding TCP/IP overhead) and how many other
+ * ducks' poses a client holds on average (interest management and culling).
  *
  * CLI: node bench/bots.ts --bots 32 --seconds 30 --url ws://localhost:2567
  */
@@ -24,6 +26,9 @@ export interface BotResult {
   downBytesPerSecPerClient: number;
   upBytesPerSecPerClient: number;
   downMsgsPerSecPerClient: number;
+  /** Other ducks' pose entries a client held (sampled every second), and other ducks in its room. */
+  posesHeld: number;
+  othersInRoom: number;
   roomIds: string[];
 }
 
@@ -31,6 +36,9 @@ interface Counter {
   down: number;
   up: number;
   msgs: number;
+  poseSamples: number;
+  poseSum: number;
+  othersSum: number;
 }
 
 function payloadSize(data: unknown): number {
@@ -106,15 +114,20 @@ class Bot {
   }
 }
 
-export async function runBots(url: string, count: number, seconds: number, warmupSeconds = 3): Promise<BotResult> {
+/** `rooms`: join these room ids round robin (joinById); empty: Quick Play (the busiest open room). */
+export async function runBots(url: string, count: number, seconds: number, warmupSeconds = 3, rooms: readonly string[] = []): Promise<BotResult> {
   const client = new Client(url);
   const counters: Counter[] = [];
   const bots: Bot[] = [];
+  const sampled: { room: Room; counter: Counter }[] = [];
   const roomIds = new Set<string>();
   for (let i = 0; i < count; i++) {
-    const room = await client.joinOrCreate(ROOM.name, { name: `bot${i + 1}` });
+    const target = rooms[i % Math.max(1, rooms.length)];
+    const room = target ? await client.joinById(target, { name: `bot${i + 1}` }) : await client.joinOrCreate(ROOM.name, { name: `bot${i + 1}` });
+    room.onMessage('*', () => {});
     roomIds.add(room.roomId);
-    const counter: Counter = { down: 0, up: 0, msgs: 0 };
+    const counter: Counter = { down: 0, up: 0, msgs: 0, poseSamples: 0, poseSum: 0, othersSum: 0 };
+    sampled.push({ room, counter });
     instrument(room, counter);
     counters.push(counter);
     const bot = new Bot(room);
@@ -128,8 +141,18 @@ export async function runBots(url: string, count: number, seconds: number, warmu
     c.msgs = 0;
   }
   const t0 = performance.now();
+  const sampler = setInterval(() => {
+    for (const { room, counter } of sampled) {
+      const st = room.state as { poses?: Map<string, unknown>; farPoses?: Map<string, unknown>; players?: Map<string, unknown> } | undefined;
+      counter.poseSamples++;
+      counter.poseSum += (st?.poses?.size ?? 0) + (st?.farPoses?.size ?? 0);
+      counter.othersSum += Math.max(0, (st?.players?.size ?? 1) - 1);
+    }
+  }, 1000);
   await new Promise((r) => setTimeout(r, seconds * 1000));
+  clearInterval(sampler);
   const elapsed = (performance.now() - t0) / 1000;
+  const poseSamples = counters.reduce((n, c) => n + c.poseSamples, 0) || 1;
   const down = counters.reduce((n, c) => n + c.down, 0) / count / elapsed;
   const up = counters.reduce((n, c) => n + c.up, 0) / count / elapsed;
   const msgs = counters.reduce((n, c) => n + c.msgs, 0) / count / elapsed;
@@ -140,6 +163,8 @@ export async function runBots(url: string, count: number, seconds: number, warmu
     downBytesPerSecPerClient: Math.round(down),
     upBytesPerSecPerClient: Math.round(up),
     downMsgsPerSecPerClient: Math.round(msgs * 10) / 10,
+    posesHeld: Math.round((counters.reduce((n, c) => n + c.poseSum, 0) / poseSamples) * 10) / 10,
+    othersInRoom: Math.round((counters.reduce((n, c) => n + c.othersSum, 0) / poseSamples) * 10) / 10,
     roomIds: [...roomIds],
   };
 }

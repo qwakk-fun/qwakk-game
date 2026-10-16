@@ -1,4 +1,5 @@
 import type { IncomingMessage, Server as HttpServer } from 'node:http';
+import type { Duplex } from 'node:stream';
 
 /**
  * The client address for rate limits. Kept in memory only, never stored.
@@ -58,16 +59,35 @@ export function guardClientIp(req: IncomingMessage, trustProxyHops: number): str
 }
 
 /**
+ * Decides whether a WebSocket upgrade from this address may go ahead (the
+ * per-IP connection cap). True: go on (the hook may watch the socket close).
+ * False: the guard answers 429 and closes the socket before Colyseus sees it.
+ */
+export type AdmitUpgrade = (ip: string, socket: Duplex) => boolean;
+
+/**
  * Rewrite the headers of every upgrade (joins) and plain request (matchmaking,
  * where room creation is limited per IP, see matchmaking.ts) before ANY
  * listener sees it. A prepended listener is not enough: Colyseus prepends its
  * own matchmaking listener when the server starts listening, after we are
  * installed, and copies the headers right away. So the guard sits in `emit`.
+ * With `admit`, upgrades over the per-IP connection cap are refused here too.
  */
-export function installClientIpGuard(server: HttpServer, trustProxyHops: number): void {
+export function installClientIpGuard(server: HttpServer, trustProxyHops: number, admit?: AdmitUpgrade): void {
   const emit = server.emit.bind(server) as (event: string | symbol, ...args: unknown[]) => boolean;
   server.emit = ((event: string | symbol, ...args: unknown[]): boolean => {
-    if (event === 'request' || event === 'upgrade') guardClientIp(args[0] as IncomingMessage, trustProxyHops);
+    if (event === 'request' || event === 'upgrade') {
+      const ip = guardClientIp(args[0] as IncomingMessage, trustProxyHops);
+      if (event === 'upgrade' && admit) {
+        const socket = args[1] as Duplex;
+        if (!admit(ip, socket)) {
+          // Like ws' own refusals: write the answer, then close once it is flushed.
+          socket.once('finish', () => socket.destroy());
+          socket.end('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+          return true;
+        }
+      }
+    }
     return emit(event, ...args);
   }) as typeof server.emit;
 }

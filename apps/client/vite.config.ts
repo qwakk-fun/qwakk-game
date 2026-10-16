@@ -6,7 +6,8 @@ const devtools = process.env.VITE_DEVTOOLS === '1';
 const page = (name: string): string => fileURLToPath(new URL(name, import.meta.url));
 
 export default defineConfig({
-  // Served at qwakk.fun/game later, so every asset URL is rooted there.
+  // Asset URLs are rooted at /game/ (dev, tests, the optional qwakk.fun/game hosting).
+  // The one-container image builds with `--base /` for play.qwakk.fun (deploy/server/Dockerfile).
   base: '/game/',
   server: {
     port: 5173,

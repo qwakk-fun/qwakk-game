@@ -6,6 +6,7 @@
  *   allowJoin(ip)         per-IP join rate limit (token bucket, in memory)
  *   allowCreateRoom(ip)   per-IP limit on new game rooms (matchmaking.ts)
  *   allowLobby(ip)        per-IP limit on lobby (room list) connections
+ *   (guardJoinIps also caps open WebSockets per IP, CONNECTIONS_PER_IP)
  *   recordMatch(result)   write a finished match; no-op without DATABASE_URL, never throws
  *   joinIp(context)       the client IP from a Colyseus AuthContext (TRUST_PROXY aware)
  *
@@ -66,9 +67,14 @@ export function joinIp(context: { ip?: string | undefined } | undefined): string
   return normalizeIp(context?.ip ?? 'unknown');
 }
 
-/** Rewrite the client IP headers of WebSocket upgrades and HTTP requests (matchmaking) before Colyseus reads them (see ip.ts). */
+/**
+ * Rewrite the client IP headers of WebSocket upgrades and HTTP requests
+ * (matchmaking) before Colyseus reads them (see ip.ts), and refuse upgrades
+ * over the per-IP open connection cap (429).
+ */
 export function guardJoinIps(server: HttpServer): void {
-  installClientIpGuard(server, meta().config.trustProxyHops);
+  const m = meta();
+  installClientIpGuard(server, m.config.trustProxyHops, (ip, socket) => m.admitSocket(ip, socket));
 }
 
 /** Connect and migrate the database (never throws; retries in the background). */
@@ -108,8 +114,9 @@ export function applyMatchmakingCors(controller: { getCorsHeaders: (headers: Hea
   if (!m.config.allowedOrigins && !m.config.production) return;
   if (!m.config.allowedOrigins) {
     console.warn(
-      '[meta] WARNING: ALLOWED_ORIGINS is not set in production. Matchmaking, WebSocket upgrades and /api only accept the ' +
-        "server's own origin, so a client served from another host (qwakk.fun) cannot join. Set ALLOWED_ORIGINS=https://qwakk.fun.",
+      '[meta] ALLOWED_ORIGINS is not set in production: matchmaking, WebSocket upgrades and /api accept only the ' +
+        "server's own origin. That is right when this server also serves the client (play.qwakk.fun); a client served " +
+        'from another host (qwakk.fun/game) cannot join. Set ALLOWED_ORIGINS to name the origins explicitly.',
     );
   }
   controller.getCorsHeaders = (headers: Headers): Record<string, string> => {

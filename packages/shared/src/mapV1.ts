@@ -6,15 +6,17 @@
  * client and the server build bit-identical colliders.
  *
  * Kept tolerant on purpose: unknown top-level fields are ignored, optional
- * ones get defaults, so a small format tweak from the map workstream is a
+ * ones get defaults (`dmSpawns`, the deathmatch spawn points, see dmSpawns.ts), so a small format tweak from the map workstream is a
  * small change here (all field reads are in this file).
  */
 import type { BrMapData, CircleCandidate, CirclePhase, FlightPath, LootPoint, MapZone, RiverPoint, Vec2, WaterDef } from './brMapData.ts';
 import { Container } from './brMapData.ts';
 import { CG, kindBits, SOLID_BITS, type KindFlags } from './collision.ts';
+import { arenaAround, deriveDmSpawns, parseDmSpawns, parsePlayRing } from './dmSpawns.ts';
 import type { BoxDef, MapDef, Quat, ShapeDef, TerrainDef, Vec3 } from './map.ts';
 import { terrainHeightAt } from './map.ts';
 import { dcos, dsin } from './math.ts';
+import { MATCH } from './constants.ts';
 
 type Json = Record<string, unknown>;
 
@@ -312,11 +314,17 @@ export function buildMapDef(id: string, rawJson: unknown, heightBytes: Uint8Arra
     : [];
   const water: WaterDef = { sea: num(waterJ.sea, 'water.sea', num(json.seaLevel, 'seaLevel', 0)), river, riverHalfWidth: num(waterJ.riverHalfWidth, 'water.riverHalfWidth', 6) };
 
-  // Warm-up and deathmatch spawns: the village square when the map has one, else the center.
+  // Warm-up spawns (battle royale): the village square when the map has one, else the center.
   const plaza = Array.isArray(json.plaza) && json.plaza.length === 4 ? (json.plaza as unknown[]).map((v) => num(v, 'plaza')) : [-15, -15, 15, 15];
   const [px0, pz0, px1, pz1] = plaza as [number, number, number, number];
   const spawns = gridSpawns(terrain, px0, pz0, px1, pz1, 24);
-  const arena = { x: (px0 + px1) / 2, z: (pz0 + pz1) / 2, radius: Math.max(px1 - px0, pz1 - pz0) };
+  // Deathmatch spawns: the map's own `dmSpawns`, else derived on open ground around the plaza.
+  const dm = parseDmSpawns(json.dmSpawns);
+  const pcx = (px0 + px1) / 2;
+  const pcz = (pz0 + pz1) / 2;
+  const arenaSpawns = dm ? dm.points : deriveDmSpawns(terrain, shapes, water, pcx, pcz);
+  const arena = dm ? arenaAround(dm.points, 8) : { x: pcx, z: pcz, radius: MATCH.derivedSpawnRadius + 8 };
+  const playRing = parsePlayRing(json.playArea);
 
   const terrainExtra = terrainJ.groundLegend;
   const roads = Array.isArray(json.roads)
@@ -336,7 +344,9 @@ export function buildMapDef(id: string, rawJson: unknown, heightBytes: Uint8Arra
     rocks: [],
     spawns,
     arena,
-    arenaSpawns: spawns,
+    arenaSpawns: arenaSpawns.length > 0 ? arenaSpawns : spawns,
+    ...(dm ? { arenaYaws: dm.yaws } : {}),
+    ...(playRing ? { playRing } : {}),
     shapes,
     water,
     br,

@@ -12,7 +12,7 @@ import { createSainteEnvironment, type SainteEnvironment } from './sky.ts';
 import { createSainteTerrain } from './terrain.ts';
 import { createRiver, createSea } from './water.ts';
 
-export { loadSainteCanard, type MapAssets } from './assets.ts';
+export { loadMapAssets, loadSainteCanard, shippedMapIds, UnknownMapError, type MapAssets } from './assets.ts';
 export { PlaneView } from './plane.ts';
 export { ZoneWall } from './zoneWall.ts';
 export { ItemsView } from './items.ts';

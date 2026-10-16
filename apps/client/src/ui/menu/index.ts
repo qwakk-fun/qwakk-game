@@ -15,7 +15,8 @@ export interface GameEntry {
 }
 
 /**
- * Dev and test builds can skip the menu: `?mode=br` or `?mode=dm`, and the
+ * Dev and test builds can skip the menu: `?mode=br` or `?mode=dm` (`&room=paris`
+ * picks a room by id), and the
  * dev tools (`?autopilot=`, `?spectate=1`) start the game directly, as the
  * e2e scripts expect. Public builds always show the menu.
  */
@@ -25,7 +26,7 @@ export function directStart(devtools: boolean, search = location.search): StartO
   const mode = p.get('mode');
   const tool = p.has('autopilot') || (p.get('spectate') ?? '0') !== '0';
   if (mode !== 'br' && mode !== 'dm' && !tool) return null;
-  return { mode: mode === 'br' ? 'br' : 'dm', name: p.get('name') ?? undefined, settings: toGameSettings(loadSettings()) };
+  return { mode: mode === 'br' ? 'br' : 'dm', roomId: p.get('room') ?? undefined, name: p.get('name') ?? undefined, settings: toGameSettings(loadSettings()) };
 }
 
 /** Show the menu; Play loads the game module on demand. */

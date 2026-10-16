@@ -1,4 +1,5 @@
-# Local PostgreSQL for the game (Phase 2 leaderboard). Not used by the game yet.
+# Local PostgreSQL for the game (leaderboard and guest identity), for `npm run dev`
+# and the PostgreSQL tests. Production uses its own CapRover app (docs/deploy.md).
 # Host port 5439, because the DEX stack (./dev.sh) already uses 5438.
 #
 #   docker compose up -d postgres

@@ -2,17 +2,21 @@
  * The Play tab's live list of battle royale rooms: label and short id, ducks
  * in / capacity, stage (needs N more, countdown, in progress), Join, and a
  * Create room button. Connected while the menu is up (start/stop); retries
- * on its own with a backoff when the connection drops.
+ * on its own with a backoff when the connection drops. The same connection
+ * feeds the deathmatch rooms list (dmRoomsList.ts, its own section `dmEl`).
  */
-import { shortRoomId, START_RULE, type RoomListing } from '@qwakk/shared/lobby';
+import { BR_ROOM_CAP, shortRoomId, START_RULE, type RoomListing } from '@qwakk/shared/lobby';
 import { gameServer } from './api.ts';
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
+import { DmRoomsList } from './dmRoomsList.ts';
 import type { LobbyConnection, LobbyEntry } from './lobbyClient.ts';
 
 export interface RoomsHooks {
   join(roomId: string): void;
   create(): void;
+  /** Join a deathmatch room by id. */
+  joinDm(roomId: string): void;
 }
 
 const R = COPY.rooms;
@@ -25,6 +29,9 @@ function stageText(l: RoomListing): string {
 
 export class RoomsPanel {
   readonly el: HTMLElement;
+  /** The deathmatch rooms section. */
+  readonly dmEl: HTMLElement;
+  private readonly dm: DmRoomsList;
   private readonly list: HTMLElement;
   private readonly msg: HTMLElement;
   private readonly createBtn: HTMLButtonElement;
@@ -42,6 +49,8 @@ export class RoomsPanel {
 
   constructor(hooks: RoomsHooks) {
     this.hooks = hooks;
+    this.dm = new DmRoomsList((id) => this.hooks.joinDm(id));
+    this.dmEl = this.dm.el;
     this.createBtn = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-rooms-create' }, R.create);
     this.createBtn.addEventListener('click', () => this.hooks.create());
     this.list = h('ul', { class: 'qm-rooms-list', 'aria-label': R.heading });
@@ -78,6 +87,7 @@ export class RoomsPanel {
 
   setBusy(on: boolean): void {
     this.busy = on;
+    this.dm.setBusy(on);
     this.render();
   }
 
@@ -91,7 +101,8 @@ export class RoomsPanel {
         (rooms) => {
           if (gen !== this.generation) return;
           this.live = true;
-          this.rooms = rooms;
+          this.rooms = rooms.filter((r) => r.listing.mode !== 'dm');
+          this.dm.update(rooms.filter((r) => r.listing.mode === 'dm'));
           this.retryMs = 2000;
           this.render();
         },
@@ -116,6 +127,7 @@ export class RoomsPanel {
   private offline(): void {
     this.live = false;
     this.rooms = [];
+    this.dm.update([]);
     this.render();
     const retry = h('button', { type: 'button', class: 'qm-link' }, R.retry);
     retry.addEventListener('click', () => {
@@ -140,9 +152,13 @@ export class RoomsPanel {
   }
 
   private render(): void {
-    this.createBtn.disabled = this.busy;
+    // Every room this server opens is listed: a new one cannot be created until one closes.
+    const atCap = this.live && this.rooms.length >= BR_ROOM_CAP;
+    this.createBtn.disabled = this.busy || atCap;
     if (this.live) {
+      const anyOpen = this.rooms.some((r) => !r.locked && (r.listing.stage === 'waiting' || r.listing.stage === 'countdown'));
       if (this.rooms.length === 0) this.showMsg(R.empty);
+      else if (atCap && !anyOpen) this.showMsg(R.brBusy);
       else this.msg.hidden = true;
     }
     this.list.replaceChildren(...this.rooms.map((r) => this.row(r)));

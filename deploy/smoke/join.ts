@@ -3,21 +3,28 @@
  *   1. GET /health
  *   2. a session: SMOKE_SESSION if set, else POST /api/session as a new guest
  *      named "smoketest" (refused with 403 when Turnstile is on)
- *   3. matchmaking over HTTP(S), the room WebSocket, the first state patch, leave
- * It proves TLS, the proxy, the WebSocket upgrade and the meta layer are wired.
- * The join is a real player in the deathmatch for about a second.
+ *   3. the lobby (room list) over the WebSocket: the three static deathmatch
+ *      rooms (DM_ROOMS) must be listed, which proves the server opened them at boot
+ *   4. each deathmatch room by id: matchmaking over HTTP(S), the room
+ *      WebSocket, the first state patch (map id, ducks seated, bots filled), leave
+ *   5. a battle royale Quick Play (joinOrCreate), first state patch, leave.
+ *      SMOKE_BR=0 skips it (it opens a waiting room, which counts toward the
+ *      per-IP room creation limit and closes again when the smoke test leaves)
+ * It proves TLS, the proxy, the WebSocket upgrade, the static rooms and the
+ * meta layer are wired. Each join is a real player for about a second.
  *
  * Usage (from the repo root, after npm ci):
- *   node --disable-warning=ExperimentalWarning deploy/smoke/join.ts ws://localhost:2597
- *   node --disable-warning=ExperimentalWarning deploy/smoke/join.ts wss://play.qwakk.fun
+ *   npm run smoke -- ws://localhost:2597
+ *   npm run smoke -- wss://play.qwakk.fun
  *
  * With Turnstile on in production, a new guest cannot be created from a
- * script. Play once in a browser, copy `token` from localStorage
- * `qwakk.identity` (valid 24 h) and pass it as SMOKE_SESSION=<token>. It is
- * read from the environment only; never write it to a file.
+ * script. Steps 3 to 5 then run only with SMOKE_SESSION=<token>: play once in
+ * a browser, copy `token` from localStorage `qwakk.identity` (valid 24 h). It
+ * is read from the environment only; never write it to a file.
  */
-import { Client } from '@colyseus/sdk';
-import { ROOM } from '@qwakk/shared';
+import { Client, type Room } from '@colyseus/sdk';
+import { BR, MATCH, ROOM } from '@qwakk/shared';
+import { DM_ROOMS, LOBBY_ROOM } from '@qwakk/shared/lobby';
 
 const endpoint = (process.argv[2] ?? 'ws://localhost:2567').replace(/\/+$/, '');
 const http = endpoint.replace(/^ws(s?):/, 'http$1:');
@@ -27,8 +34,34 @@ const fail = (msg: string): never => {
   console.error(`FAIL ${endpoint}: ${msg}`);
   process.exit(1);
 };
+const within = <T>(p: Promise<T>, what: string, limitMs = 8000): Promise<T> =>
+  Promise.race([p, new Promise<never>((_, reject) => setTimeout(() => reject(new Error(`${what}: no answer within ${limitMs} ms`)), limitMs).unref())]);
 
-setTimeout(() => fail('no result within 15 s'), 15_000).unref();
+setTimeout(() => fail('no result within 45 s'), 45_000).unref();
+
+/** The first decoded state patch (the state object holds defaults before it). */
+function firstPatch(room: Room): Promise<void> {
+  return within(new Promise<void>((resolve) => room.onStateChange.once(() => resolve())), `${room.roomId} first state patch`);
+}
+
+/** Wait until the room has sent `patches` more patches (bots are seated on the tick after the join). */
+function patches(room: Room, count: number): Promise<void> {
+  let n = 0;
+  return within(
+    new Promise<void>((resolve) => {
+      const onPatch = (): void => {
+        if (++n < count) return;
+        room.onStateChange.remove(onPatch);
+        resolve();
+      };
+      room.onStateChange(onPatch);
+    }),
+    `${room.roomId} state patches`,
+  );
+}
+
+// The smoke test reads a few public fields only; the full schema types live in the client.
+const stateOf = (room: Room): any => room.state;
 
 try {
   const health = await fetch(`${http}/health`, { signal: AbortSignal.timeout(5000) });
@@ -47,7 +80,7 @@ try {
     const s = (await res.json().catch(() => ({}))) as { token?: string; error?: string; tag?: string };
     if (res.status === 403 && s.error === 'turnstile_failed') {
       console.log('session API ok: Turnstile is on, so a script cannot create a guest');
-      console.log(`OK ${endpoint} (join skipped; set SMOKE_SESSION to test the room join)`);
+      console.log(`OK ${endpoint} (joins skipped; set SMOKE_SESSION to test the lobby and the room joins)`);
       process.exit(0);
     }
     if (!res.ok || !s.token) fail(`/api/session answered ${res.status} ${s.error ?? ''}`);
@@ -55,11 +88,46 @@ try {
     console.log(`session for smoketest#${s.tag ?? '?'} after ${ms()}`);
   }
 
-  const room = await new Client(endpoint).joinOrCreate(ROOM.name, { name: 'smoketest', token });
-  console.log(`joined room ${room.roomId} as ${room.sessionId} after ${ms()}`);
-  await new Promise<void>((resolve) => room.onStateChange.once(() => resolve()));
-  console.log(`first state patch after ${ms()}`);
-  await room.leave(true);
+  const client = new Client(endpoint);
+
+  // 3. The lobby lists the static deathmatch rooms.
+  const lobby = await within(client.joinOrCreate(LOBBY_ROOM), 'lobby join');
+  const listed = await within(
+    new Promise<Map<string, { humans?: number; mode?: string }>>((resolve) => {
+      lobby.onMessage('rooms', (list: { roomId?: string; metadata?: { humans?: number; mode?: string } }[]) => {
+        resolve(new Map((Array.isArray(list) ? list : []).map((r) => [String(r.roomId), r.metadata ?? {}])));
+      });
+      lobby.onMessage('+', () => {});
+      lobby.onMessage('-', () => {});
+    }),
+    'lobby room list',
+  );
+  await lobby.leave(true);
+  const missing = DM_ROOMS.filter((r) => listed.get(r.id)?.mode !== 'dm').map((r) => r.id);
+  if (missing.length > 0) fail(`the lobby does not list the deathmatch rooms ${missing.join(', ')} (listed: ${[...listed.keys()].join(', ') || 'none'})`);
+  console.log(`lobby lists ${listed.size} rooms, deathmatch ${DM_ROOMS.map((r) => `${r.id} (${listed.get(r.id)?.humans ?? 0} humans)`).join(', ')} after ${ms()}`);
+
+  // 4. Each deathmatch room by id.
+  for (const r of DM_ROOMS) {
+    const room = await within(client.joinById(r.id, { name: 'smoketest', token }), `join ${r.id}`);
+    if (room.name !== ROOM.name) fail(`room ${r.id} is a "${room.name}" room, expected "${ROOM.name}"`);
+    await firstPatch(room);
+    await patches(room, 3);
+    const st = stateOf(room);
+    const seated = Number(st?.players?.size ?? 0);
+    console.log(`joined ${r.id} as ${room.sessionId}: map ${st?.mapId ?? '?'} (${st?.mapHash ?? '?'}), ${seated} ducks seated after ${ms()}`);
+    if (seated !== MATCH.players) console.warn(`  note: expected ${MATCH.players} ducks (humans plus bots); QWAKK_BOTS=0 or a full room explains fewer`);
+    await room.leave(true);
+  }
+
+  // 5. Battle royale Quick Play.
+  if (process.env.SMOKE_BR !== '0') {
+    const br = await within(client.joinOrCreate(BR.roomName, { name: 'smoketest', token }), 'battle royale join');
+    await firstPatch(br);
+    console.log(`joined battle royale ${br.roomId}: map ${stateOf(br)?.mapId ?? '?'} after ${ms()}`);
+    await br.leave(true);
+  }
+
   console.log(`OK ${endpoint}`);
   process.exit(0);
 } catch (err) {
