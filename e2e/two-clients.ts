@@ -20,8 +20,8 @@ import { chromium, type Page } from 'playwright';
 import { initPhysics, simSelfTestHash } from '@qwakk/shared';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const SERVER_PORT = 2567;
-const WEB_PORT = 5173;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 
 type Snapshot = {
   sessionId: string;
@@ -77,7 +77,7 @@ async function main(): Promise<void> {
       args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'],
     });
     async function phase(label: string, seconds: number, query: string, strict = true) {
-      const url = (name: string) => `http://localhost:${WEB_PORT}/game/?autopilot=1&name=${name}&${query}`;
+      const url = (name: string) => `http://localhost:${WEB_PORT}/game/?server=ws://localhost:${SERVER_PORT}&autopilot=1&name=${name}&${query}`;
       const ctxA = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       const ctxB = await browser.newContext({ viewport: { width: 1280, height: 720 } });
       const a = await ctxA.newPage();

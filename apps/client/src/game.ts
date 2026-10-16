@@ -457,6 +457,7 @@ export class Game {
       renderer: this.ctx.renderer,
       world: this.world,
       controls: this.controls,
+      localAvatar: this.localAvatar,
       hold: (ms: number) => (this.holdUntil = performance.now() + ms),
     };
   }

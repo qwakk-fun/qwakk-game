@@ -154,7 +154,7 @@ Vite prints a `Network:` URL. Open it on a phone on the same Wi-Fi, with `/game/
 
 ```sh
 npm run typecheck    # all workspaces plus scripts and e2e
-npm test             # Vitest: shared sim, server (pacer, hits, bots) and client (far interpolation)
+npm test             # Vitest: shared sim, server (pacer, hits, bots) and client (far interpolation, avatar pose)
 npm run build        # typecheck, then the client production build in apps/client/dist
 npm run build:test   # the same client with dev tools, for the browser tests (apps/client/dist-test)
 npm run e2e          # two headless Chrome clients in a deathmatch, then in a battle royale (build:test first)
@@ -168,6 +168,8 @@ npm run perf:br -- DIR # battle royale frame time, CPU per frame and draw calls 
 npm run perf:map -- DIR # the map alone in the dev map viewer
 npm run map:sync     # copy the map workstream's export into packages/shared/src/maps
 ```
+
+The two e2e scripts use ports 2567 and 5173 by default. While `npm run dev` holds them, run them on others: `E2E_SERVER_PORT=2589 E2E_WEB_PORT=5189 npm run e2e`.
 
 Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 8), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_WARMUP` (battle royale warm-up seconds), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder).
 

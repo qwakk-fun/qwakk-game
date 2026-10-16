@@ -3,6 +3,7 @@
  * Dev and test builds only: loaded through a dynamic import behind the
  * build-time DEVTOOLS constant, so public bundles do not contain it.
  */
+import * as THREE from 'three/webgpu';
 import { mapDefHash, simSelfTestHash, simSelfTestHashOn } from '@qwakk/shared';
 import type { PlayerState } from '@qwakk/shared/net';
 import type { Session } from '../net/session.ts';
@@ -23,6 +24,7 @@ export interface TestView {
   renderer: { info: { render: unknown } };
   world: WorldHandle;
   controls: { yaw: number; pitch: number };
+  localAvatar: Avatar;
   hold(ms: number): void;
 }
 
@@ -72,6 +74,33 @@ export function exposeTestHook(v: TestView): void {
         mine: me ? { mode: me.state.mode, hp: me.state.hp, arms: me.state.arms, weapon: me.state.weapon, res0: me.state.res0, res1: me.state.res1, bandages: me.state.bandages, medkits: me.state.medkits } : null,
         br: v.br ? { ...v.br.stats, items: v.br.autopilotView().items.length } : null,
         render: renderStats(v),
+      };
+    },
+    /**
+     * The local duck's orientation: root yaw, controls, and the world up axis
+     * and world quaternion of a few bones (an upright duck has its Head's
+     * world up near +y). For the avatar regression check.
+     */
+    avatarProbe: () => {
+      const a = v.localAvatar;
+      a.object.updateMatrixWorld(true);
+      const q = a.object.getWorldQuaternion(new THREE.Quaternion());
+      const bones: Record<string, { q: number[]; up: number[]; pos: number[] }> = {};
+      for (const name of ['Hips', 'Spine', 'Spine2', 'Head', 'LeftArm', 'RightArm']) {
+        const b = a.bone(name);
+        if (!b) continue;
+        const bq = b.getWorldQuaternion(new THREE.Quaternion());
+        const up = new THREE.Vector3(0, 1, 0).applyQuaternion(bq);
+        const pos = b.getWorldPosition(new THREE.Vector3()).sub(a.object.position);
+        bones[name] = { q: bq.toArray(), up: up.toArray(), pos: pos.toArray() };
+      }
+      return {
+        visible: a.object.visible,
+        rootQuat: q.toArray(),
+        rootYaw: a.object.rotation.y,
+        controls: { yaw: v.controls.yaw, pitch: v.controls.pitch },
+        weapon: v.session.mine?.armed ? v.session.me?.state.weapon ?? -1 : 2,
+        bones,
       };
     },
     simSelfTestHash: () => simSelfTestHash(),

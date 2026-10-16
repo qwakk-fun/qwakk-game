@@ -55,6 +55,8 @@ interface Rig {
   bones: Record<BoneName, THREE.Bone>;
   all: THREE.Bone[];
   rest: THREE.Quaternion[];
+  /** Clip mode: each bone's pose after the mixer and before the procedural layer, restored every frame. */
+  base: THREE.Quaternion[];
   mixer: THREE.AnimationMixer | null;
   lower: Map<string, THREE.AnimationAction>;
   upper: Map<string, THREE.AnimationAction>;
@@ -209,7 +211,7 @@ export class Avatar {
       }
     });
     if (BONES.some((b) => !found[b])) return null;
-    const rig: Rig = { bones: found as Record<BoneName, THREE.Bone>, all, rest: all.map((b) => b.quaternion.clone()), mixer: null, lower: new Map(), upper: new Map(), full: new Map() };
+    const rig: Rig = { bones: found as Record<BoneName, THREE.Bone>, all, rest: all.map((b) => b.quaternion.clone()), base: all.map((b) => b.quaternion.clone()), mixer: null, lower: new Map(), upper: new Map(), full: new Map() };
     if (set && set.full.size > 0) {
       const mixer = new THREE.AnimationMixer(root);
       for (const [name, c] of set.lower) {
@@ -262,6 +264,11 @@ export class Avatar {
   hitReact(): void {
     const a = this.rig?.full.get('Hit_React');
     if (a) a.reset().setEffectiveWeight(0.6).play();
+  }
+
+  /** A skeleton bone by name (null for the placeholder duck). For tests and debugging. */
+  bone(name: string): THREE.Bone | null {
+    return this.rig?.bones[name as BoneName] ?? null;
   }
 
   /** World position of the current gun's muzzle (tracers and flashes start here). */
@@ -376,8 +383,15 @@ export class Avatar {
     const c = this.crouchBlend;
     const dead = this.deathT >= 0;
     if (rig.mixer) {
+      // Undo last frame's procedural layer first. The mixer only writes a bone
+      // when its blended value changed since the previous frame, so under a
+      // static pose (aim, idle, or no upper clip at all when unarmed) the
+      // procedural rotations below would otherwise stack up every frame and
+      // spin the torso and arms around (any non-zero camera pitch).
+      rig.all.forEach((bone, i) => bone.quaternion.copy(rig.base[i] as THREE.Quaternion));
       this.blendClips(rig, p, speed, vf, vr, dead);
       rig.mixer.update(dt);
+      rig.all.forEach((bone, i) => (rig.base[i] as THREE.Quaternion).copy(bone.quaternion));
     } else {
       // Procedural: start from the rest pose every frame.
       rig.all.forEach((bone, i) => bone.quaternion.copy(rig.rest[i] as THREE.Quaternion));

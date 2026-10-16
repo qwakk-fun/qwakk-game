@@ -28,8 +28,8 @@ import { loadSainteCanard } from '../apps/server/src/maps.ts';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-br');
 mkdirSync(out, { recursive: true });
-const SERVER_PORT = 2567;
-const WEB_PORT = 5173;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 /** Path 7 passes about 40 m from the village square. */
 const SEED = 7;
 const VILLAGE = { x: 40, z: -192 };
@@ -86,7 +86,7 @@ async function main(): Promise<void> {
       headless: true,
       args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'],
     });
-    const url = (name: string) => `http://localhost:${WEB_PORT}/game/?mode=br&autopilot=br&name=${name}&hud=0&aptarget=${VILLAGE.x},${VILLAGE.z}`;
+    const url = (name: string) => `http://localhost:${WEB_PORT}/game/?mode=br&server=ws://localhost:${SERVER_PORT}&autopilot=br&name=${name}&hud=0&aptarget=${VILLAGE.x},${VILLAGE.z}`;
     const ctxA = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const ctxB = await browser.newContext({ viewport: { width: 1280, height: 720 } });
     const a = await ctxA.newPage();
