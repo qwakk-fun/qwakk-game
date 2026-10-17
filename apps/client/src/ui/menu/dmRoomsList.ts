@@ -24,7 +24,7 @@ export class DmRoomsList {
     this.el = h(
       'section',
       { class: 'qm-rooms qm-dm-rooms', 'aria-labelledby': 'qm-dm-rooms-h' },
-      h('div', { class: 'qm-rooms-head' }, h('div', {}, h('h2', { id: 'qm-dm-rooms-h' }, D.heading), h('p', { class: 'qm-rooms-rule' }, D.rule(DM_RULE.players)))),
+      h('div', { class: 'qm-rooms-head' }, h('div', { class: 'qm-rooms-titles' }, h('h3', { id: 'qm-dm-rooms-h' }, D.heading), h('p', { class: 'qm-rooms-rule' }, D.rule(DM_RULE.players)))),
       this.list,
     );
     this.render();
@@ -58,8 +58,9 @@ export class DmRoomsList {
     return h(
       'li',
       { class: `qm-room qm-dm-room${humans ? ' has-players' : ''}`, 'data-room': id },
+      h('span', { class: 'qm-room-dot', 'aria-hidden': 'true' }),
       h('div', { class: 'qm-room-name' }, h('span', { class: 'qm-room-label' }, label)),
-      h('span', { class: 'qm-room-count', 'aria-label': humans === undefined ? label : D.ducksLabel(humans, cap) }, count),
+      h('div', { class: 'qm-room-meta' }, h('span', { class: 'qm-room-count', 'aria-label': humans === undefined ? label : D.ducksLabel(humans, cap) }, count)),
       join,
     );
   }

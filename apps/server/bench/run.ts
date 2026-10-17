@@ -53,7 +53,7 @@ interface Scenario {
 async function startServer(serverBots: boolean): Promise<{ proc: ChildProcess; snapshots: Snapshot[] }> {
   const entry = fileURLToPath(new URL('../src/index.ts', import.meta.url));
   const proc = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', entry], {
-    env: { ...process.env, PORT: String(PORT), QWAKK_STATS: '1', QWAKK_STATS_MS: String(STATS_MS), QWAKK_BOTS: serverBots ? '1' : '0', QWAKK_MAX_CLIENTS: '64', QWAKK_DM_ROOM_CATALOG: String(DM_ROOM_CATALOG.length), QWAKK_INTEREST: INTEREST_ON ? '1' : '0' },
+    env: { ...process.env, PORT: String(PORT), QWAKK_STATS: '1', QWAKK_STATS_MS: String(STATS_MS), QWAKK_BOTS: serverBots ? '1' : '0', QWAKK_MAX_CLIENTS: '64', QWAKK_DM_ROOMS: String(DM_ROOM_CATALOG.length), QWAKK_INTEREST: INTEREST_ON ? '1' : '0' },
     stdio: ['ignore', 'pipe', 'inherit'],
   });
   const snapshots: Snapshot[] = [];

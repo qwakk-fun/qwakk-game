@@ -130,11 +130,14 @@ export class Deathmatch extends Arena {
   }
 
   /**
-   * Respawn at a point far from living enemies: the MATCH.spawnCandidates
-   * points farthest from the nearest enemy (a point used in the last
-   * spawnReuseTicks counts as an enemy), then a random one of those no enemy
-   * within spawnSightRange has a clear line of sight to (else a random one of
-   * the best three).
+   * Respawn at a point far from living enemies and out of their sight: going
+   * from the point farthest from the nearest enemy down (a point used in the
+   * last spawnReuseTicks counts as taken), keep up to MATCH.spawnCandidates
+   * points at least spawnMinEnemyDistance from every enemy that no enemy
+   * within spawnSightRange has a clear line of sight to, testing at most
+   * spawnScanMax points; pick one of those at random. If none qualifies, a
+   * random one of the three farthest. Then spawn protection
+   * (SPAWN_PROTECTION) covers the first moments.
    */
   spawn(seat: Seat): void {
     const map = this.sim.map;
@@ -149,9 +152,13 @@ export class Deathmatch extends Arena {
       return { p, i, d };
     });
     scored.sort((a, b) => b.d - a.d);
-    const top = scored.slice(0, Math.max(1, MATCH.spawnCandidates));
-    const unseen = top.filter((c) => !this.seenByEnemy(c.p, enemies));
-    const pool = unseen.length > 0 ? unseen : top.slice(0, 3);
+    const unseen: typeof scored = [];
+    for (let i = 0; i < Math.min(scored.length, MATCH.spawnScanMax) && unseen.length < MATCH.spawnCandidates; i++) {
+      const c = scored[i] as (typeof scored)[number];
+      if (c.d < MATCH.spawnMinEnemyDistance) break;
+      if (!this.seenByEnemy(c.p, enemies)) unseen.push(c);
+    }
+    const pool = unseen.length > 0 ? unseen : scored.slice(0, 3);
     const pick = pool[Math.floor(Math.random() * pool.length)];
     const p: Vec3 = pick?.p ?? [0, 10, 0];
     if (pick) this.usedSpawns.set(pick.i, this.tick);

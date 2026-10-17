@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "tileMeters": 4.0,
+  "size": 512,
+  "albedo": "ground_albedo.webp",
+  "height": "ground_height.webp",
+  "noise": "ground_noise.webp",
+  "layers": [
+    {
+      "name": "grass",
+      "mean": [
+        0.09878,
+        0.2114,
+        0.03192
+      ],
+      "shift": false
+    },
+    {
+      "name": "forest",
+      "mean": [
+        0.09322,
+        0.16126,
+        0.02533
+      ],
+      "shift": false
+    },
+    {
+      "name": "dirt",
+      "mean": [
+        0.32266,
+        0.17797,
+        0.07629
+      ],
+      "shift": false
+    },
+    {
+      "name": "sand",
+      "mean": [
+        0.78081,
+        0.65066,
+        0.359
+      ],
+      "shift": false
+    },
+    {
+      "name": "rock",
+      "mean": [
+        0.21377,
+        0.19574,
+        0.1642
+      ],
+      "shift": false
+    },
+    {
+      "name": "cobble",
+      "mean": [
+        0.35677,
+        0.31008,
+        0.23595
+      ],
+      "shift": true
+    },
+    {
+      "name": "plowed",
+      "mean": [
+        0.19633,
+        0.1021,
+        0.04302
+      ],
+      "shift": true
+    },
+    {
+      "name": "wheat",
+      "mean": [
+        0.28315,
+        0.18659,
+        0.04861
+      ],
+      "shift": true
+    },
+    {
+      "name": "crop",
+      "mean": [
+        0.22104,
+        0.20638,
+        0.05139
+      ],
+      "shift": true
+    }
+  ]
+}

@@ -1,0 +1,346 @@
+/* The lobby column: the party box and the live room lists (battle royale and deathmatch). */
+.qm-party,
+.qm-live {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+.qm-rooms-titles {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.qm-rooms-titles h2 {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+.qm-rooms-titles h3 {
+  color: var(--qm-text);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.qm-rooms-rule {
+  color: var(--qm-text-3);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.qm-card-icon.is-live {
+  background: rgba(61, 220, 132, 0.09);
+  box-shadow: inset 0 0 0 1px rgba(61, 220, 132, 0.2);
+}
+
+/* Party: out of one */
+.qm-party-start {
+  display: grid;
+  gap: 10px;
+}
+.qm-party-create {
+  width: 100%;
+}
+.qm-party-or {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--qm-text-3);
+  font: 600 10.5px/1 var(--qm-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.qm-party-or::before,
+.qm-party-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--qm-line);
+}
+.qm-party-join {
+  display: flex;
+  gap: 8px;
+}
+.qm-party-code {
+  flex: 1;
+  font: 600 15px/1.2 var(--qm-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.qm-party-code::placeholder {
+  font-family: var(--qm-sans);
+  letter-spacing: 0;
+  text-transform: none;
+}
+.qm-party-join .qm-btn {
+  min-height: var(--qm-tap);
+  padding: 0 18px;
+}
+.qm-party-msg {
+  color: var(--qm-text-2);
+  font-size: 13px;
+}
+.qm-party-msg.is-error {
+  color: var(--qm-bad);
+}
+
+/* Party: in one */
+.qm-party-body {
+  display: grid;
+  gap: 12px;
+}
+.qm-party-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid var(--qm-accent-line);
+  border-radius: 16px;
+  background: linear-gradient(120deg, rgba(255, 212, 59, 0.1), rgba(255, 212, 59, 0.02));
+}
+.qm-party-codebox {
+  display: grid;
+  gap: 2px;
+  margin-right: auto;
+}
+.qm-party-label {
+  color: var(--qm-text-3);
+  font: 600 10.5px/1.2 var(--qm-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.qm-party-codetext {
+  color: var(--qm-yellow);
+  font: 700 24px/1.1 var(--qm-mono);
+  letter-spacing: 0.14em;
+}
+.qm-party-count {
+  color: var(--qm-text-2);
+  font: 600 12px/1 var(--qm-mono);
+}
+.qm-party-list {
+  display: grid;
+  gap: 6px;
+}
+.qm-party-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+  padding: 6px 10px 6px 6px;
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.03);
+}
+.qm-party-member.is-you {
+  box-shadow: inset 0 0 0 1px var(--qm-line-strong);
+}
+.qm-party-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  background: var(--qm-raised);
+  color: var(--qm-text-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+.qm-party-member.is-leader .qm-party-avatar {
+  background: var(--qm-yellow);
+  color: var(--qm-ink);
+}
+.qm-party-avatar .qm-icon {
+  width: 17px;
+  height: 17px;
+}
+.qm-party-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qm-party-name .qm-room-id {
+  margin-left: 2px;
+}
+.qm-party-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-left: auto;
+}
+.qm-party-chip {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--qm-text-2);
+  font: 600 11px/1.3 var(--qm-mono);
+}
+.qm-party-chip.is-leader {
+  background: var(--qm-wash);
+  color: var(--qm-yellow);
+}
+.qm-party-chip.is-busy {
+  background: rgba(255, 138, 61, 0.12);
+  color: var(--qm-beak);
+}
+.qm-party-member.is-busy .qm-party-name {
+  color: var(--qm-text-2);
+}
+.qm-party-hint {
+  color: var(--qm-text-2);
+}
+.qm-party-leave {
+  justify-self: start;
+  margin-left: -10px;
+}
+
+/* Room lists */
+.qm-rooms {
+  display: grid;
+  gap: 10px;
+}
+.qm-rooms + .qm-rooms {
+  padding-top: 14px;
+  border-top: 1px solid var(--qm-line);
+}
+.qm-rooms-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.qm-rooms-create {
+  flex: none;
+}
+.qm-rooms-msg {
+  padding: 12px 14px;
+  border: 1px dashed var(--qm-line-strong);
+  border-radius: 14px;
+  color: var(--qm-text-2);
+  font-size: 13px;
+}
+.qm-rooms-list {
+  display: grid;
+  gap: 8px;
+}
+.qm-room {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'dot name join'
+    'dot meta join';
+  align-items: center;
+  gap: 2px 12px;
+  padding: 10px 10px 10px 14px;
+  border: 1px solid var(--qm-line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+  transition:
+    border-color 0.16s,
+    background-color 0.16s;
+  animation: qm-fade 0.4s ease both;
+}
+.qm-room:hover {
+  border-color: var(--qm-line-strong);
+}
+.qm-room-dot {
+  grid-area: dot;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--qm-text-3);
+}
+.qm-room.is-waiting .qm-room-dot,
+.qm-dm-room.has-players .qm-room-dot {
+  background: var(--qm-good);
+}
+.qm-room.is-countdown {
+  border-color: var(--qm-accent-line);
+  background: var(--qm-wash);
+}
+.qm-room.is-countdown .qm-room-dot {
+  background: var(--qm-yellow);
+  animation: qm-pulse 1.2s ease-out infinite;
+}
+.qm-room.is-playing .qm-room-dot {
+  background: var(--qm-beak);
+}
+.qm-room.is-ended {
+  opacity: 0.6;
+}
+.qm-room-name {
+  grid-area: name;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  min-width: 0;
+}
+.qm-room-label {
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qm-room-mode {
+  padding: 2px 7px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--qm-text-2);
+  font: 600 11px/1.3 var(--qm-mono);
+}
+.qm-room-id {
+  color: var(--qm-text-3);
+  font: 500 12px/1.3 var(--qm-mono);
+}
+.qm-room-meta {
+  grid-area: meta;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  color: var(--qm-text-2);
+  font: 500 12.5px/1.4 var(--qm-mono);
+}
+.qm-room-count {
+  color: var(--qm-text);
+}
+.qm-room.is-countdown .qm-room-stage {
+  color: var(--qm-yellow);
+}
+.qm-room.is-playing .qm-room-stage {
+  color: var(--qm-beak);
+}
+.qm-rooms-join {
+  grid-area: join;
+  min-width: 72px;
+  border: 0;
+  background: var(--qm-yellow);
+  color: var(--qm-ink);
+  box-shadow: 0 2px 0 var(--qm-yellow-edge);
+}
+.qm-rooms-join:hover:not(:disabled) {
+  background: var(--qm-yellow-hi);
+}
+.qm-rooms-join:disabled {
+  background: var(--qm-raised);
+  color: var(--qm-text-3);
+  box-shadow: none;
+  opacity: 1;
+}
+
+/* Touch screens: 44 px targets. */
+.qm.is-touch .qm-btn-sm,
+.qm.is-touch .qm-party-member {
+  min-height: var(--qm-tap);
+}
+
+/* Phones: full-width rows, room for thumbs. */
+@media (max-width: 719px) {
+  .qm-party,
+  .qm-live {
+    padding: 16px;
+  }
+}

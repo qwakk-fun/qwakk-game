@@ -23,6 +23,50 @@ Check the published files against the asset contract (plain Python, no Blender):
 python3 qwakk-game/art/blender/validate_glb.py
 ```
 
+## Ground textures (terrain)
+
+The stylized ground of the map_v1 terrain (Sainte-Canard and Canard Quarter) is built by `ground/`, separate from the duck build:
+
+```sh
+sh qwakk-game/art/ground/build.sh            # about 35 seconds on an M4 Pro
+sh qwakk-game/art/ground/build.sh --quick    # fewer samples, about 10 seconds
+sh qwakk-game/art/ground/build.sh --only grass   # rebuild one layer, reuse the others from the last run
+```
+
+Each layer is a 4 m tile of real geometry (grass blades in clumps with a few flowers, moss, leaves and twigs, pebbles, sand ripples and grains, boulders, cobbles with moss in the joints, plowed furrows with clods and straw, wheat stalks and ears, rows of leafy crops) built with numpy into one Blender mesh. Everything that crosses a tile edge is copied to the opposite edge, and the ground under it uses periodic noise, so the tile repeats without a seam. Cycles renders it straight down with an orthographic camera twice: the albedo (vertex colors times a soft fixed light and ambient occlusion, emission only) and the height (0 at the ground, 1 at the layer's top). Seeds are fixed, so a rebuild gives the same images.
+
+| Layer | Used for (ground paint) | Anti-tiling |
+| --- | --- | --- |
+| `grass` | grass, grass_dark, orchard_grass | rotate and scale |
+| `forest` | forest_floor | rotate and scale |
+| `dirt` | dirt_road, river_mud | rotate and scale |
+| `sand` | sand, seabed | rotate and scale |
+| `rock` | rock, and every steep face | rotate and scale |
+| `cobble` | cobble | half-tile shift |
+| `plowed` | plowed | half-tile shift |
+| `wheat` | wheat | half-tile shift |
+| `crop` | green_crop | half-tile shift |
+
+Rows run along the tile's X with an even count per tile, so the half-tile shift lands rows and cobbles on the same grid.
+
+Outputs in `apps/client/public/textures/ground/` (about 0.6 MB together):
+
+| File | What |
+| --- | --- |
+| `ground_albedo.webp` | 512 x 4608, the nine layers stacked top to bottom (sRGB, WebP quality 90) |
+| `ground_height.webp` | Same layout, height in gray (WebP quality 60); the game packs it into the alpha of the texture array |
+| `ground_noise.webp` | 128 x 128 tiling noise in R, G, B (lossless): macro tone, anti-tiling selector, blend edge warp |
+| `ground.json` | Layer order, mean linear color per layer, tile size (4 m) and pixel size (512) |
+
+The game re-tints every layer to its paint color (`GROUND_COLORS` in `apps/client/src/world/sainte/groundPaint.ts`): the tint is the paint color divided by the layer's mean, so the textured ground averages to the same color as the flat vertex colors it fades into far away. The colors in `ground/blender/layers.py` therefore set the pattern and its contrast, not the final hue. Review sheet: `renders/ground_sheet.png` (each layer tiled 2 x 2). The shader is described in `apps/client/src/world/sainte/groundMaterial.ts`.
+
+| File | Role |
+| --- | --- |
+| `ground/blender/build_ground.py` | Entry point: builds and renders each layer, writes the atlases, `ground.json` and the review sheet |
+| `ground/blender/layers.py` | One function per layer: what is scattered where, colors, height range, light and occlusion |
+| `ground/blender/tile.py` | Periodic mesh accumulator, blade, leaf, pebble, box and star generators, the ground sheet, the render setup |
+| `ground/blender/pnoise.py` | Periodic value noise and helpers (numpy) |
+
 ## Published to the client (the asset contract)
 
 | Path under `apps/client/public/models/` | What |
@@ -32,7 +76,7 @@ python3 qwakk-game/art/blender/validate_glb.py
 | `weapons/rifle.glb`, `weapons/pistol.glb` | Weapons, origin at the right-hand grip, barrel +Z, with child nodes `Muzzle`, `Grip`, `Support`, `Eject`, and the magazine mesh `Mag` (origin at its seat, local -Z out of the magwell) |
 | `weapons/attach.json` | Weapon pose in `RightHand` joint space: `{ rifle: {position, quaternion}, pistol: {...} }`, plus `reload: { rifle: {seconds, out, drop, fresh, in, magInHand}, pistol: {...} }`: the reload clip's magazine timeline (seconds) and the magazine's pose in the `LeftHand` joint |
 
-Nothing else under `models/` is written by this build (`models/props/` belongs to the map workstream).
+Nothing else under `models/` is written by this build (`models/props/` belongs to the map workstream). The ground build writes only `textures/ground/`.
 
 Local outputs in `art/`: `export/` (the same GLBs, `acc_beanie.glb`, `palette.png`, `stats.json` with all counts and per-clip data, `duck.blend`), `renders/` (stills) and `renders/anim/` (one 8-frame strip per clip, MP4 and GIF previews of the key clips).
 

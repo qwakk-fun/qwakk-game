@@ -7,6 +7,7 @@
 import { PARTY, type PartyView } from '@qwakk/shared/lobby';
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
+import { icon } from './icons.ts';
 
 export interface PartyPanelHooks {
   create(): void;
@@ -32,8 +33,8 @@ export class PartyPanel {
     this.msg = h('p', { class: 'qm-party-msg', role: 'status', 'aria-live': 'polite', hidden: true });
     this.el = h(
       'section',
-      { class: 'qm-rooms qm-party', 'aria-labelledby': 'qm-party-h' },
-      h('div', { class: 'qm-rooms-head' }, h('div', {}, h('h2', { id: 'qm-party-h' }, P.heading), h('p', { class: 'qm-rooms-rule' }, P.sub))),
+      { class: 'qm-card qm-party', 'aria-labelledby': 'qm-party-h' },
+      h('div', { class: 'qm-card-head' }, h('span', { class: 'qm-card-icon', 'aria-hidden': 'true' }, icon('users')), h('div', { class: 'qm-rooms-titles' }, h('h2', { id: 'qm-party-h' }, P.heading), h('p', { class: 'qm-rooms-rule' }, P.sub))),
       this.body,
       this.msg,
     );
@@ -67,30 +68,32 @@ export class PartyPanel {
         type: 'text',
         spellcheck: 'false',
         autocomplete: 'off',
+        autocapitalize: 'characters',
+        enterkeyhint: 'go',
         maxlength: 200,
         placeholder: P.codePlaceholder,
         'aria-label': P.codeLabel,
       });
       input.value = this.codeValue;
       input.addEventListener('input', () => (this.codeValue = input.value));
-      const join = h('button', { type: 'submit', class: 'qm-btn qm-btn-sm qm-rooms-join' }, P.join);
+      const join = h('button', { type: 'submit', class: 'qm-btn qm-btn-sm qm-btn-yellow qm-rooms-join' }, P.join);
       const form = h('form', { class: 'qm-party-join', novalidate: true }, input, join);
       form.addEventListener('submit', (e) => {
         e.preventDefault();
         if (!this.busy) this.hooks.join(input.value);
       });
-      const create = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm' }, P.create);
+      const create = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-party-create' }, icon('plus'), P.create);
       create.addEventListener('click', () => !this.busy && this.hooks.create());
       create.disabled = this.busy;
       join.disabled = this.busy;
       input.disabled = this.busy;
-      this.body.replaceChildren(h('div', { class: 'qm-party-start' }, create, form));
+      this.body.replaceChildren(h('div', { class: 'qm-party-start' }, create, h('p', { class: 'qm-party-or' }, h('span', {}, P.or)), form));
       return;
     }
     const me = v.members.find((m) => m.you);
-    const copy = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm' }, P.copy);
+    const copy = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-party-copy' }, icon('link'), P.copy);
     copy.addEventListener('click', () => this.hooks.copyLink());
-    const leave = h('button', { type: 'button', class: 'qm-link qm-party-leave' }, P.leave);
+    const leave = h('button', { type: 'button', class: 'qm-btn qm-btn-quiet qm-btn-sm qm-party-leave' }, icon('leave'), P.leave);
     leave.addEventListener('click', () => this.hooks.leave());
     const list = h(
       'ul',
@@ -98,11 +101,16 @@ export class PartyPanel {
       ...v.members.map((m) =>
         h(
           'li',
-          { class: `qm-party-member${m.you ? ' is-you' : ''}${m.busy ? ' is-busy' : ''}` },
+          { class: `qm-party-member${m.you ? ' is-you' : ''}${m.busy ? ' is-busy' : ''}${m.leader ? ' is-leader' : ''}` },
+          h('span', { class: 'qm-party-avatar', 'aria-hidden': 'true' }, m.leader ? icon('crown') : (m.name[0] ?? '?').toUpperCase()),
           h('span', { class: 'qm-party-name' }, m.name, h('span', { class: 'qm-room-id' }, m.tag ? `#${m.tag}` : '')),
-          m.leader ? h('span', { class: 'qm-party-chip is-leader' }, P.leader) : null,
-          m.you ? h('span', { class: 'qm-party-chip' }, P.you) : null,
-          m.busy ? h('span', { class: 'qm-party-chip is-busy' }, P.busy) : null,
+          h(
+            'span',
+            { class: 'qm-party-chips' },
+            m.leader ? h('span', { class: 'qm-party-chip is-leader' }, P.leader) : null,
+            m.you ? h('span', { class: 'qm-party-chip' }, P.you) : null,
+            m.busy ? h('span', { class: 'qm-party-chip is-busy' }, P.busy) : null,
+          ),
         ),
       ),
     );
@@ -111,11 +119,12 @@ export class PartyPanel {
         'div',
         { class: 'qm-party-head' },
         h('div', { class: 'qm-party-codebox' }, h('span', { class: 'qm-party-label' }, P.codeLabel), h('span', { class: 'qm-party-codetext', 'data-code': v.code }, v.code)),
-        h('span', { class: 'qm-room-count' }, P.count(v.members.length, PARTY.maxSize)),
+        h('span', { class: 'qm-party-count' }, P.count(v.members.length, PARTY.maxSize)),
         copy,
       ),
       list,
-      h('p', { class: 'qm-rooms-rule' }, me?.leader ? P.leaderHint(v.members.length) : P.memberHint, ' ', leave),
+      h('p', { class: 'qm-rooms-rule qm-party-hint' }, me?.leader ? P.leaderHint(v.members.length) : P.memberHint),
+      leave,
     );
   }
 }

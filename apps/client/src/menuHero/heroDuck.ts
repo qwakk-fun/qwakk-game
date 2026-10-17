@@ -163,7 +163,8 @@ export class HeroDuck {
 
   /** Built from loaded files (load() fetches them; tests pass their own). */
   constructor(duck: Pick<GLTF, 'scene'>, anims: Pick<GLTF, 'animations'>, rifle: Pick<GLTF, 'scene'>, attach: { position: THREE.Vector3; quaternion: THREE.Quaternion }) {
-    this.scene.background = new THREE.Color(BRAND.dark);
+    // No background: the canvas is transparent and the menu's stage (glow, rings) shows through.
+    this.scene.background = null;
     const fov = 2 * Math.atan(18 / FRAME.lens);
     this.camera = new THREE.PerspectiveCamera((fov * 180) / Math.PI, 1, 0.05, 30);
     const dist = FRAME.height / 2 / Math.tan(fov / 2);

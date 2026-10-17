@@ -5,9 +5,10 @@
  */
 import { loadSettings, toGameSettings, type GameSettings } from '../../settings.ts';
 import type { HeroModule } from './heroSlot.ts';
-import { Menu, type ExitReason, type GameMode, type MatchSummary, type StartOptions } from './menu.ts';
+import { Menu } from './menu.ts';
+import type { ExitReason, GameMode, MatchSummary, StartOptions } from './types.ts';
 
-export type { ExitReason, GameMode, MatchSummary, StartOptions } from './menu.ts';
+export type { ExitReason, GameMode, MatchSummary, StartOptions } from './types.ts';
 
 /** What the game module exports (game.ts / play.ts). */
 export interface GameEntry {

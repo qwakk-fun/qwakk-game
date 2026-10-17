@@ -1,0 +1,228 @@
+/* The page frame: header with the brand and the tabs, the main area, the footer, the version badge. */
+
+/* While the menu is up, the game layer stays out of the way. */
+body.qm-open #overlay {
+  display: none;
+}
+/* The version and BETA badge (ui/buildBadge.ts): menu.ts moves it into the header's right corner while the menu is up. */
+.qm-badge-slot {
+  display: flex;
+  justify-self: end;
+}
+.qm-badge-slot #build-badge {
+  position: static;
+}
+
+.qm-top {
+  position: relative;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 16px;
+  padding: var(--qm-pad-t) var(--qm-pad-r) 10px var(--qm-pad-l);
+}
+.qm-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  gap: 10px;
+  min-height: var(--qm-tap);
+  font-weight: 700;
+  font-size: 20px;
+  letter-spacing: -0.03em;
+}
+.qm-brand img {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 1px var(--qm-line-strong),
+    0 6px 18px -6px rgba(255, 212, 59, 0.35);
+}
+
+/* Tabs: a pill bar in the header (desktop, tablets, phones on their side). */
+.qm-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  border: 1px solid var(--qm-line);
+  border-radius: 16px;
+  background: rgba(14, 15, 17, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+.qm-tabs [role='tab'] {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--qm-text-2);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition:
+    color 0.16s,
+    background-color 0.16s;
+}
+.qm-tabs [role='tab'] .qm-icon {
+  width: 17px;
+  height: 17px;
+  opacity: 0.8;
+}
+.qm-tabs [role='tab']:hover {
+  color: var(--qm-text);
+}
+.qm-tabs [role='tab'][aria-selected='true'] {
+  background: var(--qm-wash);
+  color: var(--qm-yellow);
+  box-shadow: inset 0 0 0 1px var(--qm-accent-line);
+}
+.qm-tabs [role='tab'][aria-selected='true'] .qm-icon {
+  opacity: 1;
+}
+
+.qm-main {
+  position: relative;
+  z-index: 1;
+  flex: 1 0 auto;
+  width: 100%;
+}
+.qm-panel:focus {
+  outline: none;
+}
+
+.qm-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 20px;
+  padding: 18px var(--qm-pad-r) var(--qm-pad-b) var(--qm-pad-l);
+  color: var(--qm-text-3);
+  font-size: 13px;
+}
+.qm-foot nav {
+  display: flex;
+  gap: 4px;
+}
+.qm-foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 8px;
+  border-radius: 8px;
+}
+.qm-foot a:first-child {
+  margin-left: -8px;
+}
+.qm-foot a:hover {
+  color: var(--qm-yellow);
+}
+
+/* Tablets and small laptops: tighter tabs. */
+@media (max-width: 1100px) {
+  .qm-tabs [role='tab'] {
+    padding: 0 12px;
+  }
+}
+
+/* Touch screens: every control at least 44 px tall. */
+.qm.is-touch .qm-tabs [role='tab'] {
+  min-height: var(--qm-tap);
+}
+
+/* Phones held upright: the tabs dock at the bottom like an app bar. */
+@media (max-width: 719px) and (orientation: portrait), (max-width: 479px) {
+  .qm {
+    padding-bottom: calc(68px + env(safe-area-inset-bottom));
+  }
+  .qm-top {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-bottom: 4px;
+  }
+  .qm-brand {
+    font-size: 18px;
+  }
+  .qm-brand img {
+    width: 32px;
+    height: 32px;
+  }
+  .qm-tabs {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 0;
+    padding: 6px max(8px, env(safe-area-inset-left)) calc(6px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-right));
+    border: 0;
+    border-top: 1px solid var(--qm-line);
+    border-radius: 0;
+    background: rgba(17, 18, 21, 0.92);
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  }
+  .qm-tabs [role='tab'] {
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+    min-height: 54px;
+    padding: 0 2px;
+    font-size: 11.5px;
+    font-weight: 600;
+  }
+  .qm-tabs [role='tab'] .qm-icon {
+    width: 22px;
+    height: 22px;
+  }
+  .qm-tabs [role='tab'][aria-selected='true'] {
+    background: transparent;
+    box-shadow: none;
+  }
+  .qm-tabs [role='tab'][aria-selected='true']::before {
+    content: '';
+    position: absolute;
+    top: -7px;
+    left: 30%;
+    right: 30%;
+    height: 3px;
+    border-radius: 0 0 3px 3px;
+    background: var(--qm-yellow);
+  }
+  .qm-foot {
+    flex-direction: column;
+    text-align: center;
+  }
+  .qm-foot a:first-child {
+    margin-left: 0;
+  }
+}
+
+/* Phones on their side: a slim header, icon-first tabs. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .qm-top {
+    padding-top: max(8px, env(safe-area-inset-top));
+    padding-bottom: 6px;
+  }
+  .qm-brand {
+    font-size: 17px;
+  }
+  .qm-brand img {
+    width: 30px;
+    height: 30px;
+  }
+  .qm-tabs {
+    padding: 3px;
+  }
+  .qm-tabs [role='tab'] {
+    padding: 0 12px;
+    font-size: 13px;
+  }
+}

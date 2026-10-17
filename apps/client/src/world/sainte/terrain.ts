@@ -2,27 +2,15 @@
  * Sainte-Canard terrain: the same height grid and triangle split as the
  * Rapier heightfield (what you see is what you stand on), colored per vertex
  * from the map's ground paint, cut into chunks so off-screen parts are culled.
+ * The vertex colors are the flat look (and the far color of the textured
+ * ground, `groundMaterial.ts`, which replaces the material once its textures load).
  */
 import * as THREE from 'three/webgpu';
 import type { TerrainDef } from '@qwakk/shared';
 import { envMaterial } from './gltf.ts';
+import { GROUND_COLORS, gridNormals, isSteep, STEEP_ROCK } from './groundPaint.ts';
 
-/** Toon colors per ground paint name (legend in map_v1.json terrain.groundLegend). */
-export const GROUND_COLORS: Record<string, number> = {
-  grass: 0x8cc152,
-  grass_dark: 0x6fa443,
-  sand: 0xf1dfa6,
-  rock: 0xa29d92,
-  dirt_road: 0xcfa86e,
-  cobble: 0xb9ae9c,
-  wheat: 0xe9c75c,
-  green_crop: 0xa3cf58,
-  plowed: 0x9c744d,
-  forest_floor: 0x5e8a3c,
-  river_mud: 0x8d7c58,
-  seabed: 0xdcc58e,
-  orchard_grass: 0x9ccb5c,
-};
+export { GROUND_COLORS } from './groundPaint.ts';
 
 const CHUNKS = 5;
 
@@ -48,20 +36,7 @@ export function createSainteTerrain(t: TerrainDef, ground: Uint8Array, legend: r
       pos[i * 3 + 2] = -half + r * t.cellSize;
     }
   }
-  const nrm = new Float32Array(w * w * 3);
-  for (let r = 0; r < w; r++) {
-    for (let c = 0; c < w; c++) {
-      const h = (rr: number, cc: number) => t.heights[Math.min(n, Math.max(0, rr)) * w + Math.min(n, Math.max(0, cc))] ?? 0;
-      const nx = h(r, c - 1) - h(r, c + 1);
-      const nz = h(r - 1, c) - h(r + 1, c);
-      const ny = 2 * t.cellSize;
-      const len = Math.hypot(nx, ny, nz);
-      const i = (r * w + c) * 3;
-      nrm[i] = nx / len;
-      nrm[i + 1] = ny / len;
-      nrm[i + 2] = nz / len;
-    }
-  }
+  const nrm = gridNormals(t);
   const palette = legend.map((name) => new THREE.Color(GROUND_COLORS[name] ?? GROUND_COLORS.grass));
   const fallback = new THREE.Color(GROUND_COLORS.grass);
   const col = new Float32Array(w * w * 3);
@@ -69,7 +44,7 @@ export function createSainteTerrain(t: TerrainDef, ground: Uint8Array, legend: r
   for (let i = 0; i < w * w; i++) {
     tmp.copy(palette[ground[i] ?? 0] ?? fallback);
     // Steep faces read as rock, whatever the paint says.
-    if ((nrm[i * 3 + 1] ?? 1) < 0.72 && (pos[i * 3 + 1] ?? 0) > 0.5) tmp.lerp(palette[legend.indexOf('rock')] ?? tmp, 0.65);
+    if (isSteep(nrm[i * 3 + 1] ?? 1, pos[i * 3 + 1] ?? 0)) tmp.lerp(palette[legend.indexOf('rock')] ?? tmp, STEEP_ROCK);
     tmp.multiplyScalar(1 + jitter(i));
     col[i * 3] = tmp.r;
     col[i * 3 + 1] = tmp.g;

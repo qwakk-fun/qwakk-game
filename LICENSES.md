@@ -4,6 +4,7 @@
 | --- | --- | --- |
 | Duck model, animations, rifle, pistol (`apps/client/public/models/`) | Made for Qwakk by script in this repo (`art/`) | Owned by Qwakk |
 | Sound effects (gunshots, reloads, hit marker, headshot, kill confirm, quack, damage) | Synthesized at runtime with WebAudio in `apps/client/src/audio/sound.ts`; no sample files | Owned by Qwakk |
+| Ground textures (`apps/client/public/textures/ground/`) | Procedural, made for Qwakk by script in this repo (`art/ground/`, Blender and numpy); no photos, scans or texture packs | Owned by Qwakk |
 | Greybox island, effects, HUD | Generated in code in this repo | Owned by Qwakk |
 | Menu art (`apps/client/public/ui/duck-rifle.webp`) | Resized from `art/renders/hold_rifle_three_quarter.png` | Owned by Qwakk |
 | Brand mark (`apps/client/public/ui/brand-mark.svg`) | Copy of `qwakk-landing/public/brand-mark.svg` | Owned by Qwakk |

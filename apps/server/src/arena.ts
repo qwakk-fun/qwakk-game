@@ -35,6 +35,10 @@ export interface BotTarget {
   alive: boolean;
   /** Team number (0: none). A bot is never handed its own teammates as targets. */
   team: number;
+  /** Spawn protected right now (public: the duck blinks). Bots do not shoot at it. */
+  protect: boolean;
+  /** Respawn counter: a new life is a new target for a bot (fresh reaction time). */
+  life: number;
 }
 
 /** What drives a bot seat: one input frame per tick, through the same path as a human's. */
@@ -168,6 +172,16 @@ export abstract class Arena {
     return a !== b && a.team > 0 && a.team === b.team;
   }
 
+  /** Spawn protected right now (deathmatch): takes no damage, shots pass through it. */
+  isProtected(id: string): boolean {
+    return (this.seats.get(id)?.protect ?? 0) > 0;
+  }
+
+  private anyProtected(): boolean {
+    for (const s of this.seats.values()) if (s.protect > 0) return true;
+    return false;
+  }
+
   alliesById(a: string, b: string): boolean {
     const sa = this.seats.get(a);
     const sb = this.seats.get(b);
@@ -202,24 +216,28 @@ export abstract class Arena {
     if (seat.bot) sanitizeInputFields(f);
     if (this.tick - seat.spawnTick >= COMBAT.spawnTurnGraceTicks) clampAngleRate(seat.sim.yaw, seat.sim.pitch, f);
     seat.side = f.buttons & Button.ShoulderLeft ? -1 : 1;
+    // The fire button ends spawn protection at once, before the step, so the shot this input fires counts
+    // normally (a protected duck never deals damage: it has to drop its protection to shoot). Stand-in
+    // steps never carry fire, and moving, reloading or switching weapons keep it.
+    if (f.buttons & Button.Fire) seat.protect = 0;
     if (!seat.bot) seat.viewLagMs = Math.max(0, Math.min(COMBAT.maxRewindMs, this.now - viewTimeMs));
     this.beforeStep(seat, f);
     const shot = stepPlayer(this.sim, seat.sim, f, DT);
     this.afterStep(seat, f);
     if (!shot) return;
-    seat.protect = 0; // firing ends spawn protection
     const viewTime = Math.max(this.now - this.maxRewindFor(seat), Math.min(this.now, viewTimeMs));
     const isFar = this.ao.isFar;
     const extra = this.ao.farExtraDelayMs ?? 0;
     const rtt = Math.max(0, seat.rttMs);
     let targets = this.history.sample(viewTime, isFar ? (id, t) => (isFar(seat.id, id, this.now, rtt) ? Math.max(this.now - COMBAT.maxRewindMs, t - extra) : t) : undefined);
-    // No friendly fire: shots pass through teammates (the client predicts the same).
-    if (seat.team > 0) targets = targets.filter((t) => !this.alliesById(seat.id, t.id));
+    // No friendly fire: shots pass through teammates; and through spawn-protected ducks, which take no
+    // damage (the client predicts the same for both, so tracers and hit markers match).
+    if (seat.team > 0 || this.anyProtected()) targets = targets.filter((t) => !this.alliesById(seat.id, t.id) && !this.isProtected(t.id));
     const r = resolveShot(this.sim, seat.sim, seat.id, seat.side, shot, spreadSeed(this.secret, seat.pid), targets);
     this.ev.shot(seat, shot.weapon, r);
     if (r.outcome !== ShotOutcome.Body && r.outcome !== ShotOutcome.Head) return;
     const victim = this.seats.get(r.targetId);
-    if (!victim || !victim.sim.alive || victim.protect > 0 || !this.damageOn() || this.allies(seat, victim)) return;
+    if (!victim || !victim.sim.alive || victim.protect > 0 || seat.protect > 0 || !this.damageOn() || this.allies(seat, victim)) return;
     const head = r.outcome === ShotOutcome.Head;
     const raw = damageAt(weaponStats(shot.weapon), r.distance, head);
     const down = victim.sim.down === 1;
@@ -318,7 +336,9 @@ export abstract class Arena {
   protected thinkBots(): void {
     const view = this.botView;
     view.length = 0;
-    for (const s of this.seats.values()) view.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, alive: s.sim.alive === 1 && s.sim.mode !== Mode.Plane, team: s.team });
+    for (const s of this.seats.values()) {
+      view.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, alive: s.sim.alive === 1 && s.sim.mode !== Mode.Plane, team: s.team, protect: s.protect > 0, life: s.life });
+    }
     for (const s of this.seats.values()) {
       if (!s.bot) continue;
       // Teammates are never targets.

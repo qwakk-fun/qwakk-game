@@ -4,14 +4,14 @@
  * Create room button. Connected while the menu is up (start/stop); retries
  * on its own with a backoff when the connection drops. The same connection
  * feeds the deathmatch rooms list (dmRoomsList.ts, its own section `dmEl`).
- * The mode picker (Solo, Duo, Squad) sets the team size of a room you create
- * and what Quick Play looks for; modes too small for your party are off, and
- * rooms whose teams cannot take your party cannot be joined.
+ * Rooms whose teams cannot take your party cannot be joined (the mode picker
+ * for rooms you create is teamPicker.ts, on the Play step).
  */
-import { BR_ROOM_CAP, shortRoomId, START_RULE, TEAM_SIZES, teamSizeFor, teamSizeOf, type RoomListing } from '@qwakk/shared/lobby';
+import { BR_ROOM_CAP, shortRoomId, START_RULE, teamSizeOf, type RoomListing } from '@qwakk/shared/lobby';
 import { gameServer } from './api.ts';
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
+import { icon } from './icons.ts';
 import { DmRoomsList } from './dmRoomsList.ts';
 import type { LobbyConnection, LobbyEntry } from './lobbyClient.ts';
 
@@ -50,33 +50,20 @@ export class RoomsPanel {
   private live = false;
   /** Bumped on every start/stop, so a late connect from an old run closes itself. */
   private generation = 0;
-  private readonly modeButtons = new Map<number, HTMLButtonElement>();
-  private modePick = 1;
   private partySize = 1;
 
   constructor(hooks: RoomsHooks) {
     this.hooks = hooks;
     this.dm = new DmRoomsList((id) => this.hooks.joinDm(id));
     this.dmEl = this.dm.el;
-    this.createBtn = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-rooms-create' }, R.create);
+    this.createBtn = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-rooms-create' }, icon('plus'), R.create);
     this.createBtn.addEventListener('click', () => this.hooks.create());
-    const modes = h('div', { class: 'qm-modes', role: 'radiogroup', 'aria-label': M.label });
-    for (const t of TEAM_SIZES) {
-      const b = h('button', { type: 'button', class: 'qm-mode', role: 'radio', 'data-team': t }, M.names[t] ?? `${t}`);
-      b.addEventListener('click', () => {
-        if (t < this.partySize) return;
-        this.modePick = t;
-        this.render();
-      });
-      this.modeButtons.set(t, b);
-      modes.append(b);
-    }
     this.listEl = h('ul', { class: 'qm-rooms-list', 'aria-label': R.heading });
     this.msg = h('p', { class: 'qm-rooms-msg', role: 'status', 'aria-live': 'polite' });
     this.el = h(
       'section',
       { class: 'qm-rooms', 'aria-labelledby': 'qm-rooms-h' },
-      h('div', { class: 'qm-rooms-head' }, h('div', {}, h('h2', { id: 'qm-rooms-h' }, R.heading), h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.minHumans, START_RULE.countdownSeconds))), h('div', { class: 'qm-rooms-actions' }, modes, this.createBtn)),
+      h('div', { class: 'qm-rooms-head' }, h('div', { class: 'qm-rooms-titles' }, h('h3', { id: 'qm-rooms-h' }, R.heading), h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.minHumans, START_RULE.countdownSeconds))), this.createBtn),
       this.msg,
       this.listEl,
     );
@@ -109,22 +96,16 @@ export class RoomsPanel {
     this.render();
   }
 
-  /** The team size picked for Create room and Quick Play (never smaller than the party). */
-  get mode(): number {
-    return Math.max(this.modePick, teamSizeFor(this.partySize));
-  }
-
   /** The live battle royale rooms (empty while not connected) and whether the list is live. */
   get list(): { live: boolean; rooms: readonly LobbyEntry[] } {
     return { live: this.live, rooms: this.rooms };
   }
 
-  /** Your party's size (1 without one): smaller modes switch off, the pick moves up. */
+  /** Your party's size (1 without one): rooms whose teams cannot take it are greyed out. */
   setPartySize(n: number): void {
     const size = Math.max(1, n);
     if (size === this.partySize) return;
     this.partySize = size;
-    if (this.modePick < size) this.modePick = teamSizeFor(size);
     this.render();
   }
 
@@ -200,13 +181,6 @@ export class RoomsPanel {
     }
     this.listEl.replaceChildren(...this.rooms.map((r) => this.row(r)));
     this.listEl.hidden = this.rooms.length === 0;
-    for (const [t, b] of this.modeButtons) {
-      const on = t === this.mode;
-      b.setAttribute('aria-checked', on ? 'true' : 'false');
-      b.classList.toggle('is-on', on);
-      b.disabled = this.busy || t < this.partySize;
-      b.title = t < this.partySize ? M.tooSmall : '';
-    }
   }
 
   private row(r: LobbyEntry): HTMLElement {
@@ -222,9 +196,9 @@ export class RoomsPanel {
     return h(
       'li',
       { class: `qm-room is-${l.stage}`, 'data-room': r.roomId },
+      h('span', { class: 'qm-room-dot', 'aria-hidden': 'true' }),
       h('div', { class: 'qm-room-name' }, h('span', { class: 'qm-room-label' }, l.label), h('span', { class: 'qm-room-mode' }, M.names[team] ?? ''), h('span', { class: 'qm-room-id' }, `#${shortRoomId(r.roomId)}`)),
-      h('span', { class: 'qm-room-count', 'aria-label': R.ducksLabel(l.humans, l.cap) }, R.ducks(l.humans, l.cap)),
-      h('span', { class: 'qm-room-stage' }, stageText(l)),
+      h('div', { class: 'qm-room-meta' }, h('span', { class: 'qm-room-count', 'aria-label': R.ducksLabel(l.humans, l.cap) }, R.ducks(l.humans, l.cap)), h('span', { class: 'qm-room-stage' }, stageText(l))),
       join,
     );
   }

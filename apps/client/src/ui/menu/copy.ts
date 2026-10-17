@@ -7,7 +7,6 @@ export const COPY = {
   titleAccent: 'Island',
   kicker: 'season 1 is live',
   tagline: 'Drop in. Loot up. Last duck quacking wins.',
-  nameLabel: 'Your duck',
   namePlaceholder: 'Pick a name',
   nameHint: '3 to 16 letters, numbers or _',
   nameSaved: 'Name locked in.',
@@ -19,9 +18,41 @@ export const COPY = {
   finding: 'Finding a pond...',
   loadingGame: 'Waddling to the island...',
   tabs: { play: 'Play', leaderboard: 'Leaderboard', settings: 'Settings', howto: 'How to play' },
+  /** Labels screen readers hear (no visible text). */
+  aria: {
+    tabs: 'Menu',
+    home: 'Qwakk home',
+    links: 'Links',
+    tag: 'Your tag',
+    steps: 'Get in a match',
+    lobby: 'Friends and rooms',
+    sortBy: 'Sort by',
+  },
+  /** The join flow on the Play tab: name, duck, play. */
+  steps: {
+    name: 'Name your duck',
+    character: 'Pick your duck',
+    play: 'Drop in',
+    playSub: 'Battle royale mode',
+    waitLeader: 'Your party leader picks the room. Sit tight.',
+  },
+  /** The character picker (characters.ts holds the catalog; every name and line lives here). */
+  characters: {
+    label: 'Characters',
+    soon: 'More ducks hatching soon',
+    preview: 'Your duck',
+    list: {
+      classic: { name: 'Classic', blurb: 'The original. Rifle up, bill out.' },
+    },
+  },
+  lobby: {
+    heading: 'Live now',
+    sub: 'Rooms update live. Bots fill every empty seat.',
+  },
   party: {
     heading: 'Play with friends',
-    sub: 'Make a party, send the link, land in the same room on the same team.',
+    sub: 'Make a party, send the link, land on the same team.',
+    or: 'or join one',
     create: 'Create party',
     codeLabel: 'Party code',
     codePlaceholder: 'Code or link',
@@ -167,7 +198,8 @@ export const COPY = {
     unavailable: 'The board is still hatching. Check back soon.',
     unreachable: "Can't reach the pond right now.",
     retry: 'Try again',
-    you: (rank: number, total: number) => `You are #${rank} of ${total}`,
+    youChip: 'you',
+    youPoints: (rank: number, total: number, points: number) => `You are #${rank} of ${total} with ${points} points`,
     youUnranked: 'Play a round to get on the board.',
     scoring: 'Score: 10 a kill (20 kills max a round), up to 50 for placement, 50 more for the win. Deathmatch counts half. Bots never rank.',
   },

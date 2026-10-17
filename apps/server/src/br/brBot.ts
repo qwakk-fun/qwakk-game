@@ -17,7 +17,7 @@
  */
 import { Button, Item, KNOCK, Mode, planeAt, type InputFrame, type PlayerSim } from '@qwakk/shared';
 import type { BotLike, BotTarget } from '../arena.ts';
-import { BotBrain, SKILL, type BotSkill } from '../bots.ts';
+import { BotBrain, type BotSkill } from '../bots.ts';
 import { PathFollower, type BotNav, type P3 } from '../nav/botNav.ts';
 import { dropSteer, planLanding, type LandingPlan } from './botLanding.ts';
 import { entityScore, geared, pickItem } from './botLoot.ts';
@@ -37,21 +37,33 @@ const GIVE_UP_TICKS = 150;
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 
 /**
- * Battle royale bots are a bit softer than deathmatch ones: slower to react,
- * looser aim, a shorter view. They are the lobby filler; a match should be
- * winnable and last, not end in a three-minute bloodbath.
+ * Battle royale bot skill: slow to react, loose first aim, a short view. They
+ * are the lobby filler; a match should be winnable and last, not end in a
+ * three-minute bloodbath. Every knob is spelled out, so tuning the deathmatch
+ * bots (`DM_BOT` in constants.ts) leaves these alone.
  */
 /** Landing spots chosen per match (keyed by the match's bot context), so bots spread out. */
 const landings = new WeakMap<object, { route: unknown; spots: { x: number; z: number }[] }>();
 
 export const BR_SKILL: BotSkill = {
-  ...SKILL,
   reactionTicks: [14, 26],
   yawError: 0.17,
   pitchError: 0.08,
   errorSettlePerTick: 0.93,
   recoilControl: 0.6,
   viewRange: 50,
+  // The values the deathmatch bots had before they were softened (both modes used to share them).
+  burstYawError: 0,
+  burstPitchError: 0,
+  trackRate: 1,
+  turnRatePerTick: 0.22,
+  headChance: 0.1,
+  fovCos: Math.cos((75 * Math.PI) / 180),
+  hearRange: 9,
+  burstShots: [3, 6],
+  longBurstShots: [2, 4],
+  burstPauseTicks: [5, 12],
+  semiPauseTicks: [3, 7],
 };
 
 export class BrBot implements BotLike {

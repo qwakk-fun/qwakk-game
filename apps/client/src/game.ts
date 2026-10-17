@@ -10,7 +10,7 @@
  * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { Act, actionOf, aimBlend, Button, COMBAT, hasWeapon, inaccuracy, Mode, weaponStats } from '@qwakk/shared';
+import { Act, actionOf, aimBlend, Button, COMBAT, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
 import { TpsCamera } from './camera/tpsCamera.ts';
@@ -295,6 +295,9 @@ export class Game {
     const dt = this.timer.frame(now);
     const session = this.session;
     session.pump(now, this.sampleInput);
+    // Spawn protection blink: a protected duck (the server's flag, never a guess) is hidden in the off part of each blink.
+    const phase = (now / 1000) * SPAWN_PROTECTION.blinkHz;
+    const blinkOff = phase - Math.floor(phase) >= SPAWN_PROTECTION.blinkOnShare;
 
     // Local player: predicted pose, interpolated between fixed steps.
     const me = session.me;
@@ -335,7 +338,7 @@ export class Game {
       p.helmet = mine.helmet;
       p.pack = mine.pack;
       p.aim = this.cam.aimBlend;
-      this.localAvatar.object.visible = mode !== Mode.Plane;
+      this.localAvatar.object.visible = mode !== Mode.Plane && !(mine.protect === 1 && blinkOff);
       this.localAvatar.update(p, dt);
       this.localMotion.sample(x, z, dt);
       this.crouchBlend += (st.crouch - this.crouchBlend) * (1 - Math.exp(-dt * 16));
@@ -365,7 +368,7 @@ export class Game {
     for (const [id, r] of this.remotes) {
       const s = r.state;
       const p = session.pose(id);
-      r.avatar.object.visible = p !== null;
+      r.avatar.object.visible = p !== null && !(s.protect === 1 && blinkOff);
       if (!p) {
         r.motion.gap();
         continue;

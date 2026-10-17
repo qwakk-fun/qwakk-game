@@ -57,6 +57,8 @@ export async function getTurnstileToken(host: HTMLElement): Promise<string> {
           host.hidden = true;
         }, 0);
       },
+      // The host sits in step 1, which can be off-screen when Play or a party button asked for the check.
+      'before-interactive-callback': () => host.scrollIntoView({ block: 'center', behavior: 'smooth' }),
       'error-callback': () => reject(new Error('turnstile_failed')),
       'expired-callback': () => reject(new Error('turnstile_failed')),
     });

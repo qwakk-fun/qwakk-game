@@ -3,7 +3,8 @@
  * loads Sainte-Canard without a game server and flies a fixed camera path for
  * frame time, draw call and triangle measurements (e2e/map-perf.ts).
  *
- * URL: /game/mapview.html?quality=low&shadows=0&ducks=0&segment=street&hold=1 (or &cam=x,y,z&look=x,y,z&segment=view)
+ * URL: /game/mapview.html?quality=low&shadows=0&ducks=0&segment=street&hold=1 (or &cam=x,y,z&look=x,y,z&segment=view,
+ * &rel=1 for y above the ground, &map=canard-quarter for another map)
  */
 import * as THREE from 'three/webgpu';
 import { Item } from '@qwakk/shared';
@@ -12,7 +13,7 @@ import { createRenderer } from '../render/renderer.ts';
 import { Avatar } from '../player/avatar.ts';
 import { loadDuckGlb } from '../player/duckModel.ts';
 import { loadClips } from '../player/animations.ts';
-import { createGlider, createSainteWorld, ItemsView, loadSainteCanard, PlaneView, ZoneWall } from '../world/sainte/index.ts';
+import { createGlider, createSainteWorld, ItemsView, loadMapAssets, PlaneView, ZoneWall } from '../world/sainte/index.ts';
 
 const params = new URLSearchParams(location.search);
 const info = document.getElementById('info') as HTMLElement;
@@ -76,7 +77,7 @@ const SEGMENTS: Segment[] = [
   },
 ];
 
-/** `?cam=x,y,z&look=x,y,z` adds a fixed 'view' segment (house interiors, review shots). */
+/** `?cam=x,y,z&look=x,y,z` adds a fixed 'view' segment (house interiors, review shots); with `rel=1` the y values are above the ground. */
 const camParam = params.get('cam')?.split(',').map(Number);
 const lookParam = params.get('look')?.split(',').map(Number);
 if (camParam?.length === 3 && lookParam?.length === 3 && [...camParam, ...lookParam].every(Number.isFinite)) {
@@ -85,9 +86,10 @@ if (camParam?.length === 3 && lookParam?.length === 3 && [...camParam, ...lookPa
   SEGMENTS.push({
     name: 'view',
     seconds: 3,
-    at(_u, pos, look) {
-      pos.set(cx, cy, cz);
-      look.set(lx, ly, lz);
+    at(_u, pos, look, ground) {
+      const rel = params.get('rel') === '1';
+      pos.set(cx, cy + (rel ? ground(cx, cz) : 0), cz);
+      look.set(lx, ly + (rel ? ground(lx, lz) : 0), lz);
     },
   });
 }
@@ -126,7 +128,7 @@ function summarize(name: string, frames: number[], cpu: number[], calls: number[
 async function main(): Promise<void> {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   const shadows = params.get('shadows') !== '0';
-  const [ctx, assets] = await Promise.all([createRenderer(canvas, { forceWebGL: config.forceWebGL, pixelRatio: config.pixelRatio, shadows }), loadSainteCanard()]);
+  const [ctx, assets] = await Promise.all([createRenderer(canvas, { forceWebGL: config.forceWebGL, pixelRatio: config.pixelRatio, shadows }), loadMapAssets(params.get('map') ?? 'sainte-canard')]);
   const { scene, camera, renderer } = ctx;
   camera.far = 1400;
   camera.updateProjectionMatrix();

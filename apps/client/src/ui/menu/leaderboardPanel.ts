@@ -53,11 +53,11 @@ export class LeaderboardPanel {
       h(
         'div',
         { class: 'qm-lb-controls' },
-        segmented('Mode', L.modes, this.mode, (m) => {
+        segmented(COPY.modes.label, L.modes, this.mode, (m) => {
           this.mode = m;
           void this.load();
         }),
-        segmented('Sort by', L.sorts, this.sort, (s) => {
+        segmented(COPY.aria.sortBy, L.sorts, this.sort, (s) => {
           this.sort = s;
           void this.load();
         }),
@@ -86,7 +86,7 @@ export class LeaderboardPanel {
     }
     const me = await mine;
     if (seq !== this.seq) return;
-    this.me.textContent = me?.leaderboard ? (me.standing ? `${L.you(me.standing.rank, me.total)} · ${me.standing.score} pts` : L.youUnranked) : '';
+    this.me.textContent = me?.leaderboard ? (me.standing ? L.youPoints(me.standing.rank, me.total, me.standing.score) : L.youUnranked) : '';
   }
 
   private table(rows: Standing[], myName?: string, myTag?: string): HTMLElement {
@@ -101,7 +101,7 @@ export class LeaderboardPanel {
           'tr',
           { class: [isMe ? 'me' : '', r.rank <= 3 ? `top top${r.rank}` : ''].join(' ').trim() || undefined },
           h('td', { class: 'rank' }, r.rank),
-          h('td', { class: 'duck' }, r.name, h('span', { class: 'tag' }, `#${r.tag}`)),
+          h('td', { class: 'duck' }, r.name, h('span', { class: 'tag' }, `#${r.tag}`), isMe ? h('span', { class: 'qm-you' }, L.youChip) : null),
           h('td', { class: `num${sorted === 'score' ? ' hot' : ''}` }, r.score),
           h('td', { class: `num${sorted === 'wins' ? ' hot' : ''}` }, r.wins),
           h('td', { class: `num${sorted === 'kills' ? ' hot' : ''}` }, r.kills),

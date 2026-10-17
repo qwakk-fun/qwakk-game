@@ -127,10 +127,16 @@ export const MATCH = {
   scoreLimit: 50,
   roundSeconds: 600,
   intermissionSeconds: 10,
-  /** Respawns pick among the spawn points farthest from living enemies: this many candidates... */
+  /**
+   * Respawns go to one of this many spawn points that no enemy can see, taken
+   * in order of distance to the nearest living enemy (farthest first)...
+   */
   spawnCandidates: 6,
-  /** ...and skip those an enemy within this range has a clear line of sight to (m). */
-  spawnSightRange: 60,
+  /** ...where "can see" means a clear line of sight from an enemy within this range (m; the bots' view range)... */
+  spawnSightRange: 80,
+  /** ...and at least this far from every enemy (m); at most this many points are tested (sight rays). */
+  spawnMinEnemyDistance: 18,
+  spawnScanMax: 18,
   /** A spawn point used this recently counts as occupied (ticks), so two ducks never spawn on top of each other. */
   spawnReuseTicks: 90,
   /**
@@ -141,6 +147,59 @@ export const MATCH = {
   derivedSpawnRadius: 60,
   derivedSpawnStep: 5,
   derivedSpawnMax: 48,
+} as const;
+
+/**
+ * Deathmatch spawn protection (server rule, replicated as `PlayerState.protect`).
+ * A fresh duck takes no damage and blinks; the first input with the fire button
+ * held ends it at once (that shot counts normally). Moving, reloading and
+ * switching weapons do not end it. Shots pass through a protected duck (the
+ * client predicts the same), and bots do not pick protected ducks as targets.
+ */
+export const SPAWN_PROTECTION = {
+  /** How long it lasts after a spawn (ticks, 2 s). */
+  ticks: Math.round(2 * TICK_RATE),
+  /** Client: blinks per second of a protected duck, and the share of each blink it is drawn. */
+  blinkHz: 6,
+  blinkOnShare: 0.5,
+} as const;
+
+/**
+ * Deathmatch bot skill (server bots, `apps/server/src/bots.ts`). Higher reaction
+ * and error, slower settling and tracking mean a softer bot. Tuned so an
+ * average player wins a fair duel more often than not: a bot reacts in about
+ * half a second, its first shots of a burst stray, it lags behind a strafing
+ * target and does not control recoil well. Battle royale bots have their own
+ * numbers (`BR_SKILL` in `br/brBot.ts`).
+ */
+export const DM_BOT = {
+  /** Ticks from first sight of a new target to the first shot (random in range). */
+  reactionTicks: [14, 24],
+  /** Aim error on a new target (rad, random up to this either way), shrinking by `errorSettlePerTick` every tick. */
+  yawError: 0.2,
+  pitchError: 0.08,
+  errorSettlePerTick: 0.95,
+  /** A fresh aim error rolled at the start of every burst that does not settle (rad, up to this either way). */
+  burstYawError: 0.02,
+  burstPitchError: 0.012,
+  /** Share of the gap to the target's position the aim point closes per tick: a strafing target is aimed at where it was. */
+  trackRate: 0.3,
+  /** Turn speed (rad per tick). */
+  turnRatePerTick: 0.16,
+  /** Share of the spray pattern it pulls against. */
+  recoilControl: 0.55,
+  /** Chance to aim at the head instead of the belly (per target). */
+  headChance: 0.05,
+  /** Sight: range (m), half angle of the field of view (deg), and the range it notices anyone at regardless of facing (m). */
+  viewRange: 80,
+  fovHalfAngleDeg: 60,
+  hearRange: 6,
+  /** Automatic weapons: shots per burst (close, and past 28 m), and ticks of pause between bursts. */
+  burstShots: [2, 5],
+  longBurstShots: [2, 3],
+  burstPauseTicks: [8, 16],
+  /** Semi-automatic weapons: ticks between trigger pulls on top of the fire rate. */
+  semiPauseTicks: [5, 10],
 } as const;
 
 /** Interest management: how often and how precisely other players are sent. */

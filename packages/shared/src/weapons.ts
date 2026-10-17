@@ -3,7 +3,7 @@
  * crosshair) and server (authority). Angles in radians, times in ticks
  * (30 per second) unless the name says otherwise.
  */
-import { TICK_RATE } from './constants.ts';
+import { SPAWN_PROTECTION, TICK_RATE } from './constants.ts';
 
 export const WeaponId = {
   Rifle: 0,
@@ -131,8 +131,8 @@ export const COMBAT = {
   maxHp: 100,
   /** Respawn delay after death. */
   respawnTicks: ticks(3),
-  /** Spawn protection: no damage taken; ends early when the player fires. */
-  protectTicks: ticks(1.5),
+  /** Deathmatch spawn protection: no damage taken, ends early when the player presses fire (`SPAWN_PROTECTION`). */
+  protectTicks: SPAWN_PROTECTION.ticks,
   /** Below this fraction of run speed movement adds no inaccuracy (counter-strafe payoff). */
   accurateSpeedFraction: 0.34,
   /** Max range of a hitscan shot (m). */

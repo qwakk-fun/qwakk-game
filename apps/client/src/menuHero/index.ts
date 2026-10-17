@@ -43,7 +43,8 @@ export async function mountHero(host: HTMLElement, opts: HeroOptions = {}): Prom
   canvas.className = 'qm-hero3d';
   host.append(canvas);
   // WebGL2 on purpose: quick to start, and no second WebGPU device next to the game's.
-  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true, forceWebGL: true, powerPreference: 'low-power' });
+  const renderer = new THREE.WebGPURenderer({ canvas, antialias: true, alpha: true, forceWebGL: true, powerPreference: 'low-power' });
+  renderer.setClearColor(0x000000, 0);
   let duck: HeroDuck;
   let ticker: { start(): void; stop(): void } | undefined;
   try {

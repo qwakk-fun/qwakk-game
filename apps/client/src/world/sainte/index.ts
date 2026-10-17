@@ -9,6 +9,8 @@ import type { MapAssets } from './assets.ts';
 import { CRATE_PROPS, CratesView, type CrateSpot } from './crates.ts';
 import { SainteProps } from './props.ts';
 import { createSainteEnvironment, type SainteEnvironment } from './sky.ts';
+import { createGroundMaterial, type GroundMaterial } from './groundMaterial.ts';
+import { GROUND_LOAD_TIMEOUT_MS, loadGroundTextures } from './groundTextures.ts';
 import { createSainteTerrain } from './terrain.ts';
 import { createRiver, createSea } from './water.ts';
 
@@ -49,6 +51,25 @@ export async function createSainteWorld(scene: THREE.Scene, assets: MapAssets, o
   const env = createSainteEnvironment(scene, opts.shadows);
   const terrain = createSainteTerrain(def.terrain, ground, extras.groundLegend);
   scene.add(terrain);
+  // The ground textures load next to the props; without them (failed, or not here
+  // within the timeout on a slow network) the terrain keeps its flat vertex colors.
+  // A late arrival is not swapped in mid-match; the next game uses the cached copy.
+  let groundTimer: ReturnType<typeof setTimeout> | undefined;
+  let groundTimedOut = false;
+  const groundTextures = Promise.race([
+    loadGroundTextures(),
+    new Promise<null>((resolve) => {
+      groundTimer = setTimeout(() => {
+        groundTimedOut = true;
+        resolve(null);
+      }, GROUND_LOAD_TIMEOUT_MS);
+    }),
+  ])
+    .catch((e: unknown) => {
+      console.warn('ground textures unavailable, flat ground colors:', e);
+      return null;
+    })
+    .finally(() => clearTimeout(groundTimer));
   const sea = createSea(def.seaLevel);
   scene.add(sea);
   const river = def.water ? createRiver(def.water) : null;
@@ -59,6 +80,19 @@ export async function createSainteWorld(scene: THREE.Scene, assets: MapAssets, o
   const crates = new CratesView(crateSpots, opts.quality);
   scene.add(crates.group);
   await crates.load(`${import.meta.env.BASE_URL}models/crates/crates.glb`);
+  const groundTex = await groundTextures;
+  let groundMat: GroundMaterial | null = null;
+  if (groundTex) {
+    try {
+      groundMat = createGroundMaterial(def.terrain, ground, extras.groundLegend, groundTex, opts.quality);
+      for (const c of terrain.children) (c as THREE.Mesh).material = groundMat.material;
+    } catch (e) {
+      console.warn('textured ground failed, flat ground colors:', e);
+      groundMat = null;
+    }
+  } else if (groundTimedOut) {
+    console.warn(`ground textures not loaded within ${GROUND_LOAD_TIMEOUT_MS} ms, flat ground colors`);
+  }
 
   const frustum = new THREE.Frustum();
   const pv = new THREE.Matrix4();
@@ -102,8 +136,10 @@ export async function createSainteWorld(scene: THREE.Scene, assets: MapAssets, o
       env.dispose();
       for (const o of [terrain, sea, river]) o?.removeFromParent();
       for (const c of terrain.children) (c as THREE.Mesh).geometry.dispose();
-      // Water meshes own their geometry and material. The terrain material is the
-      // shared environment material (gltf.ts envMaterial): kept for the next game.
+      // Water meshes own their geometry and material. The flat terrain material is the
+      // shared environment material (gltf.ts envMaterial): kept for the next game. The
+      // textured one is this map's (the texture array itself is shared and kept).
+      groundMat?.dispose();
       for (const w of [sea, river]) {
         if (!w) continue;
         w.geometry.dispose();

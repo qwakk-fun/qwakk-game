@@ -38,7 +38,8 @@
     "db:down": "docker compose down",
     "e2e:party": "node --disable-warning=ExperimentalWarning e2e/party-duo.ts",
     "e2e:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-touch.ts",
-    "perf:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-perf.ts"
+    "perf:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-perf.ts",
+    "shots:menu": "node --disable-warning=ExperimentalWarning e2e/menu-shots.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

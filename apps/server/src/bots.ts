@@ -11,6 +11,7 @@
 import {
   aimOrigin,
   Button,
+  DM_BOT,
   PLAYER_QUERY_GROUPS,
   SIGHT_QUERY_GROUPS,
   WeaponId,
@@ -36,29 +37,52 @@ const TAU = Math.PI * 2;
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 const wrap = (a: number): number => a - TAU * Math.floor((a + Math.PI) / TAU);
 
-/** Skill knobs (deathmatch defaults; other modes may pass their own). Lower reaction and error means a harder bot. */
+/**
+ * Skill knobs (deathmatch defaults from `DM_BOT` in constants.ts; other modes
+ * pass their own). Lower reaction and error means a harder bot.
+ */
 export interface BotSkill {
   reactionTicks: readonly [number, number];
   yawError: number;
   pitchError: number;
   errorSettlePerTick: number;
+  /** Aim error rolled at each burst start that does not settle (rad, up to this either way). */
+  burstYawError: number;
+  burstPitchError: number;
+  /** Share of the gap to the target the aim point closes per tick (1: aims at where the target is now). */
+  trackRate: number;
   turnRatePerTick: number;
   recoilControl: number;
+  headChance: number;
   viewRange: number;
   fovCos: number;
   hearRange: number;
+  /** Automatic weapons: shots per burst (close, and past 28 m), ticks of pause after a burst. */
+  burstShots: readonly [number, number];
+  longBurstShots: readonly [number, number];
+  burstPauseTicks: readonly [number, number];
+  /** Semi-automatic weapons: pause after each trigger pull (ticks). */
+  semiPauseTicks: readonly [number, number];
 }
 
 export const SKILL: BotSkill = {
-  reactionTicks: [10, 18] as const,
-  yawError: 0.13,
-  pitchError: 0.06,
-  errorSettlePerTick: 0.9,
-  turnRatePerTick: 0.22,
-  recoilControl: 0.75,
-  viewRange: 95,
-  fovCos: Math.cos((75 * Math.PI) / 180),
-  hearRange: 9,
+  reactionTicks: DM_BOT.reactionTicks,
+  yawError: DM_BOT.yawError,
+  pitchError: DM_BOT.pitchError,
+  errorSettlePerTick: DM_BOT.errorSettlePerTick,
+  burstYawError: DM_BOT.burstYawError,
+  burstPitchError: DM_BOT.burstPitchError,
+  trackRate: DM_BOT.trackRate,
+  turnRatePerTick: DM_BOT.turnRatePerTick,
+  recoilControl: DM_BOT.recoilControl,
+  headChance: DM_BOT.headChance,
+  viewRange: DM_BOT.viewRange,
+  fovCos: Math.cos((DM_BOT.fovHalfAngleDeg * Math.PI) / 180),
+  hearRange: DM_BOT.hearRange,
+  burstShots: DM_BOT.burstShots,
+  longBurstShots: DM_BOT.longBurstShots,
+  burstPauseTicks: DM_BOT.burstPauseTicks,
+  semiPauseTicks: DM_BOT.semiPauseTicks,
 };
 
 export class BotBrain implements BotLike {
@@ -66,10 +90,16 @@ export class BotBrain implements BotLike {
   private yaw = 0;
   private pitch = 0;
   private targetId = '';
+  /** The target's life when it was picked: a duck that died and respawned is a new target (fresh reaction). */
+  private targetLife = -1;
   private reaction = 0;
   private yawErr = 0;
   private pitchErr = 0;
   private aimHead = false;
+  /** Where it aims on the target (lags behind a moving target by `trackRate`), and the error of the current burst. */
+  private readonly aimAt = { x: 0, y: 0, z: 0 };
+  private burstYaw = 0;
+  private burstPitch = 0;
   private strafe = 1;
   private strafeTicks = 0;
   private burstLeft = 0;
@@ -107,6 +137,7 @@ export class BotBrain implements BotLike {
     this.yaw = self.yaw;
     this.pitch = 0;
     this.targetId = '';
+    this.targetLife = -1;
     this.lastSeen = null;
     this.goal = null;
     this.burstLeft = 0;
@@ -128,8 +159,7 @@ export class BotBrain implements BotLike {
       return f;
     }
     if (tick % 3 === 0) this.perceive(self, others);
-    const target = this.targetId ? others.find((o) => o.id === this.targetId && o.alive) : undefined;
-    if (!target) this.targetId = '';
+    const target = this.current(others);
 
     if (target) this.fight(self, target);
     else this.roam(self);
@@ -155,8 +185,7 @@ export class BotBrain implements BotLike {
     f.buttons = 0;
     if (!self.alive) return false;
     if (tick % 3 === 0) this.perceive(self, others);
-    const target = this.targetId ? others.find((o) => o.id === this.targetId && o.alive) : undefined;
-    if (!target) this.targetId = '';
+    const target = this.current(others);
     if (target) this.fight(self, target);
     else {
       this.burstLeft = 0;
@@ -168,6 +197,15 @@ export class BotBrain implements BotLike {
     f.yaw = wrap(this.yaw);
     f.pitch = Math.max(-1.3, Math.min(1.4, this.pitch));
     return !!target;
+  }
+
+  /** The duck it fights, if still a fair target: alive, the same life, not spawn protected. */
+  private current(others: readonly BotTarget[]): BotTarget | undefined {
+    if (!this.targetId) return undefined;
+    const t = others.find((o) => o.id === this.targetId);
+    if (t && t.alive && !t.protect && t.life === this.targetLife) return t;
+    this.targetId = '';
+    return undefined;
   }
 
   /** The frame engage() wrote. */
@@ -228,7 +266,8 @@ export class BotBrain implements BotLike {
     let best: BotTarget | null = null;
     let bestD = Infinity;
     for (const o of others) {
-      if (!o.alive) continue;
+      // A spawn-protected duck blinks (public) and cannot be hurt: not worth a shot.
+      if (!o.alive || o.protect) continue;
       const d = Math.hypot(o.x - self.x, o.z - self.z);
       if (d >= bestD) continue;
       if (!this.visible(self, o)) continue;
@@ -236,13 +275,19 @@ export class BotBrain implements BotLike {
       bestD = d;
     }
     if (best) {
-      if (best.id !== this.targetId) {
-        // New target: a human-like reaction delay and a fresh aim error.
+      if (best.id !== this.targetId || best.life !== this.targetLife) {
+        // New target (or the same duck back from a respawn): a human-like reaction delay and a fresh aim error.
         this.targetId = best.id;
+        this.targetLife = best.life;
         this.reaction = Math.round(rand(this.skill.reactionTicks[0], this.skill.reactionTicks[1]));
         this.yawErr = rand(-1, 1) * this.skill.yawError;
         this.pitchErr = rand(-1, 1) * this.skill.pitchError;
-        this.aimHead = Math.random() < 0.1;
+        this.burstYaw = 0;
+        this.burstPitch = 0;
+        this.aimAt.x = best.x;
+        this.aimAt.y = best.y;
+        this.aimAt.z = best.z;
+        this.aimHead = Math.random() < this.skill.headChance;
         this.crouching = bestD > 30 && Math.random() < 0.25;
       }
       this.lastSeen = { x: best.x, z: best.z, ticks: 240 };
@@ -254,11 +299,17 @@ export class BotBrain implements BotLike {
   private fight(self: PlayerSim, t: BotTarget): void {
     const f = this.frame;
     const e = this.eye(self);
+    // Follow the target with a lag, like a hand tracking a strafing duck.
+    const a = this.aimAt;
+    const k = this.skill.trackRate;
+    a.x += (t.x - a.x) * k;
+    a.y += (t.y - a.y) * k;
+    a.z += (t.z - a.z) * k;
     // Aim at the belly so the spray climbs through the chest, like a decent player.
-    const aimY = t.y + (this.aimHead ? 1.36 : 0.8);
-    const dx = t.x - e.x;
+    const aimY = a.y + (this.aimHead ? 1.36 : 0.8);
+    const dx = a.x - e.x;
     const dy = aimY - e.y;
-    const dz = t.z - e.z;
+    const dz = a.z - e.z;
     const horiz = Math.hypot(dx, dz);
     const dist = Math.hypot(horiz, dy);
     const w = weaponStats(self.weapon);
@@ -267,8 +318,8 @@ export class BotBrain implements BotLike {
     // Aim error settles toward zero, with a little hand tremor.
     this.yawErr = this.yawErr * this.skill.errorSettlePerTick + rand(-1, 1) * 0.003;
     this.pitchErr = this.pitchErr * this.skill.errorSettlePerTick + rand(-1, 1) * 0.002;
-    const wantYaw = Math.atan2(-dx, -dz) + this.yawErr + pattern[1] * this.skill.recoilControl;
-    const wantPitch = Math.atan2(dy, horiz) + this.pitchErr - pattern[0] * this.skill.recoilControl;
+    const wantYaw = Math.atan2(-dx, -dz) + this.yawErr + this.burstYaw + pattern[1] * this.skill.recoilControl;
+    const wantPitch = Math.atan2(dy, horiz) + this.pitchErr + this.burstPitch - pattern[0] * this.skill.recoilControl;
     this.turnToward(wantYaw, wantPitch);
 
     // Movement: strafe, keep a fighting distance, stand still for long-range bursts.
@@ -295,16 +346,30 @@ export class BotBrain implements BotLike {
       return;
     }
     if (aimOff > tolerance * 2.5 && this.burstLeft === 0) return;
+    const s = this.skill;
     if (w.automatic) {
-      if (this.burstLeft === 0) this.burstLeft = Math.round(longRange ? rand(2, 4) : rand(3, 6)) * w.fireTicks;
+      if (this.burstLeft === 0) {
+        const shots = longRange ? s.longBurstShots : s.burstShots;
+        this.burstLeft = Math.round(rand(shots[0], shots[1])) * w.fireTicks;
+        this.rollBurstError();
+      }
       f.buttons |= Button.Fire;
-      if (--this.burstLeft <= 0) this.pauseTicks = Math.round(rand(5, 12));
+      if (--this.burstLeft <= 0) this.pauseTicks = Math.round(rand(s.burstPauseTicks[0], s.burstPauseTicks[1]));
     } else {
       // Semi-auto: press, release, press.
       this.holdFire = !this.holdFire;
       if (this.holdFire) f.buttons |= Button.Fire;
-      else this.pauseTicks = Math.round(rand(3, 7));
+      else {
+        this.pauseTicks = Math.round(rand(s.semiPauseTicks[0], s.semiPauseTicks[1]));
+        this.rollBurstError();
+      }
     }
+  }
+
+  /** A fresh error for the next burst (or trigger pull) that does not settle. */
+  private rollBurstError(): void {
+    this.burstYaw = rand(-1, 1) * this.skill.burstYawError;
+    this.burstPitch = rand(-1, 1) * this.skill.burstPitchError;
   }
 
   private roam(self: PlayerSim): void {
