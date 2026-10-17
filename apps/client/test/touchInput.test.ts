@@ -156,6 +156,24 @@ describe('Controls with touch', () => {
     expect(c.sample().buttons & Button.Fire).toBe(0);
   });
 
+  it('stops input while typing and discards held or latched actions on close', async () => {
+    const c = await make();
+    c.setTouchMove(1, 1);
+    c.setTouchHeld(Button.Fire | Button.Aim, true);
+    c.tapTouch(Button.Jump | Button.Reload);
+    c.swapWeapon();
+    c.setTyping(true);
+    const yaw = c.yaw;
+    c.lookBy(100, 100);
+    expect(c.yaw).toBe(yaw);
+    expect(c.sample()).toEqual({ mx: 0, mz: 0, buttons: 0 });
+    c.setTouchMove(1, 0);
+    c.tapTouch(Button.Jump);
+    c.setTyping(false);
+    expect(c.sample()).toEqual({ mx: 0, mz: 0, buttons: 0 });
+    c.dispose();
+  });
+
   it('holds fire across ticks while the finger stays down', async () => {
     const c = await make();
     c.setTouchHeld(Button.Fire, true);

@@ -16,7 +16,7 @@ import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Client, type Room } from '@colyseus/sdk';
 import { BR, emptyInput, initPhysics, MATCH, ROOM } from '@qwakk/shared';
 import { DM_ROOMS, LOBBY_ERROR, LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
-import { IslandState, MatchPhase } from '@qwakk/shared/net';
+import { IslandState, MatchPhase, Msg, type ChatMessage } from '@qwakk/shared/net';
 
 let createAllowed = true;
 vi.mock('../src/meta/index.ts', () => ({
@@ -105,6 +105,32 @@ const failCode = async (p: Promise<{ leave(c?: boolean): Promise<unknown> }>): P
 };
 
 describe('lobby rooms', () => {
+  it('delivers chat in DM and BR with server identity, rate limits it and keeps it inside the room', async () => {
+    const dm = await join(DM_ROOMS[0]!.id, 81);
+    const br = await new Client(url).create<IslandState>(BR.roomName, { token: 'tok-82' }, IslandState);
+    const dmPeer = await join(dm.roomId, 83);
+    const brPeer = await join(br.roomId, 84);
+    const inbox = new Map([dm, br, dmPeer, brPeer].map((room) => [room, [] as ChatMessage[]]));
+    for (const [room, messages] of inbox) room.onMessage(Msg.Chat, (message: ChatMessage) => messages.push(message));
+    let limited = 0;
+    dm.onMessage(Msg.ChatLimited, () => limited++);
+    try {
+      await waitUntil('chat seats', () => dm.state.players.has(dm.sessionId) && br.state.players.has(br.sessionId));
+      dm.send(Msg.Chat, { text: 'forged', name: 'Admin' });
+      dm.send(Msg.Chat, '  Selam\nördekler! 🦆  ');
+      dm.send(Msg.Chat, 'spam');
+      br.send(Msg.Chat, 'BR selam');
+      await waitUntil('chat delivered', () => inbox.get(dmPeer)!.length === 1 && inbox.get(brPeer)!.length === 1 && limited === 1);
+      expect(inbox.get(dm)).toEqual(inbox.get(dmPeer));
+      expect(inbox.get(br)).toEqual(inbox.get(brPeer));
+      expect(inbox.get(dmPeer)).toEqual([{ pid: dm.state.players.get(dm.sessionId)!.pid, name: 'Duck81', tag: '1081', text: 'Selam ördekler! 🦆' }]);
+      expect(inbox.get(brPeer)![0]).toMatchObject({ name: 'Duck82', tag: '1082', text: 'BR selam' });
+      expect(Object.keys(inbox.get(dmPeer)![0]!).sort()).toEqual(['name', 'pid', 'tag', 'text']);
+    } finally {
+      for (const room of [dmPeer, brPeer, dm, br]) await room.leave(true);
+    }
+  }, 20_000);
+
   it('two humans from the list start the countdown; a leave resets it; then bots fill and the match starts', async () => {
     const lobby = await openLobby();
     const a = await new Client(url).create<IslandState>(BR.roomName, { token: 'tok-1' }, IslandState);

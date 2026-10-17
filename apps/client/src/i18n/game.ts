@@ -1,6 +1,10 @@
 import { isTurkish } from './locale.ts';
 /** Player-facing game copy. Protocol values, player names and operator notices are never translated. */
 const TR: Record<string, string> = {
+  'Room chat': 'Oda sohbeti', 'T · Chat': 'T · Sohbet', 'Say something...': 'Bir şeyler yaz...',
+  'Message to the room': 'Odaya mesaj', 'Send': 'Gönder', 'Close chat': 'Sohbeti kapat',
+  'Enter to send · Esc to close': 'Enter ile gönder · Esc ile kapat',
+  'Wait a moment before sending another message.': 'Yeni mesaj göndermek için biraz bekle.',
   'Kavren Bridge': 'Kavren Köprüsü', 'Harman Gardens': 'Harman Bahçeleri', 'Yelova Fields': 'Yelova Kırları',
   'Kavren Square': 'Kavren Meydanı', 'Old Chapel': 'Eski Şapel', 'Chapel Yard': 'Şapel Avlusu',
   'Bakery': 'Fırın', 'Harman Yard': 'Harman Avlusu', 'Ruins': 'Harabeler', 'Crater Field': 'Krater Alanı', 'Trenches': 'Siperler',

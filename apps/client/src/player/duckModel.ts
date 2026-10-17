@@ -161,7 +161,7 @@ function loadFrom(url: string): Promise<THREE.Object3D | null> {
         if ((o as THREE.SkinnedMesh).isSkinnedMesh) skinned.push(o as THREE.SkinnedMesh);
       });
       for (const mesh of skinned) {
-        const hull = new THREE.SkinnedMesh(mesh.geometry, skinnedOutlineMaterial(url.endsWith('duck_mallard.glb') ? 0.04 : 0.0075));
+        const hull = new THREE.SkinnedMesh(mesh.geometry, skinnedOutlineMaterial());
         hull.bind(mesh.skeleton, mesh.bindMatrix);
         hull.castShadow = false;
         hull.name = `${mesh.name}-outline`;

@@ -23,7 +23,7 @@ function loadSensitivity(): number {
   }
 }
 
-export type ControlAction = 'shoulder' | 'hud' | 'lag' | 'jitter' | 'loss' | 'scoreboard-on' | 'scoreboard-off' | 'map' | 'spectate-next' | 'spectate-prev' | 'inventory' | 'inventory-close';
+export type ControlAction = 'shoulder' | 'hud' | 'lag' | 'jitter' | 'loss' | 'scoreboard-on' | 'scoreboard-off' | 'map' | 'spectate-next' | 'spectate-prev' | 'inventory' | 'inventory-close' | 'chat';
 
 export class Controls {
   yaw = 0;
@@ -63,6 +63,8 @@ export class Controls {
    * from a fight with its inventory open. Mouse look and the trigger do not.
    */
   uiOpen = false;
+  /** A text composer is open: no movement, look or action input. */
+  typing = false;
   /**
    * Touch controls are driving (input/touch): there is no pointer lock, the
    * touch layer feeds the state below and requestLock() does nothing.
@@ -97,7 +99,7 @@ export class Controls {
       }
     }, opts);
     document.addEventListener('mousedown', (e) => {
-      if (!this.locked) return;
+      if (!this.locked || this.typing) return;
       if (this.spectating) {
         this.emit(e.button === 2 ? 'spectate-prev' : 'spectate-next');
         return;
@@ -121,13 +123,13 @@ export class Controls {
     document.addEventListener(
       'wheel',
       (e) => {
-        if (!this.locked || e.deltaY === 0) return;
+        if (!this.locked || this.typing || e.deltaY === 0) return;
         this.slotLatch = this.currentSlot === 0 ? 1 : 0;
       },
       { passive: true, signal: this.abort.signal },
     );
     document.addEventListener('mousemove', (e) => {
-      if (!this.locked) return;
+      if (!this.locked || this.typing) return;
       const k = this.sensitivity * this.lookScale;
       this.yaw = wrapAngle(this.yaw - e.movementX * k);
       this.pitch = Math.max(NET.minPitch, Math.min(NET.maxPitch, this.pitch - e.movementY * k));
@@ -142,7 +144,7 @@ export class Controls {
   }
 
   requestLock(): void {
-    if (this.touchActive) return;
+    if (this.touchActive || this.typing) return;
     const el = this.element as HTMLElement & { requestPointerLock(options?: { unadjustedMovement?: boolean }): Promise<void> | void };
     // Raw mouse input where supported (no OS acceleration), plain lock otherwise.
     try {
@@ -197,6 +199,7 @@ export class Controls {
 
   /** Touch look: a drag of (dx, dy) CSS pixels, scaled like the mouse by `lookScale` (aiming). */
   lookBy(dx: number, dy: number, share = 1): void {
+    if (this.typing) return;
     const r = applyLook(this.yaw, this.pitch, dx, dy, this.touchRadPerPx * share, this.lookScale);
     this.yaw = r.yaw;
     this.pitch = r.pitch;
@@ -209,8 +212,30 @@ export class Controls {
     this.touchHeld = 0;
   }
 
+  setTyping(on: boolean): void {
+    this.typing = on;
+    this.keys.clear();
+    this.clearTouch();
+    this.touchLatched = 0;
+    this.fireHeld = this.aimHeld = this.fireLatch = this.jumpLatch = false;
+    this.reloadLatch = this.useLatch = this.deployLatch = false;
+    this.heal1Latch = this.heal2Latch = false;
+    this.slotLatch = -1;
+    this.emit('scoreboard-off');
+  }
+
   private onKey(e: KeyboardEvent, down: boolean): void {
     const code = e.code;
+    const target = e.target as HTMLElement | null;
+    if (this.typing || target?.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName ?? '')) {
+      if (!down) this.keys.delete(code);
+      return;
+    }
+    if (down && !e.repeat && code === 'KeyT' && (this.locked || this.uiOpen || this.touchActive)) {
+      e.preventDefault();
+      this.emit('chat');
+      return;
+    }
     if (code === 'AltLeft' || code === 'AltRight' || code === 'Space' || code === 'Tab') e.preventDefault();
     // Playing: the mouse is locked, or a game screen (the inventory) is open.
     const live = this.locked || this.uiOpen || this.touchActive;
@@ -256,6 +281,7 @@ export class Controls {
 
   /** Move axes and buttons for one fixed step. */
   sample(): { mx: number; mz: number; buttons: number } {
+    if (this.typing) return { mx: 0, mz: 0, buttons: this.leftShoulder ? Button.ShoulderLeft : 0 };
     const k = this.keys;
     const kx = (k.has('KeyD') ? 1 : 0) - (k.has('KeyA') ? 1 : 0);
     const kz = (k.has('KeyW') ? 1 : 0) - (k.has('KeyS') ? 1 : 0);

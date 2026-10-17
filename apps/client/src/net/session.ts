@@ -27,7 +27,7 @@ import {
   type ShotFired,
   type SimWorld,
 } from '@qwakk/shared';
-import { IslandState, Msg, PlayerInput, type LootItem, type PlayerState, type Pose, type TeamMate } from '@qwakk/shared/net';
+import { IslandState, Msg, PlayerInput, type ChatMessage, type LootItem, type PlayerState, type Pose, type TeamMate } from '@qwakk/shared/net';
 import { config } from '../config.ts';
 import { FarInterp } from './farInterp.ts';
 import { NetSim, type NetSimSettings } from './netsim.ts';
@@ -64,6 +64,8 @@ export interface SessionHandlers {
   localShot(shot: ShotFired, state: PlayerSim, buttons: number): void;
   /** A short notice from the server operators (plain text, shown as a toast). */
   notice?(text: string): void;
+  chat?(message: ChatMessage): void;
+  chatLimited?(): void;
 }
 
 export interface RemotePose {
@@ -222,6 +224,12 @@ export class Session {
     this.room.onMessage(Msg.Notice, (text: unknown) => {
       if (typeof text === 'string' && text) handlers.notice?.(text.slice(0, 200));
     });
+    this.room.onMessage(Msg.Chat, (message: ChatMessage) => handlers.chat?.(message));
+    this.room.onMessage(Msg.ChatLimited, () => handlers.chatLimited?.());
+  }
+
+  sendChat(text: string): void {
+    this.room.send(Msg.Chat, text);
   }
 
   /** Loot items in our view (battle royale): added, changed (amount), removed. */

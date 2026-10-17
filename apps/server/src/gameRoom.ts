@@ -44,6 +44,7 @@ import { CLOSE_CODE, LOBBY_ERROR } from '@qwakk/shared/lobby';
 import { isIpBlocked } from './ops/ipBlocks.ts';
 import { liveRooms, type LiveRoom, type RoomInfo, type RoomPlayer } from './ops/rooms.ts';
 import { maintenanceOn } from './settings/index.ts';
+import { ChatLimiter, cleanChat } from './chat.ts';
 
 /** Join refusal codes the client understands (onAuth errors). */
 export const JOIN_ERROR = {
@@ -150,6 +151,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   private tickNo = 0;
   /** Meta identity per session (null playerId: guest without a token in dev). */
   protected readonly auths = new Map<string, JoinAuth>();
+  private readonly chat = new ChatLimiter();
 
   /** The map for this room. */
   protected abstract loadMap(options: GameRoomOptions): ServerMap;
@@ -229,6 +231,19 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     // Allies always get each other's pose (markers through walls); enemies stay culled.
     this.interest = new Interest({ enabled: options.interest !== false, cull: this.cullHidden(), ally: (a, b) => this.match.alliesById(a, b) }, this.vis);
     this.match = this.createMatch(options);
+
+    this.onMessage(Msg.Chat, (client, raw: unknown) => {
+      const seat = this.match.seats.get(client.sessionId);
+      const state = this.net.get(client.sessionId)?.state;
+      if (!seat || seat.bot || !state || this.spectators.has(client.sessionId)) return;
+      const text = cleanChat(raw);
+      if (!text) return;
+      if (!this.chat.allow(client.sessionId, this.clock.elapsedTime)) {
+        client.send(Msg.ChatLimited);
+        return;
+      }
+      this.broadcast(Msg.Chat, { pid: seat.pid, name: state.name, tag: state.tag, text });
+    });
 
     // Our own fixed-rate loop (see tickLoop.ts for why not setFixedTimestep).
     // Patches go out from the loop, right after each tick, instead of from the
@@ -332,6 +347,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   protected onSpectatorLeave(): void {}
 
   override onLeave(client: Client): void {
+    this.chat.forget(client.sessionId);
     this.interest.removeViewer(client.sessionId);
     const auth = this.auths.get(client.sessionId);
     if (auth && this.seatedIds.get(auth.playerId ?? '')?.sessionId === client.sessionId) this.seatedIds.delete(auth.playerId ?? '');

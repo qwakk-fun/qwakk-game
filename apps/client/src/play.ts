@@ -136,6 +136,7 @@ function wireOnce(): void {
     if (!cur) return;
     cur.game.sound.unlock();
     // A click outside the inventory screen closes it and goes back to play.
+    cur.game.chat.close(false);
     if (cur.game.br?.inventoryOpen) cur.game.br.closeInventory(false);
     if (!cur.game.controlsRef.locked && !config.spectate && !cur.game.br?.resultOpen) cur.game.controlsRef.requestLock();
   });
@@ -145,7 +146,7 @@ function wireOnce(): void {
     const locked = document.pointerLockElement === canvas;
     // Touch play shows its own pause card (the pause button); the mouse is not locked then.
     if (cur.game.touch?.active) return;
-    if (locked || config.autopilot !== '' || config.spectate || cur.game.br?.resultOpen || cur.game.br?.inventoryOpen) overlay.classList.add('hidden');
+    if (locked || config.autopilot !== '' || config.spectate || cur.game.br?.resultOpen || cur.game.br?.inventoryOpen || cur.game.chat.isOpen) overlay.classList.add('hidden');
     else setOverlay(translate('Click to play'), { leave: true });
   });
   window.addEventListener('beforeunload', () => current?.session.leave());

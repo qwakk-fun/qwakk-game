@@ -93,6 +93,7 @@ export const TR = {
   howto: {
     heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır.',
     keys: [
+      ['T', 'Oda sohbeti. Enter ile gönder, Esc ile kapat'],
       ['Tıkla', 'Fareyi kilitle ve oyna'], ['W A S D', 'Yürü'], ['Shift', 'Koş'], ['Alt', 'Yavaş yürü'], ['C', 'Eğil (basılı tut)'], ['Space', 'Zıpla'],
       ['Sol fare', 'Ateş et'], ['Sağ fare', 'Nişan al (basılı tut)'], ['R', 'Şarjör değiştir'], ['1 / 2 / tekerlek', 'Silah değiştir'], ['V', 'Omuz değiştir'],
       ['E', 'Eşya al, kasa aç. Düşen arkadaşını kaldırmak için yanında basılı tut'], ['I', 'Envanter: eşya bırak ve al'], ['F / Space', 'Uçaktan atla / süzülme kanadını aç'], ['4 / 5', 'Sargı bezi / ilk yardım'], ['M', 'Harita'], ['Tab', 'Skor tablosu'], ['Esc', 'Fareyi serbest bırak'],

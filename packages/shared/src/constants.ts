@@ -7,6 +7,14 @@
 export const TICK_RATE = 30;
 export const DT = 1 / TICK_RATE;
 
+/** Room text chat, shared by the server validator and the composer. */
+export const CHAT = {
+  maxLength: 200,
+  intervalMs: 1200,
+  historySize: 40,
+  visibleMs: 12000,
+} as const;
+
 export const MOVE = {
   /** Target speeds (m/s). */
   walkSpeed: 2.6,

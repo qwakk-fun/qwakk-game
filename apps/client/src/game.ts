@@ -25,6 +25,7 @@ import { NameTags, type TagDuck } from './game/nameTags.ts';
 import { GameHud, type ScoreRow } from './hud/gameHud.ts';
 import { TeamPanel, type MateRow } from './hud/teamPanel.ts';
 import { Hud } from './hud/hud.ts';
+import { ChatPanel } from './hud/chatPanel.ts';
 import { Controls } from './input/controls.ts';
 import { hasTouch } from './input/touch/device.ts';
 import { TouchControls, type TouchFrame, type TouchHooks } from './input/touch/touchControls.ts';
@@ -75,6 +76,7 @@ export class Game {
   private readonly cam: TpsCamera;
   private readonly hud: Hud;
   private readonly ghud: GameHud;
+  readonly chat: ChatPanel;
   private readonly fx: Effects;
   readonly sound = new Sound();
   private readonly combat: CombatFeedback;
@@ -170,8 +172,17 @@ export class Game {
       myPosition: () => this.myPos,
     });
 
+    this.chat = new ChatPanel(app, this.controls, (text) => session.sendChat(text), () => {
+      if (config.spectate || this.br?.resultOpen) return false;
+      this.br?.closeInventory(false);
+      if (this.br?.touchState().mapOpen) this.br.toggleMap();
+      this.showBoard = false;
+      return true;
+    });
+
     this.controls.onAction((a) => {
       const ns = this.session.netsim.settings;
+      if (a === 'chat') this.chat.open();
       if (a === 'shoulder') this.cam.swapShoulder();
       if (a === 'hud') this.hud.toggle();
       if (a === 'scoreboard-on') this.showBoard = true;
@@ -199,8 +210,13 @@ export class Game {
         shotHint: (weapon, angle, loud) => this.br?.shotHint(weapon, angle, loud, this.myPos),
         picked: (kind, amount) => this.br?.picked(kind, amount),
         denied: (reason, kind) => this.br?.denied(reason, kind),
-        result: (placement, total, kills, damage, survivedMs, teamSize) => this.br?.result(placement, total, kills, damage, survivedMs, teamSize),
+        result: (placement, total, kills, damage, survivedMs, teamSize) => {
+          this.chat.close(false);
+          this.br?.result(placement, total, kills, damage, survivedMs, teamSize);
+        },
         notice: (text) => this.ghud.notice(text),
+        chat: (message) => this.chat.receive(message, message.pid === session.mine?.pid),
+        chatLimited: () => this.chat.limited(),
       },
       (id, state, local) => {
         if (local) {
@@ -289,6 +305,7 @@ export class Game {
   /** Stop and remove everything this game added (the next game gets a fresh scene). */
   dispose(): void {
     this.stop();
+    this.chat.dispose();
     this.touch?.dispose();
     this.controls.dispose();
     this.ctx.renderer.domElement.removeEventListener('mousedown', this.onSpectatorClick);
@@ -306,6 +323,7 @@ export class Game {
 
   /** Input for one fixed step: keyboard and mouse, or the autopilot. */
   private sampleInput = (): { mx: number; mz: number; buttons: number; yaw: number; pitch: number } => {
+    if (this.controls.typing) return { ...this.controls.sample(), yaw: this.controls.yaw, pitch: this.controls.pitch };
     const me = this.session.me;
     let s: { mx: number; mz: number; buttons: number };
     // Dev test hook: hold still facing a point (screenshots).
@@ -549,6 +567,7 @@ export class Game {
       f.canBag = false;
       f.spectating = false;
     }
+    f.modal ||= this.chat.isOpen;
     touch.update(f);
   }
 

@@ -249,6 +249,7 @@ export const EN = {
       ['4 / 5', 'Bandage / medkit'],
       ['M', 'Map'],
       ['Tab', 'Scoreboard'],
+      ['T', 'Room chat. Enter to send, Esc to close'],
       ['Esc', 'Free the mouse'],
     ] as [string, string][],
     touchHeading: 'On a phone or tablet',

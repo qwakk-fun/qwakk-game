@@ -1,0 +1,88 @@
+.game-chat {
+  position: absolute;
+  left: max(24px, env(safe-area-inset-left, 0px));
+  bottom: calc(100px + env(safe-area-inset-bottom, 0px));
+  width: min(360px, calc(100vw - 48px));
+  z-index: 6;
+  pointer-events: none;
+  color: var(--ink);
+  font: 500 13px/1.5 ui-sans-serif, system-ui, sans-serif;
+}
+.chat-log {
+  display: flex;
+  flex-direction: column;
+  max-height: 126px;
+  overflow: hidden;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: linear-gradient(90deg, rgba(21, 22, 25, .78), rgba(21, 22, 25, .28));
+  text-shadow: 0 1px 2px var(--dark);
+  transition: opacity .3s;
+}
+.chat-log:empty { display: none; }
+.game-chat.quiet:not(.open) .chat-log { opacity: 0; }
+.chat-message { overflow-wrap: anywhere; flex-shrink: 0; }
+.chat-name { color: var(--yellow); }
+.chat-self { color: var(--ally, #3ddc84); }
+.game-chat button, .chat-compose { pointer-events: auto; }
+.game-chat button {
+  padding: 6px 10px;
+  border: 1px solid rgba(244, 241, 232, .18);
+  border-radius: 7px;
+  font: inherit;
+  color: var(--ink);
+  background: rgba(21, 22, 25, .78);
+  cursor: pointer;
+}
+.game-chat [hidden] { display: none; }
+.game-chat button:focus-visible, .chat-compose input:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+.game-chat.open .chat-log {
+  opacity: 1;
+  max-height: min(220px, 35dvh);
+  overflow-y: auto;
+  pointer-events: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+.chat-compose { display: flex; gap: 6px; }
+.chat-compose input {
+  min-width: 0;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 7px;
+  border: 1px solid rgba(255, 212, 59, .6);
+  background: rgba(21, 22, 25, .94);
+  color: var(--ink);
+  font: inherit;
+  user-select: text;
+  touch-action: manipulation;
+}
+.chat-compose button { flex-shrink: 0; }
+.chat-compose button[type="submit"] { color: var(--dark); background: var(--yellow); }
+.chat-hint { padding: 4px 2px 0; font-size: 11px; text-shadow: 0 1px 2px var(--dark); }
+/* Keep teammates above the chat rather than covering messages. */
+body:not(.touch-ui) .team-panel { bottom: 300px; }
+body.chat-open:not(.touch-ui) .team-panel { bottom: min(420px, 65dvh); }
+/* Pickup notices stay above ammo, leaving the left side for conversation. */
+body:not(.touch-ui) .br-toasts {
+  left: auto;
+  right: 24px;
+  bottom: 100px;
+  max-width: 360px;
+  justify-items: end;
+  text-align: right;
+}
+.touch-ui .game-chat {
+  left: calc(12px + env(safe-area-inset-left, 0px));
+  bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  width: min(310px, 40vw);
+  font-size: 12px;
+}
+.touch-ui .chat-log { max-height: 62px; }
+.touch-ui .game-chat.open { width: min(360px, calc(100vw - 24px)); }
+.touch-ui .chat-compose input { font-size: 16px; }
+.touch-ui.chat-open .tc, .touch-ui.chat-open .tc .tc-btn { pointer-events: none; }

@@ -309,7 +309,19 @@ export const Msg = {
   Inv: 'inv',
   /** To everyone in a game room: a short notice from the server operators (text, shown as a HUD toast). */
   Notice: 'ntc',
+  /** Client sends text only; the server supplies the sender's public identity. */
+  Chat: 'chat',
+  /** To the sender only: the chat cooldown has not expired. */
+  ChatLimited: 'chat-limit',
 } as const;
+
+/** Plain room chat. No positions, device identities or tokens. */
+export interface ChatMessage {
+  pid: number;
+  name: string;
+  tag: string;
+  text: string;
+}
 
 /** Inventory requests (Msg.Inv). */
 export const InvOp = {

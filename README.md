@@ -139,6 +139,7 @@ Use `npm run dev -- --host` for the client on the LAN. The optional `npm run dev
 | 4 / 5 | Bandage / medkit |
 | M | Full-screen map |
 | Tab | Scoreboard (battle royale: your gear and every duck) |
+| T | Room text chat. Enter sends, Esc closes; movement and actions stop while typing |
 | Click while dead | Watch the next duck (battle royale) |
 | V | Swap shoulder |
 | - / = | Mouse sensitivity (saved in the browser; the menu also has an aiming sensitivity, a multiplier while aiming down sights) |
@@ -146,6 +147,8 @@ Use `npm run dev -- --host` for the client on the LAN. The optional `npm run dev
 | N / J / L | Fake network: cycle latency (0, 60, 120, 150, 250 ms), toggle jitter, toggle 2% loss |
 
 ### Touch controls
+
+Room chat sits at the lower left in both modes. Tap its button on a phone, type, then tap Send or × to close. Messages reach only the current room, show the server-assigned name and tag, and fade after 12 seconds; opening chat shows the last 40 received messages. The server accepts up to 200 characters once every 1.2 seconds. `npm run e2e:chat` checks desktop keys, safe text rendering, idle controls while typing and mobile send/close.
 
 Phones and tablets play in landscape (portrait shows a "turn your phone" screen). The first tap on "Tap to play" goes fullscreen and locks landscape where the browser allows it (Android Chrome; iPhone Safari has neither for pages, so the game plays in the page and the rotate screen covers portrait). The touch layer (`apps/client/src/input/touch/`) is an input device only: it feeds the same `Controls` state as the keys and mouse, so the input frame, the server checks and the netcode are unchanged.
 
@@ -717,7 +720,7 @@ All in `packages/shared/src/constants.ts` (`MOVE`, `BODY`, `NET`) and `apps/clie
 
 The art workstream (`art/`) publishes into `apps/client/public/models/`; the game picks the files up when they exist and falls back to greybox otherwise (`?duck=placeholder` forces the primitive duck):
 
-- `duck.glb`: skinned toon duck (the classic character), used at its authored size (meters), turned to face -z. It gets the art's toon recipe in the engine: two-band toon shading with the shadow tint `#d9a6a0`, and a 7.5 mm inverted-hull outline in `#151619` that follows the skinning. Toski uses a 40 mm visual outline for readability, without changing the hitboxes. Both outlines remain visible up to 75 m; shadows stop at 35 m.
+- `duck.glb`: skinned toon duck (the classic character), used at its authored size (meters), turned to face -z. It gets the art's toon recipe in the engine: two-band toon shading with the shadow tint `#d9a6a0`, and a 7.5 mm inverted-hull outline in `#151619` that follows the skinning. Toski uses the same thin 7.5 mm visual outline, without changing the hitboxes. Both outlines remain visible up to 75 m; shadows stop at 35 m.
 - `duck_<key>.glb` (today `duck_mallard.glb`): every other character (`packages/shared/src/characters.ts`), same contract as `duck.glb` and exactly its skeleton (joint names, order and bind pose), so `duck_anims.glb` and `weapons/attach.json` fit it unchanged; accessories stay inside the classic duck's silhouette, so the shared hitboxes fit (`art/blender/validate_glb.py` and `apps/client/test/characterModels.test.ts` check both). The game loads a character's model once, when a duck wearing it joins (`loadDuckGlb(character)` in `player/duckModel.ts`); a failed request keeps the primitive Qwakk-shaped placeholder and retries after 5 seconds, rather than caching the failure. The menu keeps the selected character's static portrait visible until its 3D model loads successfully.
 - `duck_anims.glb`: the clips. Locomotion clips drive the hips and legs (8-way blend of walk and run by the direction of travel, sprint, crouch, jump, fall, land) with `timeScale = speed / authored speed`. The upper body (Spine and everything below it) plays `Rifle_Aim` or `Pistol_Aim` blended into `Rifle_ADS` or `Pistol_ADS` by the aim (the local camera's aim blend, or pose action 4 for others), or the reload or `Equip` while they run. The reload clips are as long as the server's reloads (rifle 2.3 s, pistol 1.6 s) and are stretched to them anyway; they start on the reload action (predicted for the local duck, from the pose for others). `Death_A` or `Death_B` take over the whole body. `Quack` opens the bill on a kill. Then procedural layers: spine, neck and head follow the camera pitch, a recoil kick on each shot, and two-bone IK puts the left hand on the gun's `Support` node.
 - `weapons/rifle.glb`, `weapons/pistol.glb`, `weapons/attach.json`: the gun rides the `RightHand` bone at the attach pose; tracers and flashes start at its `Muzzle` node. Guns get toon shading but no outline hull (hard edges would crack it).
