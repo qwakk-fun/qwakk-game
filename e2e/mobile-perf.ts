@@ -20,6 +20,8 @@ import { chromium, type Page } from 'playwright';
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-mobile-perf');
 const seconds = Number(process.argv[3] ?? 70);
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 const throttle = Number(process.env.THROTTLE ?? 4);
 mkdirSync(out, { recursive: true });
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -28,9 +30,9 @@ const STAGES = ['on foot', 'plane', 'freefall', 'glide'];
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], {
   cwd: root,
   stdio: 'ignore',
-  env: { ...process.env, PORT: '2567', QWAKK_BR_COUNTDOWN: '4', QWAKK_BR_MIN_HUMANS: '1', QWAKK_BR_SEED: '7', QWAKK_ZONE_SCALE: '0.5' },
+  env: { ...process.env, PORT: String(SERVER_PORT), QWAKK_BR_COUNTDOWN: '4', QWAKK_BR_MIN_HUMANS: '1', QWAKK_BR_SEED: '7', QWAKK_ZONE_SCALE: '0.5' },
 });
-const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', '5173', '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
+const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
 
 type Row = { n: number; cpu: number[]; cpu95: number[]; frame: number[]; calls: number[]; tris: number[] };
 const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);
@@ -73,7 +75,7 @@ try {
     const cdp = await ctx.newCDPSession(page);
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: throttle });
     const q = mode === 'dm' ? 'mode=dm&autopilot=1' : 'mode=br&autopilot=br&aptarget=40,-192';
-    await page.goto(`http://localhost:5173/game/?${q}&name=Phone&hud=0${process.env.Q ?? ''}`);
+    await page.goto(`http://localhost:${WEB_PORT}/game/?server=ws://localhost:${SERVER_PORT}&${q}&name=Phone&hud=0${process.env.Q ?? ''}`);
     await page.waitForFunction(() => (window as any).__qwakk?.snapshot().players >= 1, null, { timeout: 120000 });
     info ||= await page.evaluate(() => `dpr ${devicePixelRatio}, canvas ${(document.getElementById('game') as HTMLCanvasElement).width}x${(document.getElementById('game') as HTMLCanvasElement).height}, coarse ${matchMedia('(pointer: coarse)').matches}, backend ${(window as any).__qwakk.snapshot().backend}`);
     await measure(page, mode, mode === 'dm' ? Math.min(30, seconds) : seconds, rows);

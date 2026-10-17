@@ -90,7 +90,7 @@ describe('team assignment', () => {
   });
 });
 
-/** A flat 100 m test map (no Sainte-Canard needed for plain shooting). */
+/** A flat 100 m test map (no Yelova needed for plain shooting). */
 function flatWorld(): SimWorld {
   const cells = 10;
   const map: MapDef = {

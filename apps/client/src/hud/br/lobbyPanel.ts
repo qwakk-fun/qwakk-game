@@ -1,3 +1,4 @@
+import { t as translate } from '../../i18n/game.ts';
 /**
  * Battle royale waiting room panel, shown while the room waits for players or
  * counts down: the room's name and short id, how many ducks are in, and who
@@ -18,7 +19,7 @@ export interface LobbyView {
   teamSize?: number;
 }
 
-const MODE_NAMES: Record<number, string> = { 1: 'Solo', 2: 'Duo', 4: 'Squad' };
+const MODE_NAMES: Record<number, string> = { 1: translate('Solo'), 2: translate('Duo'), 4: translate('Squad') };
 
 export class LobbyPanel {
   readonly root: HTMLElement;
@@ -44,14 +45,14 @@ export class LobbyPanel {
     head.className = 'br-lobby-head';
     const title = document.createElement('div');
     title.className = 'br-lobby-title';
-    title.textContent = v.label || 'Battle royale room';
+    title.textContent = v.label || translate('Battle royale room');
     const id = document.createElement('span');
     id.className = 'br-lobby-id';
     id.textContent = `#${v.shortId}`;
     title.appendChild(id);
     const count = document.createElement('div');
     count.className = 'br-lobby-count';
-    count.textContent = `${MODE_NAMES[v.teamSize ?? 1] ?? 'Solo'} · ${v.players.length}/${v.cap} ducks`;
+    count.textContent = translate('{mode} · {n}/{cap} ducks', { mode: translate(MODE_NAMES[v.teamSize ?? 1] ?? 'Solo'), n: v.players.length, cap: v.cap });
     head.append(title, count);
     const list = document.createElement('ol');
     list.className = 'br-lobby-list';
@@ -70,14 +71,14 @@ export class LobbyPanel {
       if (p.me) {
         const you = document.createElement('span');
         you.className = 'br-lobby-you';
-        you.textContent = 'you';
+        you.textContent = translate('you');
         li.appendChild(you);
       }
       list.appendChild(li);
     }
     const foot = document.createElement('div');
     foot.className = 'br-lobby-foot';
-    foot.textContent = hint('Esc, then Leave the match, to pick another room.', COPY.touch.hints.lobby);
+    foot.textContent = hint(translate('Esc, then Leave the match, to pick another room.'), COPY.touch.hints.lobby);
     this.root.replaceChildren(head, list, foot);
   }
 

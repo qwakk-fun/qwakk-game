@@ -226,3 +226,7 @@ body.qm-open #overlay {
     font-size: 13px;
   }
 }
+
+.qm-top-end { display: flex; align-items: center; justify-self: end; gap: 12px; }
+.qm-language { min-height: 44px; max-width: 110px; padding: 0 10px; border: 1px solid var(--qm-line, #ffffff25); border-radius: 12px; background: #202227; color: #fff; font: inherit; font-size: 13px; }
+@media (max-width: 600px) { .qm-top-end { gap: 6px; } .qm-language { max-width: 96px; } }

@@ -32,7 +32,7 @@ export class ResultCard {
   async show(reason: ExitReason, summary: MatchSummary | undefined, lastMode: GameMode, before: MeData | null): Promise<void> {
     const seq = ++this.seq;
     const lines: string[] = [];
-    let headline: string = reason === 'disconnected' ? R.disconnected : reason === 'left' ? R.left : R.ended;
+    let headline: string = reason === 'disconnected' ? R.disconnected : reason === 'left' ? R.left : reason === 'removed' ? R.removed : reason === 'closed' ? R.closed : R.ended;
     let won = false;
     let hasPoints = false;
     const fill = (s: MatchSummary): void => {
@@ -61,7 +61,7 @@ export class ResultCard {
     };
     if (summary) fill(summary);
     render();
-    if ((reason === 'left' && !summary) || hasPoints) return;
+    if ((reason === 'left' && !summary) || reason === 'removed' || hasPoints) return;
     // Points (and the rest, when the game sent no summary): compare season
     // totals before and after; the server writes the match a moment later.
     const id = loadIdentity();

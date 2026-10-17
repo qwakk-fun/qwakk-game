@@ -129,8 +129,10 @@ export function itemGeometry(kind: number): THREE.BufferGeometry {
 /** Cosmetic helmet for a duck's Head bone: origin at the head center, meters (head radius about 0.26). */
 export function createHelmetMesh(level: number): THREE.Mesh {
   const g = mergeSimple(helmet(level).map((p) => p.clone()));
-  g.scale(1.38, 1.2, 1.38);
-  g.translate(0, 0.1, 0);
+  // The authored skull is 0.69 m wide; Head starts at y=1.13 m.
+  // Place the shell over its crown instead of burying it inside the head.
+  g.scale(1.8, 1.4, 1.75);
+  g.translate(0, 0.29, 0.02);
   g.computeVertexNormals();
   const m = new THREE.Mesh(g, new THREE.MeshToonNodeMaterial({ vertexColors: true }));
   m.name = `helmet-${level}`;

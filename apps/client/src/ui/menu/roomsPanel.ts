@@ -7,7 +7,7 @@
  * Rooms whose teams cannot take your party cannot be joined (the mode picker
  * for rooms you create is teamPicker.ts, on the Play step).
  */
-import { BR_ROOM_CAP, shortRoomId, START_RULE, teamSizeOf, type RoomListing } from '@qwakk/shared/lobby';
+import { BR_ROOM_CAP, shortRoomId, START_RULE, teamSizeOf, type LiveRules, type RoomListing } from '@qwakk/shared/lobby';
 import { gameServer } from './api.ts';
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
@@ -51,6 +51,9 @@ export class RoomsPanel {
   /** Bumped on every start/stop, so a late connect from an old run closes itself. */
   private generation = 0;
   private partySize = 1;
+  /** Battle royale rooms the server opens at once (GET /api/status; the default until it answers). */
+  private cap = BR_ROOM_CAP;
+  private readonly ruleEl: HTMLElement;
 
   constructor(hooks: RoomsHooks) {
     this.hooks = hooks;
@@ -60,10 +63,11 @@ export class RoomsPanel {
     this.createBtn.addEventListener('click', () => this.hooks.create());
     this.listEl = h('ul', { class: 'qm-rooms-list', 'aria-label': R.heading });
     this.msg = h('p', { class: 'qm-rooms-msg', role: 'status', 'aria-live': 'polite' });
+    this.ruleEl = h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.minHumans, START_RULE.countdownSeconds));
     this.el = h(
       'section',
       { class: 'qm-rooms', 'aria-labelledby': 'qm-rooms-h' },
-      h('div', { class: 'qm-rooms-head' }, h('div', { class: 'qm-rooms-titles' }, h('h3', { id: 'qm-rooms-h' }, R.heading), h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.minHumans, START_RULE.countdownSeconds))), this.createBtn),
+      h('div', { class: 'qm-rooms-head' }, h('div', { class: 'qm-rooms-titles' }, h('h3', { id: 'qm-rooms-h' }, R.heading), this.ruleEl), this.createBtn),
       this.msg,
       this.listEl,
     );
@@ -99,6 +103,14 @@ export class RoomsPanel {
   /** The live battle royale rooms (empty while not connected) and whether the list is live. */
   get list(): { live: boolean; rooms: readonly LobbyEntry[] } {
     return { live: this.live, rooms: this.rooms };
+  }
+
+  /** The rules the server runs now (rooms at once, the start rule, the deathmatch rooms). */
+  setRules(rules: LiveRules): void {
+    this.cap = rules.brMaxRooms;
+    this.ruleEl.textContent = R.rule(rules.brMinHumans, rules.brCountdownSeconds);
+    this.dm.setRules(rules.dmRooms, rules.dmPlayers, rules.dmCap);
+    this.render();
   }
 
   /** Your party's size (1 without one): rooms whose teams cannot take it are greyed out. */
@@ -171,7 +183,7 @@ export class RoomsPanel {
 
   private render(): void {
     // Every room this server opens is listed: a new one cannot be created until one closes.
-    const atCap = this.live && this.rooms.length >= BR_ROOM_CAP;
+    const atCap = this.live && this.rooms.length >= this.cap;
     this.createBtn.disabled = this.busy || atCap;
     if (this.live) {
       const anyOpen = this.rooms.some((r) => !r.locked && (r.listing.stage === 'waiting' || r.listing.stage === 'countdown'));

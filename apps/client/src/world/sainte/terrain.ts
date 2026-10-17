@@ -1,5 +1,5 @@
 /**
- * Sainte-Canard terrain: the same height grid and triangle split as the
+ * Yelova terrain: the same height grid and triangle split as the
  * Rapier heightfield (what you see is what you stand on), colored per vertex
  * from the map's ground paint, cut into chunks so off-screen parts are culled.
  * The vertex colors are the flat look (and the far color of the textured

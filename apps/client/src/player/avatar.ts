@@ -55,8 +55,9 @@ export interface AvatarPose {
   down?: boolean;
 }
 
-/** Past this distance a duck drops its outline hull and its shadow (draw calls). */
+/** Shadows stop at 35 m; character outlines stay to 75 m for readability. */
 const DETAIL_FAR = 35;
+const OUTLINE_FAR = 75;
 
 const BONES = [
   'Hips', 'Spine', 'Spine1', 'Spine2', 'Neck', 'Head',
@@ -125,6 +126,8 @@ export class Avatar {
   private vestLevel = 0;
   private packLevel = 0;
   private detailNear = true;
+  private outlineNear = true;
+  private detailDistance = 0;
   /** Magazine change during reloads. */
   private readonly mag = new ReloadMag();
   /** Drawn aim-down-sights blend (0 hip, 1 raised). */
@@ -168,8 +171,9 @@ export class Avatar {
     this.helmetLevel = -1; // re-attach the gear to the new bones
     this.vestLevel = -1;
     this.packLevel = -1;
-    this.detailNear = !this.detailNear;
-    this.setDetail(this.detailNear ? 0 : 1000);
+    const distance = this.detailDistance;
+    this.detailDistance = -1;
+    this.setDetail(distance);
   }
 
   /**
@@ -178,12 +182,18 @@ export class Avatar {
    */
   setDetail(distance: number): void {
     const near = distance < DETAIL_FAR;
-    if (near === this.detailNear) return;
+    const outlineNear = distance < OUTLINE_FAR;
+    if (this.detailDistance >= 0 && near === this.detailNear && outlineNear === this.outlineNear) {
+      this.detailDistance = distance;
+      return;
+    }
+    this.detailDistance = distance;
     this.detailNear = near;
+    this.outlineNear = outlineNear;
     this.body.traverse((o) => {
       const m = o as THREE.Mesh;
       if (!m.isMesh) return;
-      if (m.name.endsWith('-outline') || m.userData.outline === true) m.visible = near;
+      if (m.name.endsWith('-outline') || m.userData.outline === true) m.visible = outlineNear && !(m.userData.headwear && this.helmetLevel > 0);
       else m.castShadow = near;
     });
   }
@@ -199,6 +209,9 @@ export class Avatar {
     const helmet = p.helmet ?? 0;
     if (helmet !== this.helmetLevel) {
       this.helmetLevel = helmet;
+      this.glb?.traverse((o) => {
+        if (o.userData.headwear) o.visible = helmet === 0 && (!o.name.endsWith('-outline') || this.outlineNear);
+      });
       this.helmetMesh?.removeFromParent();
       this.helmetMesh = null;
       if (helmet > 0) {

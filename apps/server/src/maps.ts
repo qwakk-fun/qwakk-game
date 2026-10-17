@@ -1,6 +1,6 @@
 /**
  * Map loading on the server: the greybox comes from its seed, map_v1 maps
- * (Sainte-Canard, the deathmatch map) from the map files shipped in the
+ * (Yelova, the deathmatch map) from the map files shipped in the
  * shared package under `maps/<id>/` (read once per process and id). The hash
  * covers the same bytes the client fetches, so a client with other files
  * refuses to play instead of desyncing.
@@ -41,7 +41,7 @@ export function loadMapV1(id: string): ServerMap {
   return map;
 }
 
-/** Sainte-Canard (the battle royale map). */
+/** Yelova (the battle royale map). */
 export function loadSainteCanard(): ServerMap {
   return loadMapV1(SAINTE_CANARD);
 }

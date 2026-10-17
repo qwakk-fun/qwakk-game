@@ -1,6 +1,6 @@
-"""Generate the Canard Quarter deathmatch arena (map id canard-quarter) as map_v1 placement data.
+"""Generate the Kavren deathmatch arena (map id canard-quarter) as map_v1 placement data.
 
-A compact walled-in village quarter built from the same prop kit as Sainte-Canard: a church square on a
+A compact walled-in village quarter built from the same prop kit as Yelova: a church square on a
 crossroads, five enterable houses (two townhouses, a farmhouse, a ruin, a barn), a churchyard, an orchard,
 a farmyard, bombed lots and a trench field, closed by a ring of hedgerows the duck cannot cross.
 
@@ -65,21 +65,21 @@ BUILDINGS = [
     ("townhouse", -27, -14, FACE_E),       # bakery on the west side of the square
     ("house_ruined", 28, -14, FACE_W),     # shelled house on the east side of the square
     ("townhouse", -16, 12, FACE_N),        # shop front on the Rue du Canard, south-west corner
-    ("farmhouse", 16, 34, FACE_W),         # farm on the Rue de l'Eglise, south-east
+    ("farmhouse", 16, 34, FACE_W),         # farm on the Rue de l'Old Chapel, south-east
     ("barn", 50, -44, FACE_S),             # barn over the farmyard, north-east
 ]
 
 CALLOUTS = [
-    {"id": "square", "name": "Place du Canard", "poly": [(-18, -24), (18, -24), (18, -4), (-18, -4)]},
-    {"id": "church", "name": "Eglise", "poly": [(-10, -54), (10, -54), (10, -24), (-10, -24)]},
-    {"id": "churchyard", "name": "Le Clos", "poly": [(-12, -80), (18, -80), (18, -54), (-12, -54)]},
-    {"id": "orchard", "name": "Le Verger", "poly": [(-80, -80), (-46, -80), (-46, -26), (-80, -26)]},
-    {"id": "bakery", "name": "Boulangerie", "poly": [(-46, -26), (-20, -26), (-20, -4), (-46, -4)]},
-    {"id": "farmyard", "name": "La Cour", "poly": [(30, -80), (80, -80), (80, -4), (30, -4)]},
-    {"id": "ruin", "name": "Maison Brulee", "poly": [(20, -26), (30, -26), (30, -4), (20, -4)]},
-    {"id": "bombed", "name": "Les Crateres", "poly": [(-80, 4), (-4, 4), (-4, 80), (-80, 80)]},
-    {"id": "trenches", "name": "La Tranchee", "poly": [(34, 20), (80, 20), (80, 80), (34, 80)]},
-    {"id": "farm", "name": "Ferme du Coin", "poly": [(4, 4), (34, 4), (34, 80), (4, 80)]},
+    {"id": "square", "name": "Kavren Square", "poly": [(-18, -24), (18, -24), (18, -4), (-18, -4)]},
+    {"id": "church", "name": "Old Chapel", "poly": [(-10, -54), (10, -54), (10, -24), (-10, -24)]},
+    {"id": "churchyard", "name": "Chapel Yard", "poly": [(-12, -80), (18, -80), (18, -54), (-12, -54)]},
+    {"id": "orchard", "name": "Harman Gardens", "poly": [(-80, -80), (-46, -80), (-46, -26), (-80, -26)]},
+    {"id": "bakery", "name": "Bakery", "poly": [(-46, -26), (-20, -26), (-20, -4), (-46, -4)]},
+    {"id": "farmyard", "name": "Harman Yard", "poly": [(30, -80), (80, -80), (80, -4), (30, -4)]},
+    {"id": "ruin", "name": "Ruins", "poly": [(20, -26), (30, -26), (30, -4), (20, -4)]},
+    {"id": "bombed", "name": "Crater Field", "poly": [(-80, 4), (-4, 4), (-4, 80), (-80, 80)]},
+    {"id": "trenches", "name": "Trenches", "poly": [(34, 20), (80, 20), (80, 80), (34, 80)]},
+    {"id": "farm", "name": "Harman", "poly": [(4, 4), (34, 4), (34, 80), (4, 80)]},
 ]
 
 
@@ -331,7 +331,7 @@ def generate():
 
 
 def square(g, rng):
-    """Place du Canard: a tank wreck and sandbag barricades split the square, crates along the house fronts."""
+    """Kavren Square: a tank wreck and sandbag barricades split the square, crates along the house fronts."""
     g.place("tank_wreck", 7, -13, 0.55, check=("solid",), margin=0.3)
     g.place("signpost", 5.5, 5.5, 2.2, check=("solid",))
     for x, z, yaw in ((-8, -17, 0.0), (-6, -8, PI / 2), (12, -6, 0.0), (14, -18.5, PI / 2)):
@@ -355,7 +355,7 @@ def streets(g, rng):
     # stone walls along the north side of the west street (garden fronts), with gaps to slip through
     for x in (-74, -70, -62, -58, -50):
         g.place("stone_wall", x, -5.6, 0.0, check=("solid",), margin=0.0)
-    # poplars along the Rue de l'Eglise
+    # poplars along the Rue de l'Old Chapel
     for z in range(10, 78, 11):
         for side in (-1, 1):
             if rng() < 0.8:
@@ -380,7 +380,7 @@ def churchyard(g, rng):
 
 
 def orchard(g, rng):
-    """Le Verger: apple trees in rows, a walled kitchen garden behind the bakery, a wrecked truck in the lane."""
+    """Harman Gardens: apple trees in rows, a walled kitchen garden behind the bakery, a wrecked truck in the lane."""
     for i in range(4):
         for j in range(6):
             x, z = -73 + i * 7 + rng.range(-1, 1), -71 + j * 8 + rng.range(-1, 1)
@@ -399,7 +399,7 @@ def orchard(g, rng):
 
 
 def farmyard(g, rng):
-    """La Cour: the barn over a fenced yard, a wrecked truck in it, barrels and crates by the barn doors."""
+    """Harman Yard: the barn over a fenced yard, a wrecked truck in it, barrels and crates by the barn doors."""
     for x in (37.5, 40.7, 43.9, 51.4, 54.6, 63.6, 66.8):
         g.place("wood_fence", x, -10, 0.0, check=("solid",), margin=0.0)
     for z in (-14, -17.2, -26.8, -30):
@@ -417,7 +417,7 @@ def farmyard(g, rng):
 
 
 def bombed(g, rng):
-    """Les Crateres: the shelled lots south-west of the crossroads, craters, rubble, a tank and sandbag nests."""
+    """Crater Field: the shelled lots south-west of the crossroads, craters, rubble, a tank and sandbag nests."""
     g.place("tank_wreck", -48, 46, 2.3, check=("solid",), margin=0.3)
     for x, z, yaw in ((-36, 18, 0.3), (-62, 22, 1.7), (-22, 58, 2.6), (-56, 52, 0.9), (-70, 40, 0.2), (-40, 72, 1.4), (-12, 46, 0.7)):
         g.place("rubble_pile", x, z, yaw, check=("solid",), margin=0.3)
@@ -438,7 +438,7 @@ def bombed(g, rng):
 
 
 def trench_field(g, rng):
-    """La Tranchee: a zigzag trench across the south-east field, a sandbag nest at each end, wire in front."""
+    """Trenches: a zigzag trench across the south-east field, a sandbag nest at each end, wire in front."""
     for x, z, yaw in ((46, 32, FACE_W), (66, 74, FACE_E)):
         g.place("sandbag_corner", x, z, yaw, check=("solid",))
     for x, z, yaw in ((70, 38, 0.2), (72, 48, 1.5), (40, 54, 0.4), (40, 64, 1.4)):
@@ -455,7 +455,7 @@ def trench_field(g, rng):
 
 
 def inner_hedges(g):
-    """Bocage hedges inside the ring: they cut the long diagonals and make the flanks, each with gates."""
+    """Yelova Fields hedges inside the ring: they cut the long diagonals and make the flanks, each with gates."""
     g.hedge_line([(-47, -80), (-47, -30)], gates=[(-47, -54, 4.5)])                         # orchard edge
     g.hedge_line([(30, -80), (30, -60), (79, -60)], gates=[(56, -60, 4.5), (30, -71, 4.0)])  # behind the barn
     g.hedge_line([(-79, 60), (-28, 60)], gates=[(-48, 60, 4.5)])                             # across the bombed lots
@@ -571,7 +571,7 @@ def write(g, ground, ring_count):
     inner = [list(p) for p in RING]
     doc = {
         "version": 2,
-        "name": "Canard Quarter",
+        "name": "Kavren",
         "mode": "deathmatch",
         "seed": SEED,
         "size": SIZE,

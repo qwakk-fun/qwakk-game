@@ -24,6 +24,8 @@ import { HeroDuck } from './heroDuck.ts';
 export interface HeroHandle {
   /** Draw only while the Play tab (and so the duck) is shown. */
   setActive(on: boolean): void;
+  /** Show another character (menu catalog id): its model loads, then replaces the current one. */
+  setCharacter(id: string): void;
   /** Stop and free everything; the image shows again. Safe to call twice. */
   dispose(): void;
 }
@@ -33,6 +35,8 @@ export interface HeroOptions {
   onLost?: () => void;
   /** True once the menu no longer wants this mount (Play pressed while loading): stop before compiling. */
   cancelled?: () => boolean;
+  /** The picked duck (menu catalog id, default classic). */
+  character?: string;
 }
 
 const MAX_PIXEL_RATIO = 1.5;
@@ -48,7 +52,7 @@ export async function mountHero(host: HTMLElement, opts: HeroOptions = {}): Prom
   let duck: HeroDuck;
   let ticker: { start(): void; stop(): void } | undefined;
   try {
-    const [, loaded] = await Promise.all([renderer.init(), HeroDuck.load()]);
+    const [, loaded] = await Promise.all([renderer.init(), HeroDuck.load(opts.character)]);
     if (opts.cancelled?.()) throw new Error('menu hero cancelled');
     // The renderer runs its own requestAnimationFrame ticker from init() on, even
     // with no animation loop set. It is stopped here and runs only while the duck moves.
@@ -78,6 +82,10 @@ export async function mountHero(host: HTMLElement, opts: HeroOptions = {}): Prom
   let quackT = -1;
   let active = true;
   let disposed = false;
+  /** The character shown, and the one wanted (a swap loads the new model, then replaces the old). */
+  let shownCharacter = opts.character ?? 'classic';
+  let wantedCharacter = shownCharacter;
+  let swapping = false;
   let running = false;
   let last = 0;
   let glanceTimer = 0;
@@ -168,6 +176,7 @@ export async function mountHero(host: HTMLElement, opts: HeroOptions = {}): Prom
     if (duck.hit(e.clientX, e.clientY, rect)) {
       recoil = 1;
       if (duck.quackSeconds > 0) quackT = 0;
+      renderer.render(duck.scene, duck.camera);
       wake();
     }
   };
@@ -197,7 +206,55 @@ export async function mountHero(host: HTMLElement, opts: HeroOptions = {}): Prom
   canvas.addEventListener('webglcontextlost', onLost);
   ro.observe(canvas);
 
+  /** Load the wanted character, compile it, then swap it in and free the old duck (one swap at a time). */
+  const swap = async (): Promise<void> => {
+    if (swapping || disposed) return;
+    if (wantedCharacter === shownCharacter) {
+      host.classList.add('is-3d');
+      return;
+    }
+    swapping = true;
+    const id = wantedCharacter;
+    let next: HeroDuck | undefined;
+    // The static portrait already matches the card. Show it until the new
+    // model is ready, including on a failed load.
+    host.classList.remove('is-3d');
+    try {
+      next = await HeroDuck.load(id);
+      if (disposed) return next.dispose();
+      next.pose(yaw.x, pitch.x, 0, -1);
+      await renderer.compileAsync(next.scene, next.camera);
+      if (disposed) return next.dispose();
+      const old = duck;
+      duck = next;
+      next = undefined;
+      shownCharacter = id;
+      old.dispose();
+      recoil = 0;
+      quackT = -1;
+      // A short quack says hello (the frame loop runs while it plays).
+      if (duck.quackSeconds > 0) quackT = 0;
+      wake();
+      if (wantedCharacter === shownCharacter) host.classList.add('is-3d');
+    } catch (err) {
+      next?.dispose();
+      console.warn('[menu] could not load that duck in 3D', err);
+      // Keep the selected card and its portrait; a later pick retries.
+      // A newer pick made during this request still gets its own attempt.
+      if (wantedCharacter !== id) queueMicrotask(() => void swap());
+      return;
+    } finally {
+      swapping = false;
+    }
+    if (wantedCharacter !== shownCharacter) void swap();
+  };
+
   const handle: HeroHandle = {
+    setCharacter(id) {
+      if (disposed) return;
+      wantedCharacter = id;
+      void swap();
+    },
     setActive(on) {
       if (on === active || disposed) return;
       active = on;
@@ -230,7 +287,7 @@ export async function mountHero(host: HTMLElement, opts: HeroOptions = {}): Prom
 
   // First frame, then fade from the image to the canvas once it is on screen.
   wake();
-  requestAnimationFrame(() => requestAnimationFrame(() => !disposed && host.classList.add('is-3d')));
+  requestAnimationFrame(() => requestAnimationFrame(() => !disposed && wantedCharacter === shownCharacter && host.classList.add('is-3d')));
   scheduleGlance(1.2);
   return handle;
 }

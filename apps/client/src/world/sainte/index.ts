@@ -1,5 +1,5 @@
 /**
- * Sainte-Canard world for the client: terrain, water, sky and light, and the
+ * Yelova world for the client: terrain, water, sky and light, and the
  * instanced props, behind one facade the game calls once per frame. The
  * plane, zone wall, items and glider are separate (game-state driven).
  */

@@ -24,7 +24,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-menu');
 mkdirSync(out, { recursive: true });
 // The menu's API calls go to port 2567 in test builds (net/endpoint.ts), so the server runs there.
-const SERVER_PORT = 2567;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
 const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 const server_ = `ws://localhost:${SERVER_PORT}`;
 
@@ -93,12 +93,12 @@ async function main(): Promise<void> {
       args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'],
     });
     for (const size of SIZES) {
-      const ctx = await browser.newContext(size.opts);
+      const ctx = await browser.newContext({ ...size.opts, locale: 'en-US' });
       const page = await ctx.newPage();
       page.on('pageerror', (e) => problems.push(`[${size.name}] page error: ${e.message}`));
       // 503: the leaderboard without a database (the meta API says it is unavailable; the tab shows that).
       page.on('console', (m) => m.type() === 'error' && !/404|503/.test(m.text()) && problems.push(`[${size.name}] console: ${m.text()}`));
-      await page.goto(`http://localhost:${WEB_PORT}/game/?hud=0&menu=1`);
+      await page.goto(`http://localhost:${WEB_PORT}/game/?lang=en&hud=0&menu=1`);
       await page.locator(`.qm-room[data-room="${b.roomId}"]`).waitFor({ timeout: 20000 });
       // The 3D duck fades in after the menu paints; keep the image if it does not come.
       await page.locator('.qm-art-duck.is-3d').waitFor({ timeout: 15000 }).catch(() => console.log(`[${size.name}] no 3D duck, image shown`));
@@ -109,6 +109,27 @@ async function main(): Promise<void> {
       if (await page.locator('.qm-btn-play').isDisabled()) problems.push(`[${size.name}] Play is off`);
       if (size.opts.hasTouch) for (const s of await smallTargets(page)) problems.push(`[${size.name}] small touch target: ${s}`);
       await page.screenshot({ path: `${out}/${size.name}-play.png` });
+      // Pick the other duck: the card, the stage (2D image and the 3D model) and the saved pick follow.
+      const pick = page.locator('.qm-char[data-character="mallard"]');
+      await pick.scrollIntoViewIfNeeded();
+      await pick.click();
+      await page.evaluate(() => document.querySelector('#menu')!.scrollTo(0, 0));
+      await sleep(2500);
+      const picked = await page.evaluate(() => ({
+        checked: document.querySelector('.qm-char[data-character="mallard"]')?.getAttribute('aria-checked'),
+        saved: localStorage.getItem('qwakk.character'),
+        image: document.querySelector<HTMLImageElement>('.qm-art-duck img')?.getAttribute('src') ?? '',
+        plate: document.querySelector('.qm-plate-char')?.textContent ?? '',
+      }));
+      if (picked.checked !== 'true' || picked.saved !== 'mallard' || !picked.image.includes('mallard')) problems.push(`[${size.name}] picking the mallard did not stick: ${JSON.stringify(picked)}`);
+      await page.screenshot({ path: `${out}/${size.name}-play-mallard.png` });
+      if (size.name.startsWith('desktop')) {
+        // The pick survives a reload (localStorage).
+        await page.reload();
+        await page.locator('.qm-char[data-character="mallard"][aria-checked="true"]').waitFor({ timeout: 10000 });
+      }
+      await page.locator('.qm-char[data-character="classic"]').click();
+      await sleep(400);
       // The menu scrolls inside #menu (a fixed layer), so page down through it.
       for (let i = 1; i <= 4; i++) {
         const moved = await page.evaluate(() => {

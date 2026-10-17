@@ -1,5 +1,5 @@
 /**
- * Battle royale, headless: a full 16-bot match on Sainte-Canard (plane, drop,
+ * Battle royale, headless: a full 16-bot match on Yelova (plane, drop,
  * loot, zone, fights) must end with exactly one winner in a sane time, and
  * bots must jump out over land and land on land.
  *

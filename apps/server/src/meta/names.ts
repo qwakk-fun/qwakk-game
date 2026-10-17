@@ -51,6 +51,22 @@ const patternRe = data.patterns.map((p) => new RegExp(p));
 const obfuscatedRe = data.obfuscatedOnly.map((w) => new RegExp(wordPattern(w)));
 const allowRe = data.allow.map((w) => new RegExp(wordPattern(w), 'g'));
 
+/**
+ * Extra blocked words added at runtime from the admin panel (stored in the
+ * `blocked_names` table, loaded at start), checked in addition to the file:
+ * `anywhere` words match inside a name like the file's `anywhere` list,
+ * whole words only as a whole name or one of its parts. Letters only.
+ */
+export const EXTRA_WORD_RE = /^[a-z]{3,24}$/;
+let extraAnywhereRe: RegExp[] = [];
+let extraWholeRe: RegExp[] = [];
+
+export function setExtraBlocked(list: readonly { word: string; whole: boolean }[]): void {
+  const ok = list.filter((w) => EXTRA_WORD_RE.test(w.word));
+  extraAnywhereRe = ok.filter((w) => !w.whole).map((w) => new RegExp(wordPattern(w.word)));
+  extraWholeRe = ok.filter((w) => w.whole).map((w) => new RegExp(`^${wordPattern(w.word)}$`));
+}
+
 function allowOut(s: string): string {
   let out = s;
   for (const re of allowRe) out = out.replace(re, '_');
@@ -84,6 +100,8 @@ export function checkName(input: unknown): NameCheck {
     if (anywhereRe.some((re) => re.test(open))) return { ok: false, reason: 'blocked' };
     if (wholeRe.some((re) => re.test(joined) || parts.some((p) => re.test(p)))) return { ok: false, reason: 'blocked' };
     if (patternRe.some((re) => re.test(open) || parts.some((p) => re.test(allowOut(p))))) return { ok: false, reason: 'blocked' };
+    if (extraAnywhereRe.some((re) => re.test(open))) return { ok: false, reason: 'blocked' };
+    if (extraWholeRe.some((re) => re.test(joined) || parts.some((p) => re.test(p)))) return { ok: false, reason: 'blocked' };
     if (obfuscatedRe.some((re) => re.test(joined) && !re.test(letters))) return { ok: false, reason: 'blocked' };
     if (reservedAnywhereRe.some((re) => re.test(joined))) return { ok: false, reason: 'reserved' };
     if (reservedWholeRe.some((re) => re.test(joined))) return { ok: false, reason: 'reserved' };

@@ -112,7 +112,7 @@ function free(sim: SimWorld, x: number, y: number, z: number): boolean {
 }
 
 describe('deathmatch spawns on map_v1 maps', () => {
-  it('derives spread spawns on free ground around the Sainte-Canard square', () => {
+  it('derives spread spawns on free ground around the Yelova square', () => {
     const def = loadSainteCanard().def;
     const pts = def.arenaSpawns;
     expect(pts.length).toBe(MATCH.derivedSpawnMax);

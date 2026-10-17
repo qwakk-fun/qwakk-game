@@ -8,7 +8,10 @@
 
 /** What src/menuHero/index.ts exports (kept as a type here: no import from the menu). */
 export interface HeroModule {
-  mountHero(host: HTMLElement, opts?: { onLost?: () => void; cancelled?: () => boolean }): Promise<{ setActive(on: boolean): void; dispose(): void }>;
+  mountHero(
+    host: HTMLElement,
+    opts?: { onLost?: () => void; cancelled?: () => boolean; character?: string },
+  ): Promise<{ setActive(on: boolean): void; setCharacter(id: string): void; dispose(): void }>;
 }
 
 type Handle = Awaited<ReturnType<HeroModule['mountHero']>>;
@@ -25,10 +28,13 @@ export class HeroSlot {
   private running = false;
   private failed = false;
   private active = true;
+  /** The picked duck (menu catalog id): the model the 3D duck shows. */
+  private character: string;
 
-  constructor(host: HTMLElement, load?: () => Promise<HeroModule>) {
+  constructor(host: HTMLElement, load?: () => Promise<HeroModule>, character = 'classic') {
     this.host = host;
     this.load = load;
+    this.character = character;
     matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', (e) => {
       if (e.matches) this.stop();
     });
@@ -50,10 +56,12 @@ export class HeroSlot {
             this.failed = true;
           },
           cancelled: () => gen !== this.gen,
+          character: this.character,
         });
         if (gen !== this.gen) return handle.dispose();
         this.handle = handle;
         handle.setActive(this.active);
+        handle.setCharacter(this.character); // picked again while it loaded
       } catch (err) {
         if (gen !== this.gen) return;
         // No WebGL2 or the models did not load: the image stays.
@@ -70,6 +78,17 @@ export class HeroSlot {
     this.running = false;
     this.handle?.dispose();
     this.handle = null;
+  }
+
+  /** Swap the 3D duck's model (it keeps showing the old one until the new one is ready). */
+  setCharacter(id: string): void {
+    this.character = id;
+    this.host.classList.remove('is-3d');
+    this.handle?.setCharacter(id);
+    if (!this.handle && !this.running) {
+      this.failed = false;
+      this.start();
+    }
   }
 
   setActive(on: boolean): void {

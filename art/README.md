@@ -14,8 +14,8 @@ Options:
 
 - `--no-render`: mesh, rig, weapons, clips and exports only.
 - `--quick`: fewer render samples, and no MP4/GIF previews.
-- `--no-anim`: skip baking the clips (fast mesh iteration; leaves the old `duck_anims.glb` in place).
-- `--only NAME`: render only shots whose name contains NAME: `turnaround`, `face`, `size`, `pose`, `beanie`, `weapon`, `hold`, `tps` (hip vs aim down sights from the game camera and the reloads at their magazine moments, in `renders/tps/`), `anim`, or a single clip such as `anim:Run_F` (repeatable).
+- `--no-anim`: mesh-only iteration. Leaves `duck_anims.glb`, its clip statistics and the full `duck.blend` in place. Run without this flag for a complete deliverable, including the current geometry and all animations in the Blender source.
+- `--only NAME`: render only shots whose name contains NAME: `turnaround`, `face`, `size`, `pose`, `beanie`, `weapon`, `hold`, `tps` (hip vs aim down sights from the game camera and the reloads at their magazine moments, in `renders/tps/`), `anim`, a single clip such as `anim:Run_F`, or `character` (every other character's sheets, lineups and menu portrait, in `renders/<id>/`) (repeatable). `--only character` leaves the classic renders as they are.
 
 Check the published files against the asset contract (plain Python, no Blender):
 
@@ -25,7 +25,7 @@ python3 qwakk-game/art/blender/validate_glb.py
 
 ## Ground textures (terrain)
 
-The stylized ground of the map_v1 terrain (Sainte-Canard and Canard Quarter) is built by `ground/`, separate from the duck build:
+The stylized ground of the map_v1 terrain (Yelova and Kavren) is built by `ground/`, separate from the duck build:
 
 ```sh
 sh qwakk-game/art/ground/build.sh            # about 35 seconds on an M4 Pro
@@ -71,14 +71,15 @@ The game re-tints every layer to its paint color (`GROUND_COLORS` in `apps/clien
 
 | Path under `apps/client/public/models/` | What |
 | --- | --- |
-| `duck.glb` | Skinned duck, T-pose rest, facing +Z, meters, palette texture embedded |
+| `duck.glb` | Skinned duck (the classic character), T-pose rest, facing +Z, meters, palette texture embedded |
+| `duck_<id>.glb` | Every other character (today `duck_mallard.glb`): the same contract and exactly the classic skeleton (joint names, order, bind pose), so the clips, `attach.json` and the server hitboxes fit it |
 | `duck_anims.glb` | Armature only, same bone names, all clips below |
 | `weapons/rifle.glb`, `weapons/pistol.glb` | Weapons, origin at the right-hand grip, barrel +Z, with child nodes `Muzzle`, `Grip`, `Support`, `Eject`, and the magazine mesh `Mag` (origin at its seat, local -Z out of the magwell) |
 | `weapons/attach.json` | Weapon pose in `RightHand` joint space: `{ rifle: {position, quaternion}, pistol: {...} }`, plus `reload: { rifle: {seconds, out, drop, fresh, in, magInHand}, pistol: {...} }`: the reload clip's magazine timeline (seconds) and the magazine's pose in the `LeftHand` joint |
 
-Nothing else under `models/` is written by this build (`models/props/` belongs to the map workstream). The ground build writes only `textures/ground/`.
+Nothing else under `models/` is written by this build (`models/props/` belongs to the map workstream). It also writes each extra character's menu portrait, `apps/client/public/ui/duck-<id>-rifle.webp` (800 px from `renders/<id>/hold_rifle_three_quarter.png`; the classic `duck-rifle.webp` was resized by hand from `renders/hold_rifle_three_quarter.png`). The ground build writes only `textures/ground/`.
 
-Local outputs in `art/`: `export/` (the same GLBs, `acc_beanie.glb`, `palette.png`, `stats.json` with all counts and per-clip data, `duck.blend`), `renders/` (stills) and `renders/anim/` (one 8-frame strip per clip, MP4 and GIF previews of the key clips).
+Local outputs in `art/`: `export/` (the same GLBs, `duck_<id>.glb`, `acc_beanie.glb`, `palette.png`, `stats.json` with all counts and per-clip data, `duck.blend`), `renders/` (stills) and `renders/anim/` (one 8-frame strip per clip, MP4 and GIF previews of the key clips).
 
 ## Scripts
 
@@ -86,7 +87,8 @@ Local outputs in `art/`: `export/` (the same GLBs, `acc_beanie.glb`, `palette.pn
 | --- | --- |
 | `blender/params.py` | All proportions, colors and look constants. Change shapes here |
 | `blender/geo.py` | Ring-stack mesh toolkit: lathe, swept tube with rounded caps, ellipsoid, palette UVs |
-| `blender/duck.py` | Builds every duck part and the beanie |
+| `blender/duck.py` | Builds every duck part and the beanie; `build_duck(look=...)` dresses it as another character |
+| `blender/characters.py` | The characters (`LOOKS`): per-part palette remaps and accessories (the mallard's breast patch, field cap and drake curl) |
 | `blender/rig.py` | Skeleton, skin weights, still poses |
 | `blender/weapons.py` | Rifle and pistol from beveled boxes and cylinders, plus their empties |
 | `blender/holds.py` | The fist grip frame, weapon attach math, support hand placement |
@@ -95,6 +97,7 @@ Local outputs in `art/`: `export/` (the same GLBs, `acc_beanie.glb`, `palette.pn
 | `blender/reloads.py` | The magazine-change reloads, their timeline (`MAG_EVENTS`) and the aim-down-sights holds |
 | `blender/bake.py` | Bakes clips into actions, exports and prunes `duck_anims.glb`, computes `attach.json` |
 | `blender/render.py`, `blender/previews.py` | Toon renders, clip strips, MP4/GIF previews |
+| `blender/lineup.py` | Each extra character's turnaround, face, holds, lineups next to the classic duck, game-distance views and menu portrait |
 | `blender/build_all.py` | Entry point |
 | `blender/validate_glb.py` | Contract check of the published GLBs |
 
@@ -163,6 +166,19 @@ rifle.quaternion.fromArray(quaternion);          // [x, y, z, w]
 
 Both weapons share one attach pose today (position `[0, 0.08, -0.07]`, quaternion `[-0.541675, 0.45452, 0.541675, 0.45452]`), because both have the grip at the origin and the same grip angle. They stay separate keys in the JSON so a future weapon can differ.
 
+## Characters
+
+Every character is the same build: same shapes where the body and head are (so the hitboxes, one table for all ducks in `packages/shared/src/hitbox.ts`, fit every one), the same finger parts (so the same skeleton, bone for bone), the same weights, clips and weapon holds. A character only changes palette cells per part and adds small accessories that stay close to the body, rigid on a bone. `validate_glb.py` fails when a `duck_<id>.glb` has a different skeleton or bind pose, reaches more than 3 cm past the classic duck sideways or front to back, or stands taller than the classic tuft.
+
+| Id | Name in the menu | Look |
+| --- | --- | --- |
+| `classic` | Qwakk | The yellow brand duck (below) |
+| `mallard` | Toski | Bright turquoise head (`#70fff0`), white neck ring, peach breast, brand-yellow body and wings, blue speculum feathers, orange bill and feet. A yellow field cap replaces the tuft; its top is 1.70 m, below the classic tuft (1.79 m), outside the head hitbox. The cap has a separate `QwakkHeadwear` material primitive so the game hides it while either helmet is worn. Same skeleton, bind pose and gameplay hitboxes. 9,980 triangles, 5,072 vertices, about 352 KB. The game adds a 40 mm dark outline for visibility (Qwakk: 7.5 mm). |
+
+Its palette colors are appended after the classic ones in `params.PALETTE` (`m_*`), so every existing cell keeps its place (the menu's 3D duck reads cells by index for its outline). Compact review sheets in Git: `renders/mallard/turnaround_sheet.webp` and `lineup_three_quarter.webp` (about 48 KB total). The full PNG renders regenerate locally and are gitignored. In-engine grass, hedge and cobble checks at 10, 25 and 50 m: `npm run shots:characters`, documented in `../docs/character-readability.md`.
+
+A new character: an entry in `characters.LOOKS` with its dress function, its colors appended to the palette, then the game's catalogs (`packages/shared/src/characters.ts`, `apps/client/src/ui/menu/characters.ts` and its copy).
+
 ## Design notes
 
 - **Brand match.** Duck yellow `#ffd43b`, beak orange `#ff8a3d`, brand dark `#151619` for the pupils and the outline. The round head and the huge dark eyes echo the ring Q and dot eye of the brand mark. The tuft curl on top is the mark's curl, and a raised deep-yellow spiral on the back of the head repeats that curl from behind.
@@ -181,13 +197,13 @@ Both weapons share one attach pose today (position `[0, 0.08, -0.07]`, quaternio
 
 | Item | Budget | Result |
 | --- | --- | --- |
-| Duck LOD0 | 6k to 10k triangles | 9,856 triangles, 5,004 vertices |
+| Duck LOD0 | 6k to 10k triangles | 9,856 triangles, 5,004 vertices (mallard: 9,980 triangles, 5,072 vertices; simplified cap, breast patch and tail curl) |
 | Weapons | 1.5k to 4k triangles | rifle 1,892, pistol 1,124 (small by design) |
 | Beanie | small rigid prop | 1,152 triangles |
 | Bones | 50 to 65 | 42 deform joints (43 with `HeadTop_End`) |
 | Weights | 4 per vertex | max 4 bones per vertex |
 | Texture | 256 palette | one 256 px PNG, 1.3 KB |
-| File size | under 1 MB per duck, 2 to 3 MB animations | `duck.glb` 343 KB, `duck_anims.glb` 671 KB (uncompressed) |
+| File size | under 1 MB per duck, 2 to 3 MB animations | `duck.glb` 343 KB, `duck_mallard.glb` 352 KB, `duck_anims.glb` 754 KB (uncompressed) |
 | Height | | 1.79 m to the tuft tip, 1.62 m to the top of the head |
 
 ## Using the beanie in the engine

@@ -1,3 +1,4 @@
+import { t as translate } from '../../i18n/game.ts';
 /**
  * Item names and lines for the battle royale HUD: pickup prompts, the crate
  * panel, the inventory screen and the "that did not work" toasts. Plain text
@@ -9,18 +10,18 @@ import { ARMOR, backpackLevel, Deny, Item, itemName, weaponStats, WeaponId, type
 export function shortName(kind: number): string {
   switch (kind) {
     case Item.Vest1:
-      return 'Vest 1';
+      return translate('Vest 1');
     case Item.Vest2:
-      return 'Vest 2';
+      return translate('Vest 2');
     case Item.Helmet1:
-      return 'Helmet 1';
+      return translate('Helmet 1');
     case Item.Helmet2:
-      return 'Helmet 2';
+      return translate('Helmet 2');
     case Item.Crate:
-      return 'Crate';
+      return translate('Crate');
     default: {
       const pack = backpackLevel(kind);
-      return pack > 0 ? `Backpack ${pack}` : itemName(kind);
+      return pack > 0 ? translate('Backpack {n}', { n: pack }) : translate(itemName(kind));
     }
   }
 }
@@ -45,13 +46,13 @@ export function itemLine(kind: number, amount: number, extra: ItemExtra = {}): s
 export function denyShort(reason: number): string {
   switch (reason) {
     case Deny.Full:
-      return 'Backpack full';
+      return translate('Backpack full');
     case Deny.Max:
-      return 'Carrying the max';
+      return translate('Carrying the max');
     case Deny.Worse:
-      return 'Yours is better';
+      return translate('Yours is better');
     case Deny.Opening:
-      return 'Opening...';
+      return translate('Opening...');
     default:
       return '';
   }
@@ -62,13 +63,13 @@ export function denyToast(reason: number, kind: number): string {
   const name = shortName(kind);
   switch (reason) {
     case Deny.Full:
-      return `Backpack full: no room for ${name}`;
+      return translate('Backpack full: no room for {name}', { name });
     case Deny.Max:
-      return `You already carry all the ${name} you can`;
+      return translate('You already carry all the {name} you can', { name });
     case Deny.Worse:
-      return `Your ${backpackLevel(kind) > 0 ? 'backpack' : kind === Item.Helmet1 || kind === Item.Helmet2 ? 'helmet' : 'vest'} is as good or better`;
+      return translate('Your equipment is as good or better');
     case Deny.TooHeavy:
-      return 'Too heavy to take the backpack off. Drop some ammo or heals first';
+      return translate('Too heavy to take the backpack off. Drop some ammo or heals first');
     default:
       return '';
   }

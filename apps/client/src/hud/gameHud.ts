@@ -1,3 +1,4 @@
+import { t as translate } from '../i18n/game.ts';
 /**
  * The player-facing HUD: dynamic crosshair, hit marker, health, ammo, kill
  * feed, round timer, scoreboard (Tab), damage direction, low-health
@@ -41,6 +42,8 @@ export class GameHud {
   private readonly center: HTMLElement;
   private readonly arcs: HTMLElement;
   private readonly protect: HTMLElement;
+  private readonly noticeEl: HTMLElement;
+  private noticeTimer: ReturnType<typeof setTimeout> | null = null;
   private markerT = 0;
   private lastAmmo = '';
   private lastBoard = '';
@@ -79,7 +82,21 @@ export class GameHud {
     this.board.hidden = true;
     this.center = el('div', 'ghud-center', this.root);
     this.protect = el('div', 'ghud-protect', this.root);
-    this.protect.textContent = 'Spawn protection';
+    this.protect.textContent = translate('Spawn protection');
+    this.noticeEl = el('div', 'ghud-notice', this.root);
+    this.noticeEl.setAttribute('role', 'status');
+    this.noticeEl.hidden = true;
+  }
+
+  /** A notice from the server operators: plain text at the top for a few seconds. */
+  notice(text: string): void {
+    this.noticeEl.textContent = text;
+    this.noticeEl.hidden = false;
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
+    this.noticeTimer = setTimeout(() => {
+      this.noticeEl.hidden = true;
+      this.noticeTimer = null;
+    }, 8000);
   }
 
   /** The root element, for mode-specific HUD parts (battle royale) to attach to. */
@@ -100,6 +117,7 @@ export class GameHud {
   }
 
   dispose(): void {
+    if (this.noticeTimer) clearTimeout(this.noticeTimer);
     this.root.remove();
   }
 
@@ -167,7 +185,7 @@ export class GameHud {
     k.textContent = killer;
     const w = document.createElement('span');
     w.className = 'w';
-    w.textContent = head ? `${weapon}, head` : weapon;
+    w.textContent = head ? translate('{weapon}, head', { weapon: translate(weapon) }) : translate(weapon);
     const v = document.createElement('span');
     v.className = 'v';
     v.textContent = victim;
@@ -180,7 +198,7 @@ export class GameHud {
     const m = Math.floor(secondsLeft / 60);
     const s = secondsLeft % 60;
     this.timer.textContent = `${m}:${s.toString().padStart(2, '0')}`;
-    this.score.textContent = `You ${myKills}  |  ${leader} ${leaderKills}  |  First to ${limit}`;
+    this.score.textContent = translate('You {kills}  |  {leader} {score}  |  First to {limit}', { kills: myKills, leader, score: leaderKills, limit });
   }
 
   scoreboard(rows: ScoreRow[] | null): void {
@@ -191,7 +209,7 @@ export class GameHud {
     const sorted = [...rows].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
     const html =
-      '<div class="ghud-bhead"><span>Duck</span><span>K</span><span>D</span></div>' +
+      `<div class="ghud-bhead"><span>${translate('Duck')}</span><span>${translate('Kills')}</span><span>${translate('Deaths')}</span></div>` +
       sorted.map((r) => `<div class="ghud-brow${r.me ? ' me' : ''}"><span>${esc(r.name)}</span><span>${r.kills}</span><span>${r.deaths}</span></div>`).join('');
     this.board.hidden = false;
     if (html !== this.lastBoard) {

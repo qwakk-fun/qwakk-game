@@ -1,3 +1,4 @@
+import { t as translate } from '../../i18n/game.ts';
 /**
  * The inventory screen (I): what is in reach on the left (open crates and
  * items on the ground, each with Take), the backpack in the middle (ammo and
@@ -79,9 +80,9 @@ export class InventoryPanel {
     const r = this.root;
     r.replaceChildren();
     const head = el('div', 'br-inv-head', r);
-    el('div', 'br-inv-title', head, 'Inventory');
+    el('div', 'br-inv-title', head, translate('Inventory'));
     const cap = el('div', 'br-inv-cap', head);
-    el('span', 'br-inv-cap-label', cap, d.pack > 0 ? `Backpack level ${d.pack}` : 'No backpack');
+    el('span', 'br-inv-cap-label', cap, d.pack > 0 ? translate('Backpack level {n}', { n: d.pack }) : translate('No backpack'));
     const bar = el('div', 'br-inv-cap-bar', cap);
     const fill = el('div', 'br-inv-cap-fill', bar);
     const share = d.capacity > 0 ? Math.min(1, d.load / d.capacity) : 0;
@@ -89,26 +90,26 @@ export class InventoryPanel {
     fill.classList.toggle('full', share >= 0.999);
     fill.classList.toggle('high', share >= 0.85 && share < 0.999);
     el('span', 'br-inv-cap-num', cap, `${num(d.load)} / ${num(d.capacity)}`);
-    const close = el('button', 'br-inv-close', head, hint('Close (I)', COPY.touch.hints.inventoryClose));
+    const close = el('button', 'br-inv-close', head, hint(translate('Close (I)'), COPY.touch.hints.inventoryClose));
     close.type = 'button';
     close.dataset.close = '1';
 
     const cols = el('div', 'br-inv-cols', r);
     const near = el('div', 'br-inv-col', cols);
-    el('div', 'br-board-title', near, 'In reach');
-    if (d.nearby.length === 0) el('div', 'br-inv-empty', near, 'Nothing in reach. Walk up to a crate or an item.');
+    el('div', 'br-board-title', near, translate('In reach'));
+    if (d.nearby.length === 0) el('div', 'br-inv-empty', near, translate('Nothing in reach. Walk up to a crate or an item.'));
     for (const g of d.nearby) {
       el('div', 'br-inv-group', near, g.title);
       for (const row of g.rows) this.row(near, row);
     }
     const bag = el('div', 'br-inv-col', cols);
-    el('div', 'br-board-title', bag, 'Backpack');
-    if (d.carried.length === 0) el('div', 'br-inv-empty', bag, 'Empty. Ammo and heals go here.');
+    el('div', 'br-board-title', bag, translate('Backpack'));
+    if (d.carried.length === 0) el('div', 'br-inv-empty', bag, translate('Empty. Ammo and heals go here.'));
     for (const row of d.carried) this.row(bag, row);
     const worn = el('div', 'br-inv-col', cols);
-    el('div', 'br-board-title', worn, 'Equipped');
+    el('div', 'br-board-title', worn, translate('Equipped'));
     for (const row of d.equipped) this.row(worn, row);
-    el('div', 'br-inv-hint', r, 'Guns, armor and the backpack weigh nothing. Ammo and heals fill the backpack. Things you drop land at your feet for anyone to take.');
+    el('div', 'br-inv-hint', r, translate('Guns, armor and the backpack weigh nothing. Ammo and heals fill the backpack. Things you drop land at your feet for anyone to take.'));
   }
 
   private row(parent: HTMLElement, row: InvRow): void {

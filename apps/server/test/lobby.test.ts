@@ -120,6 +120,15 @@ describe('matchmaking guard', () => {
     expect(cleanClientOptions('br', 'lobby', null)).toEqual({});
   });
 
+  it('keeps a picked duck only when it is in the catalog', () => {
+    expect(cleanClientOptions('island', 'lobby', { name: 'Duck', character: 1 })).toEqual({ name: 'Duck', character: 1 });
+    expect(cleanClientOptions('br', 'lobby', { character: 0 })).toEqual({ character: 0 });
+    for (const bad of [2, -1, 1.5, '1', 'mallard', null, { id: 1 }, [1], Number.NaN, 1e9]) {
+      expect(cleanClientOptions('island', 'lobby', { character: bad })).toEqual({});
+    }
+    expect(cleanClientOptions('lobby', 'lobby', { character: 1 })).toEqual({});
+  });
+
   function guard(rooms: number, open: boolean, allow: boolean): GuardOptions & { creates: string[] } {
     const creates: string[] = [];
     return {

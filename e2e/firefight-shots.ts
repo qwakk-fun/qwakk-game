@@ -17,27 +17,46 @@ import { Button } from '@qwakk/shared';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? `${root}/shots`;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
+const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 const seconds = Number(process.argv[3] ?? 40);
 mkdirSync(out, { recursive: true });
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main(): Promise<void> {
-  const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: '2567' } });
-  const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', '5173', '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
+  const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: String(SERVER_PORT) } });
+  const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
   try {
     await sleep(2500);
     const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome', headless: true });
     const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
-    await page.goto('http://localhost:5173/game/?autopilot=fight&hud=0');
+    // The local duck plays the mallard; the bots are a mix of both ducks.
+    await page.goto(`http://localhost:${WEB_PORT}/game/?server=ws://localhost:${SERVER_PORT}&autopilot=fight&hud=0&character=mallard`);
     await page.waitForFunction(() => (window as any).__qwakk?.snapshot().players >= 2, null, { timeout: 30000 });
     await sleep(3000);
     const saved: string[] = [];
     let lastShotAt = 0;
+    // Ducks close to ours (both characters at once on a busy map): up to three frames.
+    const near: string[] = [];
+    let nearShots = 0;
+    let lastNearAt = 0;
     const end = Date.now() + seconds * 1000;
     while (Date.now() < end && saved.length < 8) {
       await sleep(60);
-      const c = await page.evaluate(() => (window as any).__qwakk.snapshot().combat);
+      const snap = await page.evaluate(() => {
+        const s = (window as any).__qwakk.snapshot();
+        const near = s.me ? s.visibleRemotes.filter((id: string) => Math.hypot(s.remotes[id].x - s.me.x, s.remotes[id].z - s.me.z) < 9).length : 0;
+        return { combat: s.combat, near };
+      });
+      if (snap.near > 0 && nearShots < 3 && Date.now() - lastNearAt > 2500) {
+        nearShots++;
+        lastNearAt = Date.now();
+        const file = `${out}/firefight-near-${nearShots}.png`;
+        await page.screenshot({ path: file });
+        near.push(file);
+      }
+      const c = snap.combat;
       const marker = c.now - c.lastMarkerAt < 90;
       const feathers = c.now - c.lastFeatherAt < 250;
       const tracer = c.now - c.lastTracerAt < 60;
@@ -54,10 +73,11 @@ async function main(): Promise<void> {
     await sleep(1500);
     // Gun handling in a quiet room: a battle royale warm-up (open village square, damage off, no bots).
     // Duck A aims and reloads, duck B watches it from the front.
-    quiet = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: '2567', QWAKK_BOTS: '0', QWAKK_BR_WARMUP: '900' } });
+    quiet = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: String(SERVER_PORT), QWAKK_BOTS: '0', QWAKK_BR_WARMUP: '900' } });
     await sleep(2500);
     const handling = await gunHandling(out);
-    console.log(JSON.stringify({ saved, handling, combat: s.combat, totalKills: s.kills, backend: s.backend }, null, 2));
+    console.log(JSON.stringify({ saved, near, handling, combat: s.combat, totalKills: s.kills, characters: s.characters, myCharacter: s.myCharacter, backend: s.backend }, null, 2));
+    if (s.myCharacter !== 1 || Object.keys(s.characters ?? {}).length < 2) throw new Error(`expected both ducks in the room and a mallard for us: ${JSON.stringify(s.characters)} ${s.myCharacter}`);
   } finally {
     server.kill('SIGINT');
     quiet?.kill('SIGINT');
@@ -77,18 +97,20 @@ async function me(page: Page): Promise<{ x: number; z: number; alive: number; gr
 /**
  * Hip vs aim down sights from A's camera, then A's reload at its magazine
  * moments (rifle and pistol), each also seen from B, who stands in front of A.
+ * A plays the mallard and B the classic duck, so both characters are in view.
  */
 async function gunHandling(out: string): Promise<Record<string, unknown>[]> {
   const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome', headless: true });
-  const open = async () => {
+  const open = async (character: string) => {
     const page = await (await browser.newContext({ viewport: { width: 1280, height: 720 } })).newPage();
-    await page.goto('http://localhost:5173/game/?mode=br&autopilot=fight&hud=0');
+    await page.goto(`http://localhost:${WEB_PORT}/game/?server=ws://localhost:${SERVER_PORT}&mode=br&autopilot=fight&hud=0&character=${character}`);
     await page.waitForFunction(() => (window as any).__qwakk?.snapshot().me?.grounded === 1, null, { timeout: 30000 });
     await hook(page, 'face', 0, 0, 120000, -0.05);
     return page;
   };
-  const a = await open();
-  const b = await open();
+  // A is the mallard, B the classic duck: each shot has one of each, up close.
+  const a = await open('mallard');
+  const b = await open('classic');
   await sleep(1500);
   // A walks up to B (facing it), then both face each other about 5 m apart.
   for (let i = 0; i < 60; i++) {

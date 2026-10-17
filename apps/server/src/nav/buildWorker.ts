@@ -1,6 +1,6 @@
 /**
  * Worker thread that builds a map_v1 map's navmesh (about a minute of WASM
- * work for Sainte-Canard) off the main thread, so the server keeps ticking
+ * work for Yelova) off the main thread, so the server keeps ticking
  * rooms while it runs. Gets the map id as workerData, posts the exported
  * navmesh bytes back.
  */

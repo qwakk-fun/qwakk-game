@@ -3,7 +3,8 @@ import type { GameSettings } from '../../settings.ts';
 import type { HeroModule } from './heroSlot.ts';
 
 export type GameMode = 'br' | 'dm';
-export type ExitReason = 'ended' | 'left' | 'disconnected';
+/** removed: the server took the player out of the match; closed: the room was closed. */
+export type ExitReason = 'ended' | 'left' | 'disconnected' | 'removed' | 'closed';
 
 /** Optional numbers the game may hand back with onGameExit. */
 export interface MatchSummary {
@@ -24,6 +25,8 @@ export interface StartOptions {
   team?: number;
   token?: string;
   name?: string;
+  /** The picked duck (shared catalog id, `@qwakk/shared/characters`), sent as a join option. */
+  character?: number;
   settings: GameSettings;
 }
 

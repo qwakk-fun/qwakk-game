@@ -12,6 +12,7 @@ import { StateView } from '@colyseus/schema';
 import {
   actionOf,
   Button,
+  characterFromOption,
   createSimWorld,
   hasWeapon,
   emptyInput,
@@ -39,6 +40,10 @@ import { RttProbe } from './rttProbe.ts';
 import { Visibility } from './visibility.ts';
 import type { ServerMap } from './maps.ts';
 import { allowJoin, joinIp, verifySession } from './meta/index.ts';
+import { CLOSE_CODE, LOBBY_ERROR } from '@qwakk/shared/lobby';
+import { isIpBlocked } from './ops/ipBlocks.ts';
+import { liveRooms, type LiveRoom, type RoomInfo, type RoomPlayer } from './ops/rooms.ts';
+import { maintenanceOn } from './settings/index.ts';
 
 /** Join refusal codes the client understands (onAuth errors). */
 export const JOIN_ERROR = {
@@ -64,6 +69,8 @@ export interface JoinOptions {
   name?: unknown;
   spectate?: unknown;
   token?: unknown;
+  /** The picked duck (`characters.ts` id); unknown or missing: the classic duck. */
+  character?: unknown;
 }
 
 /** Who joined, from onAuth (meta verifySession). */
@@ -74,6 +81,8 @@ export interface JoinAuth {
   tag: string;
   /** True when the identity came from a session token (its name wins over the join options). */
   signed: boolean;
+  /** The address it joined from: memory only (admin IP blocks), never stored or sent. */
+  ip?: string;
 }
 
 /** Network side of a seat. */
@@ -114,7 +123,7 @@ export function angleMilli(fx: number, fz: number, tx: number, tz: number): numb
   return Math.round(Math.atan2(-(tx - fx), -(tz - fz)) * 1000);
 }
 
-export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandState; input: PlayerInput }> {
+export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandState; input: PlayerInput }> implements LiveRoom {
   /** Inputs arrive at 30 Hz; the headroom lets a backlog flush after a network stall. */
   override maxMessagesPerSecond = NET.maxMessagesPerSecond;
 
@@ -146,8 +155,8 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   protected abstract loadMap(options: GameRoomOptions): ServerMap;
   /** The rules object (deathmatch or battle royale). */
   protected abstract createMatch(options: GameRoomOptions): M;
-  /** Seat for a joining human, or null when the match does not take players now. */
-  protected abstract addHuman(client: Client, name: string, auth: JoinAuth | undefined): Seat | null;
+  /** Seat for a joining human (wearing `character`, already validated), or null when the match does not take players now. */
+  protected abstract addHuman(client: Client, name: string, auth: JoinAuth | undefined, character: number): Seat | null;
   protected abstract removeHuman(id: string): void;
   /** Run the match's end of tick (bots, timers). */
   protected abstract matchEndTick(): void;
@@ -178,12 +187,14 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
 
   override async onAuth(client: Client, options: JoinOptions = {}, context?: AuthContext): Promise<JoinAuth> {
     const ip = joinIp(context as never);
-    if (!allowJoin(ip)) throw new Error('too many joins, try again in a moment');
+    if (isIpBlocked(ip) || !allowJoin(ip)) throw new Error('too many joins, try again in a moment');
+    // Maintenance: no new players; the ones already in play on (reconnects do not pass here).
+    if (maintenanceOn() && options.spectate !== true) throw new ServerError(LOBBY_ERROR.maintenance, 'the server is under maintenance');
     const token = typeof options.token === 'string' ? options.token : undefined;
     const who = await verifySession(token);
     if (!who) throw new Error('invalid session');
     const signed = token !== undefined && token !== '';
-    const auth: JoinAuth = { playerId: who.playerId, name: who.name, tag: who.tag, signed };
+    const auth: JoinAuth = { playerId: who.playerId, name: who.name, tag: who.tag, signed, ip };
     if (options.spectate !== true) this.checkAdmission(auth);
     // One seat per identity: a second tab with the same session is refused.
     if (signed) {
@@ -243,6 +254,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     this.rttTimer = setInterval(() => this.probeRtt(), 1000);
 
     this.stats = new RoomStats(this.roomId, () => this.match.seats.size);
+    liveRooms.add(this);
     if (options.statsMs && options.statsMs > 0) {
       this.stats.start(options.statsMs, (s) => console.log(`[stats] ${JSON.stringify({ ...s, ...this.extraStats() })}`));
     }
@@ -302,7 +314,8 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     this.joinCount += 1;
     // A signed-in name wins over the one in the join options.
     const name = auth?.signed ? cleanName(auth.name, `Duck ${this.joinCount}`) : cleanName(options.name, auth?.name ?? `Duck ${this.joinCount}`);
-    const seat = this.addHuman(client, name, auth);
+    // The pick is looks only and checked against the catalog (anything else is the classic duck).
+    const seat = this.addHuman(client, name, auth, characterFromOption(options.character));
     if (!seat) {
       client.leave(4000, 'match already started');
       return;
@@ -333,6 +346,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   }
 
   override onDispose(): void {
+    liveRooms.delete(this);
     if (this.rttTimer) clearInterval(this.rttTimer);
     this.loop?.stop();
     this.stats?.stop();
@@ -365,6 +379,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
             lateMarginMs: NET.lateMarginMs,
           });
       state.team = seat.team;
+      state.character = seat.character;
       let mate: TeamMate | null = null;
       if (seat.team > 0) {
         mate = new TeamMate();
@@ -619,6 +634,90 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   /** Test and tooling hook: the current tick number. */
   get currentTick(): number {
     return this.tickNo;
+  }
+
+  // ---- admin panel (ops/rooms.ts): read by the authenticated admin only ----
+
+  private createdAt = Date.now();
+
+  /** Mode, phase and clock for the admin dashboard. */
+  protected roomStatus(): { kind: 'dm' | 'br'; mode: string; phase: string; secondsLeft: number } {
+    return { kind: 'dm', mode: '', phase: '', secondsLeft: 0 };
+  }
+
+  roomInfo(): RoomInfo {
+    let humans = 0;
+    let bots = 0;
+    for (const s of this.match?.seats.values() ?? []) {
+      if (s.bot) bots++;
+      else humans++;
+    }
+    const st = this.roomStatus();
+    return {
+      roomId: this.roomId,
+      kind: st.kind,
+      label: this.state?.label ?? '',
+      mode: st.mode,
+      mapId: this.state?.mapId ?? '',
+      humans,
+      bots,
+      spectators: this.spectators.size,
+      phase: st.phase,
+      secondsLeft: st.secondsLeft,
+      locked: this.locked,
+      maxHumans: this.maxClients,
+      tick: this.stats?.recent() ?? { avg: 0, p95: 0, max: 0, samples: 0 },
+      createdAt: this.createdAt,
+    };
+  }
+
+  /** The humans and spectators connected now (bots are counted in roomInfo). */
+  roomPlayers(): RoomPlayer[] {
+    const out: RoomPlayer[] = [];
+    for (const client of this.clients) {
+      const id = client.sessionId;
+      const auth = this.auths.get(id);
+      const seat = this.match.seats.get(id);
+      out.push({
+        sessionId: id,
+        name: seat?.name ?? auth?.name ?? '',
+        tag: auth?.signed ? auth.tag : '',
+        playerId: auth?.playerId ?? null,
+        bot: false,
+        spectator: this.spectators.has(id),
+        alive: seat?.sim.alive === 1,
+        kills: seat?.kills ?? 0,
+        deaths: seat?.deaths ?? 0,
+        team: seat?.team ?? 0,
+        pingMs: Math.max(0, Math.round(seat?.rttMs ?? 0)),
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  removePlayer(sessionId: string): boolean {
+    const client = this.clients.getById(sessionId);
+    if (!client) return false;
+    client.leave(CLOSE_CODE.removed, 'removed');
+    return true;
+  }
+
+  removePlayerId(playerId: string): number {
+    let n = 0;
+    for (const [sessionId, auth] of this.auths) if (auth.playerId === playerId && this.removePlayer(sessionId)) n++;
+    return n;
+  }
+
+  ipOf(sessionId: string): string | null {
+    return this.auths.get(sessionId)?.ip ?? null;
+  }
+
+  notice(text: string): void {
+    this.broadcast(Msg.Notice, text);
+  }
+
+  close(): Promise<unknown> {
+    return this.disconnect(CLOSE_CODE.roomClosed);
   }
 }
 

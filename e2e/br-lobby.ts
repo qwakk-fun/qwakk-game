@@ -124,8 +124,8 @@ async function main(): Promise<void> {
       headless: true,
       args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'],
     });
-    const menuUrl = `http://localhost:${WEB_PORT}/game/?server=${server_}&hud=0`;
-    const ctxA = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const menuUrl = `http://localhost:${WEB_PORT}/game/?lang=en&server=${server_}&hud=0`;
+    const ctxA = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 } });
     const a = await ctxA.newPage();
     a.on('pageerror', (e) => console.error('[A] page error:', e.message));
     a.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error('[A] console:', m.text()));
@@ -163,7 +163,7 @@ async function main(): Promise<void> {
     console.log(`countdown: ${(await text(a, '.br-banner')).replace(/\s+/g, ' ')}; listed ${JSON.stringify(listing(id))}`);
 
     // Another menu shows the countdown in the list.
-    const ctxD = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+    const ctxD = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 } });
     const d = await ctxD.newPage();
     await d.goto(menuUrl);
     await d.locator(`.qm-room[data-room="${id}"].is-countdown`).waitFor({ timeout: 15000 });

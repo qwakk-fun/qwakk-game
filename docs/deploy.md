@@ -21,13 +21,15 @@ At launch the server opens one deathmatch room (Istanbul, `DM_OPEN_ROOMS` in `pa
 | --- | --- |
 | `captain-definition` | CapRover's default entry point, points at `deploy/server/Dockerfile`. It lives at the repo root because CapRover uses its folder as the Docker build context, and the image needs the whole monorepo |
 | `deploy/server/Dockerfile` | Node 24 slim. Stages: server production deps, the public client build (minified, no source maps, no dev tools, precompressed), the baked bot navmeshes, then the runtime as user `node` with a healthcheck on `/health` |
-| `deploy/server/build-navmesh.ts` | Build step: bakes the Sainte-Canard and Canard Quarter navmeshes into `/srv/navcache` |
+| `deploy/server/build-navmesh.ts` | Build step: bakes the Yelova and Kavren navmeshes into `/srv/navcache` |
 | `deploy/server/precompress.ts` | Build step: `.br` and `.gz` copies of the client files |
 | `deploy/server/.env.example` | Every env var, with comments (placeholders only) |
 | `deploy/caprover/qwakk-game.service-override.yml` | CPU and memory limits plus stop-first updates for the game app |
 | `deploy/caprover/qwakk-game-db.service-override.yml` | Optional limits for the PostgreSQL app |
 | `deploy/smoke/join.ts` | `npm run smoke`: health, a session, the lobby lists the deathmatch rooms, a join into each, a battle royale join |
 | `apps/server/src/staticClient.ts` | How the server serves the client (see "What the website exposes") |
+| `apps/admin/` | The admin UI, built into the image at `/srv/admin` (never the public folder); served only to a logged-in admin (step 2c) |
+| `scripts/admin-setup.ts` | `npm run admin:setup`: makes the two admin secrets on the owner's machine (step 2c) |
 | `docker-compose.yml` | Local PostgreSQL 17 on port 5439 for development and tests |
 
 Kept for the optional split hosting later (see the last section), not used by this plan: `captain-definition-web`, `deploy/web/`, `deploy/landing/game-proxy.conf`.
@@ -130,11 +132,15 @@ Apps > Create a New App: `qwakk-game`, "Has Persistent Data" off.
   | `VITE_TURNSTILE_SITEKEY` | with the secret | build | Public value. CapRover passes app env vars to the Docker build as build args; a change needs Save, then Force Build |
   | `QWAKK_BR_MAX_ROOMS` | no | runtime | Battle royale rooms open at once. Default `BR.maxRooms` (1). Raise it only after watching CPU (step 6) |
   | `QWAKK_STATS` | no | runtime | `1` prints per-room tick time, CPU and RSS to the logs every `QWAKK_STATS_MS` (default 5000) |
+  | `ADMIN_PASSWORD_HASH` | for the admin panel | runtime | Secret. From `npm run admin:setup` (step 2c). Set together with `ADMIN_TOTP_SECRET`, or neither: without both, `/admin` is a 404 |
+  | `ADMIN_TOTP_SECRET` | for the admin panel | runtime | Secret. The authenticator app's base32 secret, from `npm run admin:setup` |
   | `PORT` | no | runtime | Default 2567, must match the Container HTTP Port |
 
   Do not set: `VITE_GAME_SERVER` and `VITE_API_BASE` (leave them empty so the client uses its own origin), `QWAKK_NAV_CACHE`, `QWAKK_CLIENT_DIR` and `NODE_ENV` (the image sets them), and the test switches `QWAKK_MAX_CLIENTS` (a value below 32 caps every deathmatch room), `QWAKK_DM_ROOMS`, `QWAKK_BOTS`, `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_COUNTDOWN`, `QWAKK_BR_MIN_HUMANS`, `QWAKK_BR_SEED`, `QWAKK_ZONE_SCALE`, `QWAKK_DM_MAP`, `QWAKK_DM_SPAWN_RADIUS`, `COLYSEUS_LATENCY`.
 
-  Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, the database password) live only in CapRover, never in the repo, an image or a log. The Dockerfile declares no build arg for them, so Docker ignores them at build time.
+  Do not set `QWAKK_ADMIN_DIR` or `QWAKK_COMMIT` either (the image sets them; the dashboard shows CapRover's commit when the app deploys from the repository).
+
+  Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, `ADMIN_PASSWORD_HASH`, `ADMIN_TOTP_SECRET`, the database password) live only in CapRover, never in the repo, an image or a log. The Dockerfile declares no build arg for them, so Docker ignores them at build time.
 - Service Update Override: paste `deploy/caprover/qwakk-game.service-override.yml` (1.5 CPUs, 1 GiB, 0.5 CPU and 256 MiB reserved, stop-first updates). CapRover reapplies it on every deploy.
 
 ### Deployment
@@ -154,6 +160,30 @@ Keep it stable. Changing it later resets every guest identity.
 ### 2b. Turnstile (optional at first) **[OWNER APPROVAL]**
 
 Cloudflare dashboard > Turnstile > Add widget: hostname `play.qwakk.fun`, mode "Managed". The secret key goes to `TURNSTILE_SECRET`, the site key to `VITE_TURNSTILE_SITEKEY`, both on `qwakk-game`. Set both or neither. Adding them later needs one Force Build.
+
+### 2c. Admin panel (optional) **[OWNER APPROVAL]**
+
+The panel at `https://play.qwakk.fun/admin` (dashboard, settings, moderation, notices and maintenance, audit log; README "Admin panel") is off until both secrets are set. It needs the image built from a commit that has it (any deploy after the admin panel landed) and, for saved settings, bans and the audit log, `DATABASE_URL` (migration `002_admin.sql` runs by itself at start).
+
+1. On the owner's machine (local, nothing is written to disk):
+
+   ```bash
+   cd ~/Desktop/qwakk/qwakk-game
+   npm ci                  # once
+   npm run admin:setup     # asks for a password (4+ characters, twice)
+   ```
+
+2. Scan the QR code it prints with an authenticator app (Google Authenticator, 1Password, Authy, ...). The account shows as "Qwakk Game (admin)". If the code does not scan, add the `otpauth://` line by hand.
+3. **[OWNER APPROVAL]** CapRover > `qwakk-game` > App Configs > Environmental Variables: add the two printed lines, `ADMIN_PASSWORD_HASH=scrypt:...` and `ADMIN_TOTP_SECRET=...`, then Save & Update (a restart, no rebuild; rooms in progress end).
+4. The app log shows `[admin] panel on at /admin (UI from /srv/admin)`. Open `https://play.qwakk.fun/admin`, log in with the password and the current 6 digit code.
+5. Clear the terminal (the secret was on screen). Keep the password in a password manager.
+
+Notes:
+
+- A new password or a lost phone: run `npm run admin:setup` again and replace both values (re-add the account in the app).
+- Logging in fails 5 times from one address: that address waits 15 minutes (longer after repeats). Many failures from anywhere lock every login for a minute or more (an attack); wait it out.
+- Sessions live in server memory: a deploy or restart logs you out (12 hours at most anyway).
+- Turning it off: remove both variables and Save. `/admin` becomes a 404 again.
 
 ## 3. Resource sizing
 
@@ -220,6 +250,13 @@ curl -sI -H 'Accept-Encoding: br, gzip' "https://play.qwakk.fun$JS" | grep -i -E
 curl -sI https://play.qwakk.fun/models/duck.glb | grep -i -E '^(HTTP|content-type)'
 #   200, model/gltf-binary
 
+# The admin panel: with the secrets set, the login page (200) and nothing else without a session;
+# without them, 404 like any unknown path
+curl -s -o /dev/null -w '%{http_code}\n' https://play.qwakk.fun/admin                     # 200 (on) or 404 (off)
+curl -s -o /dev/null -w '%{http_code}\n' https://play.qwakk.fun/admin/api/overview        # 401 (on) or 404 (off)
+curl -s -o /dev/null -w '%{http_code}\n' -X POST https://play.qwakk.fun/admin/login       # 403 (no Origin) or 404 (off)
+curl -s https://play.qwakk.fun/api/status                                                 # {"banner":null,"maintenance":false,...}
+
 # Nothing but the client is served (every line must print 404)
 for p in /apps/server/src/index.ts /.git/config /.env /package.json /node_modules/postgres/package.json \
          /packages/shared/src/index.ts /navcache/x.bin /apps/server/db/migrations/001_init.sql /etc/passwd; do
@@ -245,7 +282,7 @@ docker stats --no-stream | grep -E 'qwakk'
 
 ## What the website exposes
 
-The server answers HTTP only from a fixed table of the files in the client build (`/srv/public` in the image, `apps/server/src/staticClient.ts`): `/` is `index.html`, hashed files under `/assets/` are cached for a year, everything else revalidates. Nothing is looked up from the request path on disk, so server source, `packages/`, `.git`, `.env`, `node_modules`, the navmesh cache and the migrations are never reachable; dot paths and unknown paths are 404 (there is no catch-all), and `/game/...` redirects to `/...` for links made for the old plan. `/api`, `/health` and `/matchmake` belong to the game server. The image itself holds no `.git`, `.env`, `art/`, tests, benchmarks or docs (`.dockerignore`), and runs as the unprivileged `node` user with read-only files.
+The server answers HTTP only from a fixed table of the files in the client build (`/srv/public` in the image, `apps/server/src/staticClient.ts`): `/` is `index.html`, hashed files under `/assets/` are cached for a year, everything else revalidates. `/admin` belongs to the admin panel (`apps/server/src/admin/http.ts`): a 404 while it is off; when on, a script-free login page, and the admin UI (`/srv/admin`, outside the public folder) only with a valid admin session. Nothing is looked up from the request path on disk, so server source, `packages/`, `.git`, `.env`, `node_modules`, the navmesh cache and the migrations are never reachable; dot paths and unknown paths are 404 (there is no catch-all), and `/game/...` redirects to `/...` for links made for the old plan. `/api`, `/health` and `/matchmake` belong to the game server. The image itself holds no `.git`, `.env`, `art/`, tests, benchmarks or docs (`.dockerignore`), and runs as the unprivileged `node` user with read-only files.
 
 The public client bundle is minified with local identifier mangling, has no source maps and no `sourceMappingURL`, no comments, no original file paths, and no dev tools (autopilot, test hook, map viewer, `?server=`, spectate and the fake network controls are compiled out; the image build fails if a source map or the map viewer appears). Property names are not mangled on purpose: the shared sim runs in the browser and on the server and must match bit for bit, and property mangling or float-changing transforms would break that (the e2e map hash and sim scenario checks prove the build matches).
 

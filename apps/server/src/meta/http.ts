@@ -6,6 +6,7 @@
  *   POST /api/session       { name, deviceToken?, turnstileToken? } -> session
  *   GET  /api/leaderboard   ?season=&sort=&mode=  top 100, cached 30 s
  *   GET  /api/me            ?season=&mode=  with Authorization: Bearer <session>
+ *   GET  /api/status        menu banner, maintenance and the live rules (public)
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { clientIp } from './ip.ts';
@@ -98,8 +99,10 @@ export function createMetaHandler(meta: MetaService) {
           return meta.leaderboard(url.searchParams, ip);
         case 'GET /api/me':
           return meta.me(req.headers.authorization, url.searchParams, ip);
+        case 'GET /api/status':
+          return meta.status(ip);
         default:
-          return { status: path === '/health' || ['/api/session', '/api/leaderboard', '/api/me'].includes(path) ? 405 : 404, body: { error: 'not_found' } };
+          return { status: path === '/health' || ['/api/session', '/api/leaderboard', '/api/me', '/api/status'].includes(path) ? 405 : 404, body: { error: 'not_found' } };
       }
     };
     handle().then(

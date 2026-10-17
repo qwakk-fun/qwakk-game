@@ -25,3 +25,4 @@ export * from './heal.ts';
 export * from './zone.ts';
 export * from './plane.ts';
 export * from './ads.ts';
+export * from './characters.ts';

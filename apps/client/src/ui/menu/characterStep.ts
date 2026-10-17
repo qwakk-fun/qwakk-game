@@ -1,8 +1,8 @@
 /**
  * Step 2 of the join flow: pick a duck from the catalog (characters.ts). A
  * radio group of cards (portrait, name, line); arrows move the pick like any
- * radio group. The stage (stage.ts) shows the picked duck big, in 3D.
- * With one duck in the catalog its card shows picked, next to a "more soon" tile.
+ * radio group. The stage (stage.ts) shows the picked duck big, in 3D, and
+ * swaps the model when the pick changes.
  */
 import { CHARACTERS, characterById, characterCopy, saveCharacter, type Character, type CharacterId } from './characters.ts';
 import { COPY } from './copy.ts';
@@ -35,7 +35,6 @@ export class CharacterStep {
       this.cards.set(c.id, card);
       this.el.append(card);
     }
-    this.el.append(h('div', { class: 'qm-char qm-char-soon', 'aria-hidden': 'true' }, h('span', { class: 'qm-char-portrait' }, icon('plus')), h('span', { class: 'qm-char-text' }, h('span', { class: 'qm-char-blurb' }, C.soon))));
     this.el.addEventListener('keydown', (e) => {
       const ids = [...this.cards.keys()];
       const i = ids.indexOf(this.current);

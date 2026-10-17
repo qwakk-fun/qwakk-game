@@ -28,7 +28,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-mobile');
 mkdirSync(out, { recursive: true });
 // The menu's API calls go to port 2567 in test builds (net/endpoint.ts), so the server runs there.
-const SERVER_PORT = 2567;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
 const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 const W = 844;
 const H = 390;
@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     await Promise.all([waitForOutput(server, 'server listening'), waitForOutput(web, String(WEB_PORT))]);
     const useChrome = (process.env.E2E_BROWSER ?? 'chrome') === 'chrome';
     const browser = await chromium.launch({ ...(useChrome ? { channel: 'chrome' } : {}), headless: true, args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] });
-    const ctx = await browser.newContext({ viewport: { width: W, height: H }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: W, height: H }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error('[phone] page error:', e.message));
     page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error('[phone] console:', m.text()));
@@ -168,7 +168,7 @@ async function main(): Promise<void> {
     const f = new Fingers(cdp);
 
     // Menu: a phone can play.
-    await page.goto(`http://localhost:${WEB_PORT}/game/?hud=0&menu=1`);
+    await page.goto(`http://localhost:${WEB_PORT}/game/?lang=en&hud=0&menu=1`);
     await page.locator('#qm-name').fill('TouchDuck');
     await sleep(1500); // the menu's entrance animation
     const coarse = await page.evaluate(() => ({ coarse: matchMedia('(pointer: coarse)').matches, fine: matchMedia('(any-pointer: fine)').matches, touch: navigator.maxTouchPoints }));

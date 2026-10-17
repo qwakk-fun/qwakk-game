@@ -6,6 +6,7 @@
  * public builds, else the page host on port 2567 in dev and test builds).
  * Kept free of game imports so the menu loads without Three.js or Rapier.
  */
+import type { ServerStatus } from '@qwakk/shared/lobby';
 import { defaultApiBase, defaultGameServer } from '../../net/endpoint.ts';
 
 export interface SessionInfo {
@@ -104,6 +105,11 @@ export function createSession(name: string, deviceToken?: string, turnstileToken
 
 export function fetchLeaderboard(mode: string, sort: string): Promise<LeaderboardData> {
   return call<LeaderboardData>(`/api/leaderboard?${new URLSearchParams({ mode, sort })}`);
+}
+
+/** The menu banner, maintenance and the rules the server runs now. */
+export function fetchStatus(): Promise<ServerStatus> {
+  return call<ServerStatus>('/api/status', {}, 5000);
 }
 
 export function fetchMe(token: string, mode = 'all'): Promise<MeData> {

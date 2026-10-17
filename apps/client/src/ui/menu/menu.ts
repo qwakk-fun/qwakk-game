@@ -7,10 +7,11 @@
  * Play flow; each part is its own module.
  */
 import { isTouchOnly } from '../../input/touch/device.ts';
+import { changeLocale, locale } from '../../i18n/locale.ts';
 import { loadSettings, toGameSettings } from '../../settings.ts';
 import { ApiError, fetchMe, type MeData } from './api.ts';
 import { CharacterStep } from './characterStep.ts';
-import { characterById, loadCharacter, type Character } from './characters.ts';
+import { characterById, gameId, loadCharacter, type Character } from './characters.ts';
 import { COPY, LINKS } from './copy.ts';
 import { asset, h } from './dom.ts';
 import { howtoPanel } from './howtoPanel.ts';
@@ -24,6 +25,7 @@ import { ResultCard } from './resultCard.ts';
 import { RoomsPanel } from './roomsPanel.ts';
 import { SettingsPanel } from './settingsPanel.ts';
 import { Stage } from './stage.ts';
+import { StatusBar } from './statusBar.ts';
 import { Tabs, type Tab } from './tabs.ts';
 import type { ExitReason, GameMode, MatchSummary, MenuHooks, PlayTarget } from './types.ts';
 import '@fontsource-variable/geist/wght.css';
@@ -48,6 +50,8 @@ const JOIN_ERRORS: Record<number, string> = {
   4409: 'already_in',
   [TEAM_ERROR.partyTooBig]: 'party_too_big',
   [TEAM_ERROR.noTeam]: 'no_team',
+  [LOBBY_ERROR.maintenance]: 'maintenance',
+  [LOBBY_ERROR.modeOff]: 'mode_off',
 };
 
 /** One numbered step of the join flow. */
@@ -73,6 +77,7 @@ export class Menu {
   private readonly settingsPanel: SettingsPanel;
   private readonly rooms: RoomsPanel;
   private readonly party: PartyController;
+  private readonly status: StatusBar;
   private readonly nameStepEl: HTMLElement;
   /** The header's right corner: the version badge (ui/buildBadge.ts) sits here while the menu is up. */
   private readonly badgeSlot: HTMLElement;
@@ -101,6 +106,10 @@ export class Menu {
       busy: () => this.busy,
     });
     this.pendingCode = takePartyCode();
+    this.status = new StatusBar((rules) => {
+      this.rooms.setRules(rules);
+      this.playStep.team.setModes(rules.teamModes);
+    });
 
     const touchOnly = isTouchOnly();
     const character = characterById(loadCharacter()) ?? characterById('classic')!;
@@ -129,7 +138,7 @@ export class Menu {
         h('p', { class: 'qm-tagline' }, COPY.tagline),
       ),
       this.stage.el,
-      h('div', { class: 'qm-join' }, this.result.el, steps),
+      h('div', { class: 'qm-join' }, this.status.el, this.result.el, steps),
       h(
         'aside',
         { class: 'qm-lobby', 'aria-label': COPY.aria.lobby },
@@ -155,6 +164,10 @@ export class Menu {
     );
 
     this.badgeSlot = h('div', { class: 'qm-badge-slot' });
+    const language = h('select', { class: 'qm-language', 'aria-label': 'Language / Dil' },
+      h('option', { value: 'en' }, 'English'), h('option', { value: 'tr' }, 'Türkçe'));
+    language.value = locale;
+    language.addEventListener('change', () => changeLocale(language.value === 'tr' ? 'tr' : 'en'));
     this.root = h(
       'div',
       { id: 'menu', class: `qm${touchOnly ? ' is-touch' : ''}` },
@@ -164,7 +177,7 @@ export class Menu {
         { class: 'qm-top' },
         h('a', { class: 'qm-brand', href: LINKS.home, 'aria-label': COPY.aria.home }, h('img', { src: asset('ui/brand-mark.svg'), alt: '', width: 36, height: 36 }), h('span', {}, 'Qwakk')),
         this.tabs.bar,
-        this.badgeSlot,
+        h('div', { class: 'qm-top-end' }, language, this.badgeSlot),
       ),
       this.tabs.main,
       h(
@@ -189,6 +202,7 @@ export class Menu {
     this.setBusy(false);
     this.playStep.clear();
     this.rooms.start();
+    this.status.start();
     if (exit) void this.result.show(exit.reason, exit.summary, this.lastMode, this.before);
     this.tabs.select('play');
     if (!isTouchOnly()) this.playStep.primary.focus({ preventScroll: true });
@@ -212,6 +226,7 @@ export class Menu {
 
   hide(): void {
     this.rooms.stop();
+    this.status.stop();
     this.stage.hero.stop();
     this.root.hidden = true;
     document.body.classList.remove('qm-open');
@@ -220,7 +235,7 @@ export class Menu {
     if (badge) document.body.append(badge);
   }
 
-  /** The picked duck. Menu only for now: not sent to the game or the server yet (characters.ts). */
+  /** The picked duck: Play sends it as the `character` join option (characters.ts). */
   get character(): Character {
     return this.characters.selected;
   }
@@ -314,7 +329,7 @@ export class Menu {
     // Free the 3D duck's renderer before the game makes its own.
     this.stage.hero.stop();
     try {
-      const joined = await this.hooks.start({ mode, ...target, token, name: this.name.value, settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
+      const joined = await this.hooks.start({ mode, ...target, token, name: this.name.value, character: gameId(this.character.id), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
       // The leader tells the party where it went; the members in the menu follow.
       if (joined) this.party.went(mode, joined.roomId);
       this.party.panel.message(null);

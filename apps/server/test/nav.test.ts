@@ -30,7 +30,7 @@ describe('convex hull triangulation', () => {
   });
 });
 
-describe('bot navmesh on Sainte-Canard', () => {
+describe('bot navmesh on Yelova', () => {
   // The village square to the crossroads: a rectangle of the map, built twice.
   const RECT: [number, number, number, number] = [-80, -260, 140, 120];
 

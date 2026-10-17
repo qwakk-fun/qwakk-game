@@ -1,3 +1,4 @@
+import { t as translate } from '../i18n/game.ts';
 /**
  * Battle royale on the client: the plane flyover and its camera, the drop
  * camera, loot in the world (brLoot.ts: items, crates and their lids) and the
@@ -141,7 +142,7 @@ export class BrClient {
         x += px;
         zz += pz;
       }
-      return { name: z.name, x: x / z.poly.length, z: zz / z.poly.length };
+      return { name: translate(z.name), x: x / z.poly.length, z: zz / z.poly.length };
     });
     this.hudView = new BrHud(d.ghud.element, new MapPainter(base, this.half), labels, {
       action: (a) => this.invAction(a),
@@ -418,7 +419,7 @@ export class BrClient {
     if (!s || !mine) return null;
     const slot = (w: number) => ({
       has: hasWeapon(s, w),
-      name: weaponStats(w).name,
+      name: translate(weaponStats(w).name),
       mag: w === 0 ? s.mag0 : s.mag1,
       res: w === 0 ? s.res0 : s.res1,
       active: s.weapon === w && hasWeapon(s, w),
@@ -452,20 +453,20 @@ export class BrClient {
     let outside = false;
     let current: { x: number; z: number; r: number } | null = null;
     let next: { x: number; z: number; r: number } | null = null;
-    if (st.phase === MatchPhase.Warmup) zoneText = st.need > 0 ? `Waiting for ${st.need} more` : `Starting in ${clock(st.timeLeft)}`;
-    else if (st.phase === MatchPhase.Ended) zoneText = 'Match over';
+    if (st.phase === MatchPhase.Warmup) zoneText = st.need > 0 ? translate('Waiting for {n} more', { n: st.need }) : translate('Starting in {time}', { time: clock(st.timeLeft) });
+    else if (st.phase === MatchPhase.Ended) zoneText = translate('Match over');
     else if (z && st.planeT0) {
       const c = circleAt({ from: { x: z.cx, z: z.cz, r: z.r }, to: { x: z.tx, z: z.tz, r: z.tr }, t0: z.t0, t1: z.t1 }, now);
       current = c.r < 1000 ? c : null;
       next = z.shown && z.tr < c.r - 0.5 ? { x: z.tx, z: z.tz, r: z.tr } : null;
       const shownAt = z.t0 - ((ZONE.phases[0]?.waitS ?? 0) - ZONE.firstShownS) * 1000;
-      if (!z.shown) zoneText = `First zone in ${clock(Math.max(0, shownAt - now) / 1000)}`;
-      else if (now < z.t0) zoneText = `Zone shrinks in ${clock((z.t0 - now) / 1000)}`;
-      else if (now < z.t1) zoneText = `Zone closing ${clock((z.t1 - now) / 1000)}`;
-      else zoneText = z.tr <= 0.5 ? 'Final zone' : 'Zone holding';
+      if (!z.shown) zoneText = translate('First zone in {time}', { time: clock(Math.max(0, shownAt - now) / 1000) });
+      else if (now < z.t0) zoneText = translate('Zone shrinks in {time}', { time: clock((z.t0 - now) / 1000) });
+      else if (now < z.t1) zoneText = translate('Zone closing {time}', { time: clock((z.t1 - now) / 1000) });
+      else zoneText = z.tr <= 0.5 ? translate('Final zone') : translate('Zone holding');
       if (s && s.alive && s.mode !== Mode.Plane && current && Math.hypot(s.x - c.x, s.z - c.z) > c.r) {
         outside = true;
-        zoneText = `Outside the zone! ${zoneText}`;
+        zoneText = translate('Outside the zone! {zone}', { zone: zoneText });
       }
     }
 
@@ -480,19 +481,19 @@ export class BrClient {
       const p = planeAt(r, Math.max(0, t));
       const land = t >= 0 && overLand(this.d.world.map, p.x, p.z);
       const auto = Math.max(0, r.ejectS - Math.max(0, t));
-      banner = [t < 0 ? 'Boarding the plane' : land ? 'Over Sainte-Canard' : 'Over the sea', `Auto jump in ${clock(auto)}. ${hint('Mouse to look around, M for the map.', COPY.touch.hints.plane)}`];
-      prompt = land ? { key: 'F', text: 'Jump' } : null;
+      banner = [t < 0 ? translate('Boarding the plane') : land ? translate('Over Yelova') : translate('Over the sea'), translate('Auto jump in {time}. {hint}', { time: clock(auto), hint: hint(translate('Mouse to look around, M for the map.'), COPY.touch.hints.plane) })];
+      prompt = land ? { key: 'F', text: translate('Jump') } : null;
     } else if (s && s.alive && s.mode === Mode.Freefall) {
-      prompt = { key: 'Space', text: hint('Open the glider (W to dive)', COPY.touch.hints.freefall) };
+      prompt = { key: 'Space', text: hint(translate('Open the glider (W to dive)'), COPY.touch.hints.freefall) };
     } else if (s && s.alive && s.mode === Mode.Glide) {
-      prompt = { key: 'W / S', text: 'Dive or brake' };
+      prompt = { key: 'W / S', text: translate('Dive or brake') };
     } else if (s && !s.alive && this.watching && !this.hudView.resultVisible) {
       const pid = mine?.watch ?? 0;
       const id = pid ? this.d.session.idOfPid(pid) : null;
       const name = pid ? (this.d.session.playerByPid(pid)?.name ?? '') : '';
-      banner = id && this.d.session.isAlly(id) ? [`Watching your teammate ${name}`, hint('Your team is still in it. Click for the next teammate.', COPY.touch.hints.spectateMate)] : [`Watching ${name}`, hint('Click for the next duck. Esc, then Back to the pond, to leave.', COPY.touch.hints.spectate)];
+      banner = id && this.d.session.isAlly(id) ? [translate('Watching your teammate {name}', { name }), hint(translate('Your team is still in it. Click for the next teammate.'), COPY.touch.hints.spectateMate)] : [translate('Watching {name}', { name }), hint(translate('Click for the next duck. Esc, then Back to the pond, to leave.'), COPY.touch.hints.spectate)];
     } else if (s && s.alive && s.down) {
-      banner = ['Knocked!', `Bleeding out in ${Math.ceil((s.hp / KNOCK.hp) * KNOCK.bleedSeconds)} s. ${hint('Crawl to cover. A teammate holds E next to you to revive you.', COPY.touch.hints.knocked)}`];
+      banner = [translate('Knocked!'), translate('Bleeding out in {n} s. {hint}', { n: Math.ceil((s.hp / KNOCK.hp) * KNOCK.bleedSeconds), hint: hint(translate('Crawl to cover. A teammate holds E next to you to revive you.'), COPY.touch.hints.knocked) })];
     }
     let crate: CratePanelView | null = null;
     const revive = this.reviveState(s);
@@ -501,9 +502,9 @@ export class BrClient {
     if (!prompt && revive.prompt && !revive.bar) prompt = { key: 'E', text: revive.prompt };
     else if (!prompt && !revive.prompt && this.promptId && s && mine) {
       const e = this.loot.entries.get(this.promptId);
-      if (e && e.kind === Item.Crate && !e.open) prompt = { key: 'E', text: `Open the ${crateTitle(e).toLowerCase()}` };
+      if (e && e.kind === Item.Crate && !e.open) prompt = { key: 'E', text: translate('Open the {name}', { name: crateTitle(e).toLocaleLowerCase() }) };
       else if (e && e.kind === Item.Crate) {
-        prompt = { key: 'E', text: 'Take all', alt: { key: 'I', text: 'Pick items' } };
+        prompt = { key: 'E', text: translate('Take all'), alt: { key: 'I', text: translate('Pick items') } };
         crate = cratePanel(s, mine, e);
       } else if (e) {
         const note = promptNote(s, mine, e);
@@ -512,7 +513,7 @@ export class BrClient {
     }
 
     this.promptKey = prompt?.key ?? '';
-    const heal = revive.bar ?? (s && s.heal > 0 ? { name: s.healKind === 2 ? 'Medkit' : 'Bandage', progress: 1 - s.heal / (s.healKind === 2 ? HEAL.medkitTicks : HEAL.bandageTicks) } : null);
+    const heal = revive.bar ?? (s && s.heal > 0 ? { name: s.healKind === 2 ? translate('Medkit') : translate('Bandage'), progress: 1 - s.heal / (s.healKind === 2 ? HEAL.medkitTicks : HEAL.bandageTicks) } : null);
     const inv = this.inventory();
     const myX = s && s.mode !== Mode.Plane ? s.x : r ? planeAt(r, Math.max(0, t)).x : 0;
     const myZ = s && s.mode !== Mode.Plane ? s.z : r ? planeAt(r, Math.max(0, t)).z : 0;
@@ -566,7 +567,7 @@ export class BrClient {
     const myPid = session.mine?.pid ?? -1;
     if (s.down) {
       const me = session.mate(session.sessionId);
-      if (me && me.rev > 0) return { prompt: null, bar: { name: `${session.playerByPid(me.rby)?.name ?? 'A teammate'} is reviving you`, progress: me.rev / 255 } };
+      if (me && me.rev > 0) return { prompt: null, bar: { name: translate('{name} is reviving you', { name: session.playerByPid(me.rby)?.name ?? translate('A teammate') }), progress: me.rev / 255 } };
       return { prompt: null, bar: null };
     }
     if (s.mode !== Mode.Ground) return { prompt: null, bar: null };
@@ -576,7 +577,7 @@ export class BrClient {
       if (!p || Math.hypot(p.x - s.x, p.y + 0.45 - (s.y + 0.9), p.z - s.z) > KNOCK.reviveRange) continue;
       const name = st.players.get(id)?.name ?? 'your teammate';
       const mine = m.rby === myPid && m.rev > 0;
-      return { prompt: `Hold to revive ${name}`, bar: mine ? { name: `Reviving ${name}`, progress: m.rev / 255 } : null };
+      return { prompt: translate('Hold to revive {name}', { name }), bar: mine ? { name: translate('Reviving {name}', { name }), progress: m.rev / 255 } : null };
     }
     return { prompt: null, bar: null };
   }
@@ -622,8 +623,8 @@ export class BrClient {
     const st = this.state;
     const n = st.players.size;
     const ducks = (k: number): string => `${k} ${k === 1 ? 'duck' : 'ducks'}`;
-    if (st.need > 0) return [`Waiting for ${st.need} more ${st.need === 1 ? 'duck' : 'ducks'}`, `${ducks(n)} in. The countdown starts at ${n + st.need}. Damage is off.`];
-    return [`The plane leaves in ${clock(st.timeLeft)}`, `${ducks(n)} in. More can join. Bots fill the empty seats.`];
+    if (st.need > 0) return [translate('Waiting for {n} more ducks', { n: st.need }), translate('{n} ducks in. The countdown starts at {min}. Damage is off.', { n, min: n + st.need })];
+    return [translate('The plane leaves in {time}', { time: clock(st.timeLeft) }), translate('{n} ducks in. More can join. Bots fill the empty seats.', { n })];
   }
 
   /** The waiting room panel: room name and who is in (only before the match starts). */

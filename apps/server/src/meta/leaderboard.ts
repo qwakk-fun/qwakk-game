@@ -1,5 +1,6 @@
 /**
- * Leaderboard reads over the `leaderboard_stats` view (bots excluded).
+ * Leaderboard reads over the `leaderboard_stats` view (bots excluded, and
+ * players the admin hid: `leaderboard_hidden`).
  * `rank` is always the position by season score; `sort` only orders the list.
  * K/D and average placement sorts need at least MIN_MATCHES_FOR_RATIOS matches,
  * so one lucky game does not top a ratio board.
@@ -92,6 +93,7 @@ function ranked(sql: Sql, seasonId: number, mode: ModeFilter) {
         sum(placement_sum)::int as placement_sum, sum(points)::int as points
       from leaderboard_stats
       where season_id = ${seasonId} and (${mode}::text = 'all' or mode = ${mode}::text)
+        and player_id not in (select player_id from leaderboard_hidden)
       group by player_id
     ), ranked as (
       select agg.*,
@@ -143,6 +145,7 @@ export async function playerStanding(sql: Sql, seasonId: number, mode: ModeFilte
 async function countRanked(sql: Sql, seasonId: number, mode: ModeFilter): Promise<number> {
   const [t] = await sql<{ n: number }[]>`
     select count(distinct player_id)::int as n from leaderboard_stats
-    where season_id = ${seasonId} and (${mode}::text = 'all' or mode = ${mode}::text)`;
+    where season_id = ${seasonId} and (${mode}::text = 'all' or mode = ${mode}::text)
+      and player_id not in (select player_id from leaderboard_hidden)`;
   return t?.n ?? 0;
 }

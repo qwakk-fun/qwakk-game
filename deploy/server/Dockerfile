@@ -22,7 +22,8 @@ RUN npm ci --omit=dev --workspace @qwakk/server --workspace @qwakk/shared \
  && npm cache clean --force
 
 # The public client build, served from the site root. Minified, no source
-# maps, no dev tools (VITE_DEVTOOLS=0 compiles them out).
+# maps, no dev tools (VITE_DEVTOOLS=0 compiles them out). The admin UI is built
+# here too, into its own folder (apps/admin/dist), never into the public one.
 FROM ${NODE_IMAGE} AS client
 WORKDIR /src
 COPY package.json package-lock.json tsconfig.base.json ./
@@ -32,6 +33,7 @@ COPY apps/client/package.json apps/client/
 RUN npm ci --workspace @qwakk/client --workspace @qwakk/shared --no-audit --no-fund
 COPY packages/shared packages/shared
 COPY apps/client apps/client
+COPY apps/admin apps/admin
 COPY deploy/server/precompress.ts deploy/server/
 # Optional build-time settings. CapRover passes app env vars as build args, so
 # they are set in the qwakk-game app settings; changing one needs a rebuild.
@@ -54,6 +56,12 @@ RUN npm run build -w @qwakk/client -- --base / \
       echo 'public client build contains source maps or dev pages' >&2; exit 1; \
     fi \
  && node --disable-warning=ExperimentalWarning deploy/server/precompress.ts apps/client/dist
+# The admin UI: its own bundle, served by the server only to a logged-in admin.
+# The build fails if anything of it (or its routes) shows up in the public client.
+RUN npx vite build --config apps/admin/vite.config.ts \
+ && if grep -rlq -e '/admin/api' -e 'qwakk_admin' -e 'admin@' apps/client/dist; then \
+      echo 'public client build contains admin code' >&2; exit 1; \
+    fi
 
 # Bake the bot navmeshes (Sainte-Canard about a minute of one core, the
 # deathmatch map a few seconds). Without them every container start rebuilds
@@ -67,19 +75,25 @@ COPY deploy/server/build-navmesh.ts deploy/server/
 RUN QWAKK_NAV_CACHE=/srv/navcache node --disable-warning=ExperimentalWarning deploy/server/build-navmesh.ts
 
 FROM ${NODE_IMAGE} AS runtime
+# CapRover passes the commit of a repository deploy as a build arg; the admin dashboard shows it.
+ARG CAPROVER_GIT_COMMIT_SHA=
 ENV NODE_ENV=production \
     PORT=2567 \
     QWAKK_NAV_CACHE=/srv/navcache \
-    QWAKK_CLIENT_DIR=/srv/public
+    QWAKK_CLIENT_DIR=/srv/public \
+    QWAKK_ADMIN_DIR=/srv/admin \
+    QWAKK_COMMIT=${CAPROVER_GIT_COMMIT_SHA}
 WORKDIR /srv
 # Files stay owned by root and read-only for the runtime user. Only the client
-# dist is served over HTTP (QWAKK_CLIENT_DIR); nothing else in /srv is reachable.
+# dist is served over HTTP (QWAKK_CLIENT_DIR); the admin UI (QWAKK_ADMIN_DIR) only
+# to a logged-in admin; nothing else in /srv is reachable.
 COPY --from=deps /srv /srv
 COPY packages/shared/src packages/shared/src
 COPY apps/server/src apps/server/src
 COPY apps/server/db apps/server/db
 COPY --from=nav /srv/navcache /srv/navcache
 COPY --from=client /src/apps/client/dist /srv/public
+COPY --from=client /src/apps/admin/dist /srv/admin
 
 USER node
 EXPOSE 2567

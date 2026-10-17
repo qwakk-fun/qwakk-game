@@ -14,6 +14,7 @@
 import { COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, type SimWorld, type Vec3 } from '@qwakk/shared';
 import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from './arena.ts';
 import { BOT_NAMES, BotBrain } from './bots.ts';
+import { spawnProtectTicks } from './settings/index.ts';
 
 export type { BotTarget, Seat } from './arena.ts';
 
@@ -31,6 +32,8 @@ export interface DeathmatchOptions extends ArenaOptions {
   intermissionSeconds: number;
   /** Bot brain factory (the server passes navmesh bots on map_v1 maps); default: the steering brain. */
   createBot?: (sim: SimWorld, seatId: string) => BotLike;
+  /** Round rules read at the start of every round (the admin settings); unset: the numbers above. */
+  rules?: () => Pick<DeathmatchOptions, 'scoreLimit' | 'roundSeconds' | 'intermissionSeconds'>;
 }
 
 export class Deathmatch extends Arena {
@@ -59,10 +62,10 @@ export class Deathmatch extends Arena {
     return this.seats.size === 0;
   }
 
-  /** A human takes a seat; `team` makes party members allies (no damage between them, always in view). */
-  addHuman(id: string, name: string, team = 0): Seat {
+  /** A human takes a seat; `team` makes party members allies (no damage between them, always in view). `character`: its validated pick. */
+  addHuman(id: string, name: string, team = 0, character?: number): Seat {
     if (this.idle) this.freshRound();
-    const seat = this.addSeat(id, name, null, team);
+    const seat = this.addSeat(id, name, null, team, character);
     this.fillBots();
     return seat;
   }
@@ -91,6 +94,12 @@ export class Deathmatch extends Arena {
 
   /** Spectators count as watchers, so bots keep playing for them. */
   allowBotsAlone = false;
+
+  /** Humans plus bots per room, changed live (admin settings): bots join or leave at once. */
+  setPlayers(n: number): void {
+    this.o.players = n;
+    this.fillBots();
+  }
 
   /**
    * The bot whose seat a joining human takes: a dead one (it is off screen
@@ -123,8 +132,8 @@ export class Deathmatch extends Arena {
     return `Duck ${this.botCount} (bot)`;
   }
 
-  private addSeat(id: string, name: string, bot: BotLike | null, team = 0): Seat {
-    const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0), team);
+  private addSeat(id: string, name: string, bot: BotLike | null, team = 0, character?: number): Seat {
+    const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0), team, character);
     this.spawn(seat);
     return seat;
   }
@@ -169,7 +178,7 @@ export class Deathmatch extends Arena {
     const yaw = given ?? Math.atan2(p[0] - arena.x, p[2] - arena.z);
     const fresh = createPlayerSim(p[0], y, p[2], yaw);
     Object.assign(seat.sim, fresh);
-    seat.protect = COMBAT.protectTicks;
+    seat.protect = spawnProtectTicks();
     seat.respawnAt = -1;
     seat.life++;
     seat.spawnYaw = fresh.yaw;
@@ -244,12 +253,18 @@ export class Deathmatch extends Arena {
 
   /** A new round clock and spread secret (after the intermission, or when an idle room wakes up). */
   private freshRound(): void {
+    if (this.o.rules) Object.assign(this.o, this.o.rules());
     this.phase = 'playing';
     this.secret = randomSecret();
     this.winner = '';
     this.ticksLeft = this.o.roundSeconds * TICK_RATE;
     this.usedSpawns.clear();
     this.dev.roundStart();
+  }
+
+  /** The kill limit of the current round. */
+  get scoreLimit(): number {
+    return this.o.scoreLimit;
   }
 
   get secondsLeft(): number {

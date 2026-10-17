@@ -1,5 +1,5 @@
 /**
- * Canard Quarter (the deathmatch arena, map id canard-quarter): two loads give
+ * Kavren (the deathmatch arena, map id canard-quarter): two loads give
  * the same terrain and collider list, the terrain lookup matches the Rapier
  * heightfield, the shipped copy matches the map export, every `dmSpawns`
  * point is a free spot on the ground inside the hedge ring, and a duck cannot
@@ -59,7 +59,7 @@ function ringSigned(ring: readonly Pt[], x: number, z: number): number {
   return inside ? -d : d;
 }
 
-describe('Canard Quarter map', () => {
+describe('Kavren map', () => {
   it('two loads give identical terrain and collider lists, and every collider kind is known', () => {
     const a = load();
     const b = load();

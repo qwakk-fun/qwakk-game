@@ -6,8 +6,9 @@ Options after `--`:
   --no-render     build and export only
   --quick         fewer render samples, for fast iteration
   --only NAME     render only shots whose name contains NAME (repeatable):
-                  turnaround, face, size, pose, beanie, weapon, hold, tps, anim
-  --no-anim       skip baking and exporting the animation clips (faster mesh iteration)
+                  turnaround, face, size, pose, beanie, weapon, hold, tps, anim,
+                  character (every other character's sheet, lineup and portrait, in renders/<id>/)
+  --no-anim       skip animation baking; preserve the full .blend and cached clip stats (mesh iteration)
 """
 
 import json
@@ -24,6 +25,7 @@ import bpy  # noqa: E402
 from mathutils import Matrix, Vector  # noqa: E402
 
 import bake  # noqa: E402
+import characters  # noqa: E402
 import clips  # noqa: E402
 import duck  # noqa: E402
 import geo  # noqa: E402
@@ -40,6 +42,7 @@ EXPORT = os.path.join(ART, "export")
 RENDERS = os.path.join(ART, "renders")
 CLIENT_MODELS = os.path.join(os.path.dirname(ART), "apps", "client", "public", "models")
 CLIENT_MODEL = os.path.join(CLIENT_MODELS, "duck.glb")
+CLIENT_UI = os.path.join(os.path.dirname(ART), "apps", "client", "public", "ui")
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 NO_RENDER = "--no-render" in argv
@@ -95,7 +98,31 @@ def build():
 
     beanie = duck.build_beanie()
     beanie.data.materials.append(duck_obj.data.materials[0])
-    return palette, duck_obj, rig_obj, beanie, deform, stats
+
+    # Every other character: the same build dressed by its look, skinned to its own copy of the
+    # skeleton (identical bones, so duck_anims.glb and attach.json fit it as they are).
+    extras = {}
+    for look in characters.LOOKS.values():
+        if look.id == "classic":
+            continue
+        obj, c_ranges, c_parts = duck.build_duck(look=look)
+        c_fingers = {p.name: p.finger for p in c_parts if hasattr(p, "finger")}
+        c_rig, c_deform = rig.build_armature(c_fingers)
+        c_rig.name = "QwakkRig_" + look.id
+        c_stats = rig.skin(obj, c_rig, c_ranges, c_fingers, c_deform, body_mode=P.BODY_WEIGHTS)
+        obj.data.materials.append(duck_obj.data.materials[0])
+        # A distinct glTF primitive lets the game hide every cap face (pin included)
+        # while a helmet is worn, without changing the skeleton or head geometry.
+        headwear = duck_obj.data.materials[0].copy()
+        headwear.name = "QwakkHeadwear"
+        obj.data.materials.append(headwear)
+        cap_vertices = {i for lo, hi in c_ranges.get("cap", []) for i in range(lo, hi)}
+        for face in obj.data.polygons:
+            if all(i in cap_vertices for i in face.vertices):
+                face.material_index = 1
+        obj.hide_render = True
+        extras[look.id] = (look, obj, c_rig, c_deform, c_stats)
+    return palette, duck_obj, rig_obj, beanie, deform, stats, extras
 
 
 def report(duck_obj, rig_obj, beanie, deform, stats):
@@ -122,8 +149,22 @@ def publish(src, *rel):
     shutil.copyfile(src, dst)
 
 
+def export_character(look, obj, c_rig, rig_obj):
+    """duck_<id>.glb: the character's mesh on a skeleton named like the classic one."""
+    path = os.path.join(EXPORT, look.file)
+    rig_obj.name = "QwakkRig_classic"
+    c_rig.name = "QwakkRig"
+    try:
+        export_glb(path, [c_rig, obj])
+    finally:
+        c_rig.name = "QwakkRig_" + look.id
+        rig_obj.name = "QwakkRig"
+    publish(path, look.file)
+    return path
+
+
 def main():
-    palette, duck_obj, rig_obj, beanie, deform, stats = build()
+    palette, duck_obj, rig_obj, beanie, deform, stats, extras = build()
 
     # ---- exports (rest pose)
     duck_glb = os.path.join(EXPORT, "duck.glb")
@@ -134,6 +175,13 @@ def main():
     info = report(duck_obj, rig_obj, beanie, deform, stats)
     info["duck_glb_bytes"] = os.path.getsize(duck_glb)
     info["beanie_glb_bytes"] = os.path.getsize(beanie_glb)
+    info["characters"] = {}
+    for cid, (look, obj, c_rig, c_deform, c_stats) in extras.items():
+        path = export_character(look, obj, c_rig, rig_obj)
+        c_info = report(obj, c_rig, beanie, c_deform, c_stats)
+        c_info.pop("beanie_triangles", None)
+        c_info["glb_bytes"] = os.path.getsize(path)
+        info["characters"][cid] = c_info
 
     # ---- weapons: GLBs with Muzzle/Grip/Support/Eject empties, plus the RightHand attach offsets
     os.makedirs(os.path.join(EXPORT, "weapons"), exist_ok=True)
@@ -164,6 +212,15 @@ def main():
 
     # ---- animation clips baked from code, exported as an armature-only GLB
     ctx = clips.Ctx(sk)
+    if NO_ANIM:
+        # A mesh-only iteration must not erase metadata for the unchanged clips.
+        previous_stats = os.path.join(EXPORT, "stats.json")
+        if os.path.isfile(previous_stats):
+            with open(previous_stats) as f:
+                previous = json.load(f)
+            for key in ("anims_glb_bytes", "clips"):
+                if key in previous:
+                    info[key] = previous[key]
     if not NO_ANIM:
         anim_info = bake.bake_all(rig_obj, sk, ctx, clips.registry())
         anims_glb = os.path.join(EXPORT, "duck_anims.glb")
@@ -186,13 +243,19 @@ def main():
     beanie.matrix_world = world
     bpy.context.view_layer.update()
     bpy.context.preferences.filepaths.save_version = 0   # no duck.blend1 backups
-    bpy.ops.wm.save_as_mainfile(filepath=os.path.join(EXPORT, "duck.blend"))
+    if not NO_ANIM:
+        bpy.ops.wm.save_as_mainfile(filepath=os.path.join(EXPORT, "duck.blend"))
+    else:
+        print("Mesh-only iteration: keeping the full duck.blend. Run without --no-anim to refresh it.")
 
     if NO_RENDER:
         return
     shots(palette, duck_obj, rig_obj, beanie)
     import previews  # noqa: E402  (render-only module)
     previews.run(wanted, QUICK, RENDERS, rig_obj, sk, ctx, guns, duck_obj)
+    if wanted("character"):
+        import lineup  # noqa: E402  (render-only module)
+        lineup.run(RENDERS, CLIENT_UI, duck_obj, rig_obj, extras, guns, previews)
 
 
 def wanted(name):

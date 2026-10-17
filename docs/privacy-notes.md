@@ -15,10 +15,15 @@ What the Qwakk game (`qwakk.fun/game`) stores about players, where, and for how 
 | Settings (mouse sensitivity, field of view, volume) | The player's browser only (`qwakk.settings`, `qwakk.sensitivity`) | Comfort | Until the player clears site data |
 | IP address | Game server memory only | Rate limits on joins, guest creation and leaderboard reads | Not written to disk or the database. An entry is dropped once its limit has refilled (seconds to minutes) and on every server restart |
 | Party membership (who is in which party, its leader) | Game server memory only | Lets friends land in the same match on one team | Not written to disk or the database. Gone when the player leaves the party or closes the page, and on every server restart |
+| Bans: player id, reason, start and end, which admin session set it | Game database (`bans`) | Keeps a guest who broke the rules out of matches and new sessions | While the ban lasts. Ended bans stay as rows until deleted (proposal: delete them after 12 months, see Retention) |
+| Players hidden from the leaderboard: player id, reason, which admin session | Game database (`leaderboard_hidden`) | Keeps a cheater or an offensive name off the public board (the match rows stay) | Until the admin shows the player again |
+| Admin audit log: time, the admin session's label (`admin@1a2b`), the action, its target (a setting, a room, or a player's id, name and tag) and the old and new value (setting values, a ban reason, a notice text) | Game database (`admin_audit`) | Accountability for every change made in the admin panel | Kept for now (proposal: 12 months, see Retention). Never IP addresses |
+| Extra blocked name words | Game database (`blocked_names`) | The nickname filter, on top of `blocked-names.json` | Until removed. Not personal data |
+| IP blocks set by the admin | Game server memory only | Keeps an abusive address out for a while | At most 24 hours, gone on every restart. Never written to disk, the database or the audit log (the log names the block and the player, not the address) |
 
 In Duo and Squad matches the stored placement is the team's place (the same for every member) and points use the number of teams; no new data is stored for it.
 
-Not stored: email, real names, passwords, wallet addresses, payment data, device fingerprints, chat (there is no chat). The game sets no cookies.
+Not stored: email, real names, passwords, wallet addresses, payment data, device fingerprints, chat (there is no chat). The game sets no cookies for players. The admin panel (`/admin`, the owner only) sets one strictly necessary session cookie for the logged-in admin; its password hash and TOTP secret live in the server environment, not the database.
 
 Notes:
 
@@ -41,7 +46,13 @@ Notes:
   delete from players where last_seen < now() - interval '12 months';
   ```
 
-- Deletion on request: a player can clear their browser data to drop the device token, but the server can only find their row by name and tag. Deleting a row by name and tag on request is a manual SQL delete for now.
+- Deletion on request: a player can clear their browser data to drop the device token, but the server can only find their row by name and tag. Deleting a row by name and tag on request is a manual SQL delete for now (the admin panel's player search finds the id by name).
+- Proposed for the admin tables: delete ended bans and audit rows older than 12 months:
+
+  ```sql
+  delete from bans where expires_at < now() - interval '12 months';
+  delete from admin_audit where at < now() - interval '12 months';
+  ```
 
 ## Proposed wording for the privacy page
 
@@ -53,7 +64,9 @@ Paste into the privacy page under a "Qwakk game" heading. It avoids promises we 
 >
 > Your game settings stay in your browser. The game does not use cookies, analytics or ad trackers.
 >
-> Our game server uses your IP address in memory to limit how often you can join matches, create a guest or load the leaderboard. We do not store it in our database. When you create a new guest, we may use Cloudflare Turnstile to check that you are human; Cloudflare receives the check and your IP address for that purpose.
+> Our game server uses your IP address in memory to limit how often you can join matches, create a guest or load the leaderboard, and to block an address for up to a day after abuse. We do not store it in our database.
+>
+> If a guest breaks the rules (cheating, abuse, an offensive name), we may remove it from a match, hide it from the leaderboard or ban it. For a ban we keep the player ID, the reason and how long it lasts, and we log moderation actions. When you create a new guest, we may use Cloudflare Turnstile to check that you are human; Cloudflare receives the check and your IP address for that purpose.
 >
 > The leaderboard is for fun only: it has no prizes and no monetary value.
 >

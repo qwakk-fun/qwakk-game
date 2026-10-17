@@ -55,17 +55,18 @@ export function outlineMaterial(): THREE.MeshBasicNodeMaterial {
   return outline;
 }
 
-let skinnedOutline: THREE.MeshBasicNodeMaterial | null = null;
+const skinnedOutlines = new Map<number, THREE.MeshBasicNodeMaterial>();
 
 /**
  * Outline for skinned meshes: back faces pushed out along the (skinned) normal
  * by 7.5 mm, in the brand dark. Skinning runs before positionNode, so the hull
  * follows the animation.
  */
-export function skinnedOutlineMaterial(): THREE.MeshBasicNodeMaterial {
-  if (skinnedOutline) return skinnedOutline;
+export function skinnedOutlineMaterial(thickness = 0.0075): THREE.MeshBasicNodeMaterial {
+  const known = skinnedOutlines.get(thickness);
+  if (known) return known;
   const m = new THREE.MeshBasicNodeMaterial({ color: 0x151619, side: THREE.BackSide });
-  m.positionNode = positionLocal.add(normalLocal.mul(0.0075));
-  skinnedOutline = m;
+  m.positionNode = positionLocal.add(normalLocal.mul(thickness));
+  skinnedOutlines.set(thickness, m);
   return m;
 }

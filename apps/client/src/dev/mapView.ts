@@ -1,6 +1,6 @@
 /**
  * Dev-only map viewer (dev server and test builds only, see vite.config.ts):
- * loads Sainte-Canard without a game server and flies a fixed camera path for
+ * loads Yelova without a game server and flies a fixed camera path for
  * frame time, draw call and triangle measurements (e2e/map-perf.ts).
  *
  * URL: /game/mapview.html?quality=low&shadows=0&ducks=0&segment=street&hold=1 (or &cam=x,y,z&look=x,y,z&segment=view,
@@ -267,7 +267,7 @@ async function main(): Promise<void> {
   state.segment = segs[0]?.name ?? '';
 }
 
-main().catch((e: unknown) => {
+(params.has('characters') ? import('./characterReview.ts').then((m) => m.characterReview()) : main()).catch((e: unknown) => {
   console.error(e);
   info.textContent = `Map viewer failed: ${e instanceof Error ? e.message : String(e)}`;
 });

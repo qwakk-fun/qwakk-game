@@ -43,6 +43,8 @@ export const PlayerState = schema(
      * secret); where a duck is stays culled for enemies.
      */
     team: t.uint8(),
+    /** The duck the player picked (`characters.ts` id; bots get one too). Looks only, public. */
+    character: t.uint8(),
     // Owner only from here on.
     /** Armor durability left. */
     vestDur: t.uint8().view(),
@@ -305,6 +307,8 @@ export const Msg = {
    * or [InvOp.Take, entityNumber, contentIndex (-1: the item itself), itemKind].
    */
   Inv: 'inv',
+  /** To everyone in a game room: a short notice from the server operators (text, shown as a HUD toast). */
+  Notice: 'ntc',
 } as const;
 
 /** Inventory requests (Msg.Inv). */

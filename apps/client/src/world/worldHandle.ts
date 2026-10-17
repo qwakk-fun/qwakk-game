@@ -1,8 +1,8 @@
 /**
  * The world a game runs in, built from what the server says: the greybox
- * island from its seed, or a map_v1 map by id (Sainte-Canard, the deathmatch
+ * island from its seed, or a map_v1 map by id (Yelova, the deathmatch
  * map) from the shipped map files, checked against the server's map hash
- * first, drawn by the Sainte-Canard world renderer (same prop kit). Both give
+ * first, drawn by the Yelova world renderer (same prop kit). Both give
  * the same SimWorld the server built, so prediction matches.
  */
 import * as THREE from 'three/webgpu';

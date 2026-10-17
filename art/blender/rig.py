@@ -213,7 +213,7 @@ def skin(mesh_obj, rig_obj, ranges, finger_parts, deform_bones, body_mode="auto"
                 if base == "mouth":   # lower half rides the jaw, so the dark mouth stretches open
                     t = geo.smoothstep(P.JAW_PIVOT[2] - 0.012, P.JAW_PIVOT[2] + 0.004, co.z)
                     w = {"Head": t, "Jaw": 1 - t} if 0 < t < 1 else ({"Head": 1.0} if t >= 1 else {"Jaw": 1.0})
-                elif base in ("head", "eye", "shine", "blush", "bill", "tuft"):
+                elif base in ("head", "eye", "shine", "blush", "bill", "tuft", "cap"):
                     w = {"Head": 1.0}
                 elif base == "jaw":
                     w = {"Jaw": 1.0}

@@ -1,4 +1,4 @@
-"""Heightfield intent for the Sainte-Canard island, as code.
+"""Heightfield intent for the Yelova island, as code.
 
 Coordinates match the game (packages/shared/src/map.ts): x east, y up, z south, meters, island centered
 at the origin, sea surface y = 0. North is -z. The grid is 211 x 211 samples, 4 m apart, from -420 to 420.

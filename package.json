@@ -1,7 +1,7 @@
 {
   "name": "qwakk-game",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Qwakk browser battle royale: client, server and shared sim.",
   "engines": {
@@ -14,8 +14,10 @@
   "scripts": {
     "dev": "node --disable-warning=ExperimentalWarning scripts/dev.ts",
     "dev:lan": "node --disable-warning=ExperimentalWarning scripts/dev.ts --host",
-    "build": "npm run typecheck && npm run build -w @qwakk/client",
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.scripts.json",
+    "build": "npm run typecheck && npm run build -w @qwakk/client && npm run build:admin",
+    "build:admin": "vite build --config apps/admin/vite.config.ts",
+    "admin:setup": "node --disable-warning=ExperimentalWarning scripts/admin-setup.ts",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p tsconfig.scripts.json && tsc -p apps/admin/tsconfig.json",
     "test": "npm test --workspaces --if-present",
     "bench": "npm run bench -w @qwakk/server --",
     "start": "npm start -w @qwakk/server",
@@ -39,7 +41,10 @@
     "e2e:party": "node --disable-warning=ExperimentalWarning e2e/party-duo.ts",
     "e2e:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-touch.ts",
     "perf:mobile": "node --disable-warning=ExperimentalWarning e2e/mobile-perf.ts",
-    "shots:menu": "node --disable-warning=ExperimentalWarning e2e/menu-shots.ts"
+    "shots:menu": "node --disable-warning=ExperimentalWarning e2e/menu-shots.ts",
+    "e2e:admin": "node --disable-warning=ExperimentalWarning e2e/admin.ts",
+    "e2e:localization": "node --disable-warning=ExperimentalWarning e2e/localization.ts",
+    "shots:characters": "node --disable-warning=ExperimentalWarning e2e/character-review.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

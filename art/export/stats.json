@@ -10,12 +10,27 @@
   },
   "max_influences": 4,
   "height_m": 1.787,
-  "duck_glb_bytes": 343120,
-  "beanie_glb_bytes": 28116,
+  "duck_glb_bytes": 343252,
+  "beanie_glb_bytes": 28248,
+  "characters": {
+    "mallard": {
+      "duck_triangles": 9980,
+      "duck_vertices": 5072,
+      "bones_total": 43,
+      "bones_deform": 42,
+      "weights": {
+        "auto_body_kept": 642,
+        "auto_body_empty": 0
+      },
+      "max_influences": 4,
+      "height_m": 1.702,
+      "glb_bytes": 351832
+    }
+  },
   "rifle_triangles": 1892,
-  "rifle_glb_bytes": 46676,
+  "rifle_glb_bytes": 46808,
   "pistol_triangles": 1232,
-  "pistol_glb_bytes": 31736,
+  "pistol_glb_bytes": 31868,
   "anims_glb_bytes": 754204,
   "clips": {
     "Idle": {

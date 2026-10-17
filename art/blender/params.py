@@ -23,6 +23,22 @@ PALETTE = {
     "gun_dark": "#25272e",     # weapons: frames, grips, barrels
     "gunmetal": "#4c525e",     # weapons: receivers, slides
     "gun_light": "#7d8494",    # weapons: rails, small hardware
+    # mallard "Toski" (characters.py). Appended only: the cells above keep their places in every GLB.
+    "m_green": "#70fff0",      # bright turquoise head, distinct from grass
+    "m_green_deep": "#27d9d9", # back-of-head swirl
+    "m_collar": "#f4f1e8",     # white neck ring, speculum bar tips
+    "m_chest": "#ffc3ab",      # warm peach chest
+    "m_grey": "#ffd43b",       # brand-yellow flanks, thighs: no pale camouflage on stone
+    "m_belly": "#ffe99b",      # light yellow belly patch
+    "m_wing": "#ffd43b",       # bright wings, matching Qwakk visibility
+    "m_wing_deep": "#e5ac32",  # warm wing-hand tips
+    "m_speculum": "#3c62d6",   # the blue wing patch (trailing feathers)
+    "m_tail": "#ece9e2",       # white tail
+    "m_tail_deep": "#eee8ff",
+    "m_curl": "#1f4a37",       # the dark drake curl on the rump
+    "m_cap": "#ffe76b",        # yellow field cap, visible against vegetation
+    "m_cap_deep": "#d8a94c",   # cap crease
+    "m_blush": "#a6fff2",      # cheek patch
 }
 PALETTE_SIZE = 256
 PALETTE_CELL = 16

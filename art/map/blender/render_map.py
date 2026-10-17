@@ -279,7 +279,7 @@ def main():
     strip_bg = bpy.context.active_object
     strip_bg.scale = (900, 104, 1)
     strip_bg.data.materials.append(toon.flat_material("strip", "#1b1d22"))
-    label("Sainte-Canard, map_v1", -410, 446, 17.0, align="LEFT")
+    label("Yelova, map_v1", -410, 446, 17.0, align="LEFT")
     label("840 x 840 m, north up, x east, z south, 4 m terrain grid", -410, 466, 8.5, color="#ffd43b", align="LEFT")
     stats = doc["stats"]
     label(f"{stats['props']} props, {stats['loot']} loot points", -410, 482, 8.5, color="#f2efe6", align="LEFT")

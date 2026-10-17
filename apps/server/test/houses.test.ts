@@ -1,5 +1,5 @@
 /**
- * Every enterable house on Sainte-Canard and Canard Quarter can be walked: a sim duck runs the
+ * Every enterable house on Yelova and Kavren can be walked: a sim duck runs the
  * waypoints the map kit exports per house type (`walk` in the prop manifest:
  * in through the door, across the rooms, up the stairs or the debris ramp,
  * onto the upper floor), on every placed instance of that house, running and
@@ -25,8 +25,8 @@ function loadCanardQuarter(): LoadedMap {
 }
 
 const MAPS: [string, () => LoadedMap, number][] = [
-  ['Sainte-Canard', () => loadSainteCanard().loaded!, 20],
-  ['Canard Quarter', loadCanardQuarter, 6],
+  ['Yelova', () => loadSainteCanard().loaded!, 20],
+  ['Kavren', loadCanardQuarter, 6],
 ];
 
 beforeAll(async () => {

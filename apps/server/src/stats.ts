@@ -1,6 +1,9 @@
 /**
  * Lightweight tick and patch timing for the benchmark and for ops logging.
- * Enabled with QWAKK_STATS=1; prints one JSON line per interval.
+ * Enabled with QWAKK_STATS=1; prints one JSON line per interval. The admin
+ * dashboard reads `recent()`: the last RECENT_TICKS tick times from a fixed
+ * ring, kept whether or not the log is on. The per-interval lists only grow
+ * while the log runs (they are cleared every interval).
  */
 
 export interface StatsSnapshot {
@@ -28,6 +31,9 @@ function summarize(samples: number[]): { avg: number; p95: number; max: number }
 
 const round = (v: number): number => Math.round(v * 1000) / 1000;
 
+/** Tick times the dashboard looks at: the last 10 s at 30 Hz. */
+export const RECENT_TICKS = 300;
+
 export class RoomStats {
   private ticks: number[] = [];
   private patches: number[] = [];
@@ -43,12 +49,25 @@ export class RoomStats {
     this.playerCount = playerCount;
   }
 
+  private readonly ring = new Float64Array(RECENT_TICKS);
+  private ringCount = 0;
+  private ringAt = 0;
+
   recordTick(ms: number): void {
-    this.ticks.push(ms);
+    if (this.timer) this.ticks.push(ms);
+    this.ring[this.ringAt] = ms;
+    this.ringAt = (this.ringAt + 1) % RECENT_TICKS;
+    if (this.ringCount < RECENT_TICKS) this.ringCount++;
   }
 
   recordPatch(ms: number): void {
-    this.patches.push(ms);
+    if (this.timer) this.patches.push(ms);
+  }
+
+  /** Tick time over the last RECENT_TICKS ticks (ms). */
+  recent(): { avg: number; p95: number; max: number; samples: number } {
+    const t = summarize(Array.from(this.ring.subarray(0, this.ringCount)));
+    return { avg: round(t.avg), p95: round(t.p95), max: round(t.max), samples: this.ringCount };
   }
 
   start(intervalMs: number, sink: (s: StatsSnapshot) => void): void {

@@ -50,7 +50,7 @@ def head_point(yaw_deg, pitch_deg):
     return Vector(P.HEAD_CENTER) + p, n
 
 
-def build_head(parts):
+def build_head(parts, tuft=True):
     head = geo.Part("head")
     a, b, c = P.HEAD_RADII
     # slightly fuller cheeks below the equator keep the head from reading as a perfect ball
@@ -91,7 +91,7 @@ def build_head(parts):
         parts.append(blush)
 
     build_bill(parts)
-    build_tuft(parts)
+    build_tuft(parts, tuft)
 
 
 def bill_ring_fn(smile):
@@ -130,7 +130,7 @@ def build_bill(parts):
     parts.append(mouth)
 
 
-def build_tuft(parts):
+def build_tuft(parts, top=True):
     def feather(points, radii, cells, name, samples=12, segments=8, up=(1, 0, 0)):
         path = geo.catmull(points, samples)
         keys = [(i / (len(radii) - 1), r) for i, r in enumerate(radii)]
@@ -140,13 +140,14 @@ def build_tuft(parts):
         geo.tube(part, path, rr, [r * 0.85 for r in rr], segments, cell_list, up=up, cap_rings=3)
         parts.append(part)
 
-    feather(P.TUFT_POINTS, P.TUFT_RADII, ("yellow", "yellow"), "tuft")
+    if top:
+        feather(P.TUFT_POINTS, P.TUFT_RADII, ("yellow", "yellow"), "tuft")
 
-    root = Vector(P.TUFT_POINTS[0])
-    off = Vector(P.TUFT2_OFFSET)
-    pts2 = [root + off + (Vector(p) - root) * P.TUFT2_SCALE for p in P.TUFT_POINTS]
-    pts2 = [p + Vector((0.4 * (p.z - pts2[0].z), 0, 0)) for p in pts2]   # lean the small feather outward
-    feather(pts2, [r * 0.8 for r in P.TUFT_RADII], ("yellow", "yellow_deep"), "tuft")
+        root = Vector(P.TUFT_POINTS[0])
+        off = Vector(P.TUFT2_OFFSET)
+        pts2 = [root + off + (Vector(p) - root) * P.TUFT2_SCALE for p in P.TUFT_POINTS]
+        pts2 = [p + Vector((0.4 * (p.z - pts2[0].z), 0, 0)) for p in pts2]   # lean the small feather outward
+        feather(pts2, [r * 0.8 for r in P.TUFT_RADII], ("yellow", "yellow_deep"), "tuft")
 
     # back swirl: a raised deep-yellow spiral on the back of the head, the Q curl seen from behind
     yaw0, pitch0 = P.BACK_SWIRL_CENTER
@@ -314,9 +315,11 @@ def build_foot_left():
     return foot
 
 
-def build_duck(collection=None):
+def build_duck(collection=None, look=None):
+    """The duck mesh. `look` (characters.LOOKS entry) dresses it as another character: same shapes
+    and the same finger parts (so the same skeleton), recolored cells and small accessories."""
     parts = []
-    build_head(parts)
+    build_head(parts, look.tuft if look else True)
     build_body(parts)
     left = build_arm_left() + build_leg_left()
     for part in left:
@@ -326,7 +329,9 @@ def build_duck(collection=None):
             name, root, d, length = part.finger
             mirrored.finger = (name, Vector((-root.x, root.y, root.z)), Vector((-d.x, d.y, d.z)), length)
         parts.append(mirrored)
-    obj, ranges = geo.build_object("QwakkDuck", parts, cell_uv, collection)
+    if look and look.dress:
+        look.dress(parts)
+    obj, ranges = geo.build_object(look.mesh_name if look else "QwakkDuck", parts, cell_uv, collection)
     return obj, ranges, parts
 
 

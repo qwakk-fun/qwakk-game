@@ -1,5 +1,6 @@
 /**
- * The menu's hero duck as a real 3D model: duck.glb with the rifle from
+ * The menu's hero duck as a real 3D model: the picked character's model
+ * (duck.glb, or duck_<key>.glb for the other ducks) with the rifle from
  * weapons/rifle.glb, posed with Rifle_Aim (upper body) over Idle (legs) at
  * their first frame, and framed and shaded like the static menu image
  * (`public/ui/duck-rifle.webp`, the art's `hold_rifle_three_quarter` render):
@@ -14,6 +15,7 @@
 import * as THREE from 'three/webgpu';
 import { dot, float, length, normalLocal, normalWorld, positionLocal, select, smoothstep, texture, uv, vec3, vertexColor } from 'three/tsl';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
+import { characterIdOf, characterKey } from '@qwakk/shared/characters';
 import { rotateBoneWorld } from '../player/ik.ts';
 import { BRAND } from '../render/palette.ts';
 import { AIM, aimFromScreen } from './aim.ts';
@@ -39,11 +41,13 @@ const LOOK = {
   shadowTint: 0xd9a6a0,
   outline: 0.0075,
   /**
-   * Palette cells drawn without an outline (art/blender duck.py: belly, shine,
-   * mouth and blush parts have outline weight 0). Cell i covers u in [i/16, (i+1)/16)
-   * of the 256 px palette, in the order of params.py PALETTE.
+   * Palette cells drawn without an outline (art/blender duck.py and characters.py:
+   * the belly and breast patches, shine, mouth and blush parts have outline weight 0),
+   * in the order of params.py PALETTE: belly, shine, mouth, blush, then the
+   * mallard's m_chest, m_belly and m_blush. Cell i sits in column i % 16 and
+   * row floor(i / 16) of the 256 px palette (glTF v grows downward, row 0 on top).
    */
-  noOutlineCells: [2, 6, 7, 8],
+  noOutlineCells: [2, 6, 7, 8, 18, 20, 29],
   paletteCells: 16,
   ground: 0x1f2128,
 } as const;
@@ -82,7 +86,7 @@ function toonLook(src: THREE.Material): THREE.MeshBasicNodeMaterial {
  */
 function outlineLook(): THREE.MeshBasicNodeMaterial {
   const m = new THREE.MeshBasicNodeMaterial({ color: BRAND.dark, side: THREE.BackSide });
-  const cell = uv().x.mul(LOOK.paletteCells).floor();
+  const cell = uv().x.mul(LOOK.paletteCells).floor().add(uv().y.mul(LOOK.paletteCells).floor().mul(LOOK.paletteCells));
   const bare = LOOK.noOutlineCells.map((c) => cell.equal(c)).reduce((a, b) => a.or(b));
   const weight = select(bare, float(-0.3), float(1));
   m.positionNode = positionLocal.add(normalLocal.mul(weight.mul(LOOK.outline)));
@@ -150,10 +154,12 @@ export class HeroDuck {
   /** The glTF textures the toon materials sample (not material properties, so tracked here). */
   private readonly textures = new Set<THREE.Texture>();
 
-  static async load(): Promise<HeroDuck> {
+  /** `character`: the menu catalog id (`classic`, `mallard`); an unknown one shows the classic duck. */
+  static async load(character = 'classic'): Promise<HeroDuck> {
     const loader = new GLTFLoader();
+    const key = characterKey(characterIdOf(character));
     const [duck, anims, rifle, attach] = await Promise.all([
-      loader.loadAsync(`${MODELS}duck.glb`),
+      loader.loadAsync(`${MODELS}${key === 'classic' ? 'duck.glb' : `duck_${key}.glb`}`),
       loader.loadAsync(`${MODELS}duck_anims.glb`),
       loader.loadAsync(`${MODELS}weapons/rifle.glb`),
       loadAttach(),

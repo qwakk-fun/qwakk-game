@@ -1,0 +1,2 @@
+# Full review PNGs are reproducible; retain the compact WebP sheets.
+*.png

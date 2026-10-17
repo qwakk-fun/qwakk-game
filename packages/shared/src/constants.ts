@@ -120,7 +120,7 @@ export const MATCH = {
   players: 24,
   /**
    * First to this many kills wins the round. A full room is busy: a headless
-   * room of 32 navmesh bots on Canard Quarter scores about 3.7 kills a second
+   * room of 32 navmesh bots on Kavren scores about 3.7 kills a second
    * in total, so the leader reaches 50 in about 4.5 minutes; the time limit
    * caps quieter rooms.
    */
@@ -385,11 +385,12 @@ export const KNOCK = {
   reviveHp: 25,
 } as const;
 
-/** Name tags over ducks (client): allies always, enemies only when seen and under the crosshair. */
+/** Small, faint names over nearby ducks; allies can be marked through walls. */
 export const NAMETAG = {
-  /** Enemy tags: within this range (m) and this angle of the crosshair (rad), with a clear line of sight. */
-  enemyRange: 60,
-  enemyAngle: 0.07,
-  /** Enemy tags linger this long after the crosshair leaves (ms). */
-  enemyHoldMs: 350,
+  range: 12,
+  fadeStart: 6,
+  maxOpacity: 0.65,
+  /** Label height above the feet (m). */
+  labelStand: 1.85,
+  labelCrouch: 1.4,
 } as const;

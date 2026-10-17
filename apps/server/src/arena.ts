@@ -18,14 +18,16 @@ import {
   NET,
   Button,
   DT,
+  DEFAULT_CHARACTER,
   KNOCK,
-  weaponStats,
+  pickBotCharacter,
   type InputFrame,
   type PlayerSim,
   type ShotResult,
   type SimWorld,
 } from '@qwakk/shared';
 import { LagHistory } from './lagComp.ts';
+import { serverWeapon } from './settings/weapons.ts';
 
 export interface BotTarget {
   id: string;
@@ -75,6 +77,8 @@ export interface Seat {
   spawnTick: number;
   /** Team (battle royale) or party ally group (deathmatch); 0: none. Same nonzero team: no damage, always in view. */
   team: number;
+  /** The duck it looks like (`characters.ts` id): the human's validated pick, or balanced for bots. Looks only. */
+  character: number;
   /** Knocked: who knocked it (the kill is theirs if it bleeds out) and the tick it went down. */
   knockedBy: string | null;
   downTick: number;
@@ -188,10 +192,13 @@ export abstract class Arena {
     return !!sa && !!sb && this.allies(sa, sb);
   }
 
-  protected makeSeat(id: string, name: string, bot: BotLike | null, sim: PlayerSim, team = 0): Seat {
+  /** `character`: a human's pick, already validated (characterFromOption). Bots get the duck the room has fewest of. */
+  protected makeSeat(id: string, name: string, bot: BotLike | null, sim: PlayerSim, team = 0, character = DEFAULT_CHARACTER): Seat {
+    const pid = this.nextPid++;
+    if (bot) character = pickBotCharacter([...this.seats.values()].map((s) => s.character), pid);
     const seat: Seat = {
-      id, pid: this.nextPid++, name, bot, sim, kills: 0, deaths: 0, dealt: 0, protect: 0, respawnAt: -1, side: 1, viewLagMs: 0, rttMs: -1, life: 0, spawnYaw: 0, spawnTick: 0,
-      team, knockedBy: null, downTick: 0, reviveOf: null, reviveTicks: 0,
+      id, pid, name, bot, sim, kills: 0, deaths: 0, dealt: 0, protect: 0, respawnAt: -1, side: 1, viewLagMs: 0, rttMs: -1, life: 0, spawnYaw: 0, spawnTick: 0,
+      team, character, knockedBy: null, downTick: 0, reviveOf: null, reviveTicks: 0,
     };
     this.seats.set(id, seat);
     return seat;
@@ -239,7 +246,8 @@ export abstract class Arena {
     const victim = this.seats.get(r.targetId);
     if (!victim || !victim.sim.alive || victim.protect > 0 || seat.protect > 0 || !this.damageOn() || this.allies(seat, victim)) return;
     const head = r.outcome === ShotOutcome.Head;
-    const raw = damageAt(weaponStats(shot.weapon), r.distance, head);
+    // Damage numbers are server only (the admin settings may change them): settings/weapons.ts.
+    const raw = damageAt(serverWeapon(shot.weapon), r.distance, head);
     const down = victim.sim.down === 1;
     // A knocked duck has no armor left to speak of: its bleed meter takes the raw hit, scaled.
     const dmg = Math.min(victim.sim.hp, down ? raw * KNOCK.damageScale : this.adjustDamage(victim, raw, head));

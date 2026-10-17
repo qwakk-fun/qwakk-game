@@ -1,6 +1,6 @@
 # Qwakk WWII map kit
 
-The prop kit and the first layout for the real battle royale map: Sainte-Canard, a Normandy-style coastal village and bocage countryside drawn in the duck's chunky vinyl-toy toon style. Every mesh, collider and placement comes from the Python scripts in this folder. No third-party models (see `LICENSES.md`).
+The prop kit and the first layout for the real battle royale map: Yelova, a Normandy-style coastal village and bocage countryside drawn in the duck's chunky vinyl-toy toon style. Every mesh, collider and placement comes from the Python scripts in this folder. No third-party models (see `LICENSES.md`).
 
 The map design (zones, loot, flow, engine data formats, performance) is in `../../docs/map-design.md`.
 
@@ -20,7 +20,7 @@ Steps:
 2. `tools/compress.mjs` (Node, glTF Transform 4.4.2 and meshoptimizer 1.0.1, pinned in `tools/package.json`) compresses every GLB into `apps/client/public/models/props/`, then decodes each one with three's own `MeshoptDecoder` (`three/examples/jsm/libs/meshopt_decoder.module.js`, three 0.186.1) and checks that the dequantized bounds match the source within 1 cm.
 3. `layout/gen_map.py` (plain Python) reads the manifest and writes `export/map_v1.json`, `export/map_v1_heights.bin` and `export/map_v1_ground.bin`.
 4. `blender/render_map.py` renders `renders/map_topdown.png` from those files. `layout/estimate_view.py` prints the triangles drawn from a camera position (default: the village square).
-5. `layout/gen_quarter.py` writes the Canard Quarter deathmatch arena to `export/canard-quarter/` and `blender/render_arena.py` renders it to `renders/canard-quarter/` (see Deathmatch arena below).
+5. `layout/gen_quarter.py` writes the Kavren deathmatch arena to `export/canard-quarter/` and `blender/render_arena.py` renders it to `renders/canard-quarter/` (see Deathmatch arena below).
 
 Reproducible: two builds give byte-identical GLBs, `colliders.json` and map files (checked with md5).
 
@@ -43,7 +43,7 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | `renders/tint_compare.png` | The street scene with the character shadow tint on everything (left) and with the environment tint (right) |
 | `renders/street_scene.png`, `renders/scale_duck_at_door.png` | Mock street with the duck for scale, and the duck at the farmhouse door |
 | `renders/map_topdown.png` | Top-down render of map_v1 with zones, loot tiers, roads, plane paths and final circle candidates |
-| `export/canard-quarter/map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` | The Canard Quarter deathmatch arena, same format and kit |
+| `export/canard-quarter/map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` | The Kavren deathmatch arena, same format and kit |
 | `renders/canard-quarter/` | `topdown.png` (play area ring, callouts, spawns with their facing), `overview.png`, `eye_*.png` street-level shots with ducks for scale |
 
 ## Scripts
@@ -61,11 +61,11 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | `blender/toon.py`, `blender/render_kit.py`, `blender/render_map.py` | Toon look and the review renders |
 | `layout/terrain.py` | Coastline, height features, river, and the same height lookup as `terrainHeightAt` |
 | `layout/gen_map.py` | Zones, roads, building slots, scatter rules, loot, flight paths, circle hints; writes map_v1 |
-| `layout/gen_quarter.py`, `blender/render_arena.py` | The Canard Quarter deathmatch arena and its review renders (reuses the RNG, footprint and trench helpers of `gen_map.py` and the terrain helpers of `render_map.py`) |
+| `layout/gen_quarter.py`, `blender/render_arena.py` | The Kavren deathmatch arena and its review renders (reuses the RNG, footprint and trench helpers of `gen_map.py` and the terrain helpers of `render_map.py`) |
 
-## Deathmatch arena: Canard Quarter (`canard-quarter`)
+## Deathmatch arena: Kavren (`canard-quarter`)
 
-A compact village quarter for the 32-duck deathmatch, built from the same kit (no new props, so `colliders.json` and Sainte-Canard stay untouched). `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`.
+A compact village quarter for the 32-duck deathmatch, built from the same kit (no new props, so `colliders.json` and Yelova stay untouched). `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`.
 
 - Size: terrain 288 x 288 m (72 cells of 4 m); the play area is the inside of a closed hedgerow ring about 162 x 162 m (25,100 m2). Outside the ring: a second hedge line, crop fields and tree lines on rising ground (scenery, never reachable). The loader's invisible walls (138 m) stay as a backstop.
 - Layout: the church square (Place du Canard) on a crossroads, the climbable church tower on its north side, a townhouse bakery (west) and the ruined house (east) on the square, a second townhouse on the south-west corner, a farmhouse on the south road, the barn over a fenced farmyard (north-east). Around them: a walled churchyard, an apple orchard behind a hedge, bombed lots with craters, rubble, a tank and sandbag nests (south-west), a zigzag trench field with wire (south-east), inner hedges with gates that cut the long diagonals. Two long lanes (the 162 m Rue du Canard and the south road) have wrecks and barricades along their edges.

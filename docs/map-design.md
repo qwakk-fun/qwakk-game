@@ -1,4 +1,4 @@
-# Map design: Sainte-Canard (map_v1)
+# Map design: Yelova (map_v1)
 
 The real battle royale map for Phase 2: a Normandy-style coastal village and bocage countryside in the toon style, with ducks. Phase 1 keeps the greybox island in `packages/shared/src/map.ts`; this document is the brief for replacing it.
 
@@ -9,7 +9,7 @@ The real battle royale map for Phase 2: a Normandy-style coastal village and boc
 
 ## 1. Theme and rules
 
-- World War II flavor without real-world politics: a fictional coast called Sainte-Canard ("canard" is French for duck). Two fictional factions appear only as set dressing on wrecks and crates: the **Pond Brigade** (olive drab, yellow ring) and the **Grey Gull Corps** (field grey, orange triangle). Players are all ducks and are not split by faction.
+- World War II flavor without real-world politics: a fictional coast called Yelova ("canard" is French for duck). Two fictional factions appear only as set dressing on wrecks and crates: the **Pond Brigade** (olive drab, yellow ring) and the **Grey Gull Corps** (field grey, orange triangle). Players are all ducks and are not split by faction.
 - Never real Nazi symbols, national markings, unit markings, real place names or real text on signs. No brand or token logos on loot.
 - Readability first: buildings and landmarks have distinct silhouettes (church spire, lighthouse, poplar rows, hedgerows), loot containers carry the yellow ring and an outline.
 
@@ -28,7 +28,7 @@ Top-down (north up). Named zones, their centers and character:
         | Pointe du Bec   |        Mallard Beach (sand, hedgehogs)    | R  |
         | lighthouse,     |   landing craft    bunker line on bluff   | i  |
         | cliffs, bunkers |-------------------------------------------| v  |
-        |       coast road  \     Sainte-Canard (church square)   Pont | e  |
+        |       coast road  \     Yelova (church square)   Pont | e  |
         |                    \--- village street --------------- Vieux | r  |
         |  bocage fields         |  main road                     |    |    |
         |                        |                                | Feather   |
@@ -45,7 +45,7 @@ Top-down (north up). Named zones, their centers and character:
 | --- | --- | --- | --- | --- | --- | --- |
 | Mallard Beach (`beach`) | (35, -305) | 0.037 km2 | 2 | medium | 44 (7) | 6 pillboxes on the bluff, 79 hedgehogs, 20 log obstacles, 57 wire segments, 3 landing craft, 3 trench lines (21 tiles), 14 craters, 1 tank, 1 truck |
 | Pointe du Bec (`headland`) | (-300, -300) | 0.041 km2 | 3 | medium | 72 (10) | lighthouse, 4 pillboxes, trench zigzag (16 tiles), keeper's townhouse, barn, wire, rocks, bushes |
-| Sainte-Canard (`village`) | (45, -185) | 0.033 km2 | 3 | hot | 211 (22) | church, 14 houses with full interiors (8 townhouses with a bakery, 4 farmhouses, 2 ruins), kitchen gardens and a bombed lot where plainer houses stood, cobbled square, tank in the square, 2 trucks, rubble, garden walls, poplar avenue |
+| Yelova (`village`) | (45, -185) | 0.033 km2 | 3 | hot | 211 (22) | church, 14 houses with full interiors (8 townhouses with a bakery, 4 farmhouses, 2 ruins), kitchen gardens and a bombed lot where plainer houses stood, cobbled square, tank in the square, 2 trucks, rubble, garden walls, poplar avenue |
 | Pont Vieux (`bridge`) | (202, -150) | 0.005 km2 | 2 | medium | 7 (2) | stone bridge, sandbag nests at both ends, tank wreck on the approach |
 | Feather Ridge (`ridge`) | (284, 33) | 0.026 km2 | 3 | medium | 53 (12) | 64-tile zigzag trench on the crest, 3 pillboxes facing west, wire on the west slope, supply dump and truck on the reverse slope, 9 craters |
 | Ferme Colvert (`farm`) | (-160, 46) | 0.012 km2 | 2 | medium | 33 (6) | farmhouse, barn, walled yard, a kitchen garden, small apple orchard, fences |
@@ -63,7 +63,7 @@ The river La Mare runs from the southern hills north to the sea east of the beac
 
 - **Mallard Beach.** Long open sand under the bunker line: the hedgehogs, log ramps, craters and the three landing craft are the only cover between the waterline and the bluff (about 6 m high, about 18 degrees, walkable). Wire along the bluff foot funnels players to gaps. Hot only for players who want the pillbox loot; good for a fast early fight, bad for final circles. The bunkers' slits look north, so the bluff top can be taken from the side or the trench lines behind.
 - **Pointe du Bec.** A plateau 19 m up with sheer cliffs on three sides: the lighthouse is a landmark, not a building to enter. High tier loot in a corner of the map means players must cross the open coast road or the village to leave. Sightlines over the beach from the headland edge.
-- **Sainte-Canard.** The main hot drop. Streets 6 m wide, houses door-to-street on both sides, the church square in the middle with a tank wreck for cover. The church tower belfry (11.35 m) sees the whole village, the beach exit and the road to the crossroads, but it has only two ground doors and one long stair: strong but trappable. Ruins give half cover and quick vertical lines. Garden walls and fences behind the houses make flanking routes.
+- **Yelova.** The main hot drop. Streets 6 m wide, houses door-to-street on both sides, the church square in the middle with a tank wreck for cover. The church tower belfry (11.35 m) sees the whole village, the beach exit and the road to the crossroads, but it has only two ground doors and one long stair: strong but trappable. Ruins give half cover and quick vertical lines. Garden walls and fences behind the houses make flanking routes.
 - **Pont Vieux.** A chokepoint: the river banks are steep, so the bridge and the wade are the only ways east in the north. Sandbag nests on both ends.
 - **Feather Ridge.** The highest ground (crest about 24 m). The trench line along the crest gives crouch cover with stand-up firing, three pillboxes overlook the river valley, and the reverse slope has a supply dump. Best medium-range fights on the map and a strong final circle.
 - **Ferme Colvert.** A walled courtyard between a farmhouse and a barn (the barn loft gives height), orchard rows to the west, hedgerows all around. Medium heat, good mid-game.
@@ -96,7 +96,7 @@ For an 8 to 12 minute match on 0.54 km2 of land:
 
 About 10 minutes in total. The same table is in `map_v1.json` (`circle.phases`) as a starting point; the tuned numbers belong in `constants.ts`.
 
-Where final circles play well (`circle.finalCandidates`, weighted): Feather Ridge south (3), Convoy Crossroads (3), Ferme Colvert (2), Le Verger (2), Sainte-Canard south edge (2), Hameau Sud (1), the forest edge (1), Pont Vieux (1). Pick the final circle first from these, then grow outward so every circle contains the next one, keeping at least 70 percent land inside each circle. Avoid ending on the beach sand (no cover), on the headland (cliffs on three sides) or deep in the forest (too blind).
+Where final circles play well (`circle.finalCandidates`, weighted): Feather Ridge south (3), Convoy Crossroads (3), Ferme Colvert (2), Le Verger (2), Yelova south edge (2), Hameau Sud (1), the forest edge (1), Pont Vieux (1). Pick the final circle first from these, then grow outward so every circle contains the next one, keeping at least 70 percent land inside each circle. Avoid ending on the beach sand (no cover), on the headland (cliffs on three sides) or deep in the forest (too blind).
 
 ## 5. Loot
 
@@ -142,7 +142,7 @@ Sample `(row, col)` is at `x = originX + col * cell`, `z = originZ + row * cell`
 
 ```json
 {
-  "version": 2, "name": "Sainte-Canard", "seed": 4417, "size": 840, "seaLevel": 0,
+  "version": 2, "name": "Yelova", "seed": 4417, "size": 840, "seaLevel": 0,
   "coords": "x east, y up, z south ...",
   "terrain": { "cells": 210, "cellSize": 4, "origin": [-420, -420], "heights": "map_v1_heights.bin", "ground": "map_v1_ground.bin",
                "headerBytes": 16, "heightsEncoding": "...", "groundEncoding": "...", "groundLegend": ["grass", "..."],
@@ -151,7 +151,7 @@ Sample `(row, col)` is at `x = originX + col * cell`, `z = originZ + row * cell`
   "water": { "sea": 0, "river": [{ "x": 142, "z": 318, "bed": 6.0, "water": 6.6 }, "..."], "riverHalfWidth": 6.6 },
   "roads": [{ "id": "main", "width": 6, "pts": [[40, -296], "..."] }],
   "plaza": [22, -208, 58, -176],
-  "zones": [{ "id": "village", "name": "Sainte-Canard", "tier": 3, "drop": "hot", "poly": [[-58, -262], "..."] }],
+  "zones": [{ "id": "village", "name": "Yelova", "tier": 3, "drop": "hot", "poly": [[-58, -262], "..."] }],
   "fields": [{ "crop": "wheat", "quad": [[x, z], [x, z], [x, z], [x, z]] }],
   "drop": {
     "plane": { "prop": "transport_plane", "altitude": 180, "speed": 55, "spinNodes": ["PropLeft", "PropRight"], "paths": [{ "from": [x, z], "to": [x, z] }] },

@@ -20,6 +20,7 @@ import { GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
 import { dmMapId, GREYBOX, loadMap, type ServerMap } from './maps.ts';
 import { parties } from './party/registry.ts';
 import type { SimWorld } from '@qwakk/shared';
+import { dmMaxHumans, dmPlayers, dmRoundRules, settings } from './settings/index.ts';
 
 export interface IslandRoomOptions extends GameRoomOptions {
   /** Static room id from DM_ROOMS (set by the server at start). Without it: a plain room (tests, tools). */
@@ -37,6 +38,10 @@ export class IslandRoom extends GameRoom<Deathmatch> {
   private roundStartedAt = Date.now();
   /** The listing last sent to the lobby (only changes are published). */
   private listingKey = '';
+  /** Stops following the admin settings (on dispose). */
+  private unwatch: (() => void) | null = null;
+  /** Humans per room came from the server options (QWAKK_MAX_CLIENTS), not the settings. */
+  private fixedCap = false;
 
   protected loadMap(options: IslandRoomOptions): ServerMap {
     const map = loadMap(options.mapId ?? dmMapId(), options.seed ?? ROOM.defaultSeed);
@@ -63,9 +68,34 @@ export class IslandRoom extends GameRoom<Deathmatch> {
       this.autoDispose = false;
     }
     await super.onCreate(options);
+    this.fixedCap = Boolean(options.maxClients);
+    if (!this.fixedCap) this.maxClients = dmMaxHumans();
+    // Admin settings that apply at once: ducks per room and humans per room.
+    this.unwatch = settings.onChange((key) => this.settingChanged(key));
     this.state.label = entry?.label ?? '';
     // Not persisted here: the matchmaker records the room (with this metadata) once onCreate returns.
     void this.setMetadata(this.listing(), false);
+  }
+
+  private settingChanged(key: string): void {
+    if (key === 'dm.players') {
+      this.match.setPlayers(dmPlayers());
+      this.syncSeats();
+    } else if (key === 'dm.maxHumans' && !this.fixedCap) {
+      this.maxClients = dmMaxHumans();
+      if (this.locked && this.clients.length < this.maxClients) void this.unlock();
+      this.updateListing();
+    }
+  }
+
+  override onDispose(): void {
+    this.unwatch?.();
+    super.onDispose();
+  }
+
+  protected override roomStatus(): { kind: 'dm' | 'br'; mode: string; phase: string; secondsLeft: number } {
+    const dm = this.match;
+    return { kind: 'dm', mode: 'Free for all', phase: dm.idle ? 'idle' : dm.phase, secondsLeft: dm.idle ? 0 : dm.secondsLeft };
   }
 
   /** What the lobby list shows for this room. Public: a name and counts, no player names, ids or addresses. */
@@ -96,11 +126,16 @@ export class IslandRoom extends GameRoom<Deathmatch> {
 
   protected createMatch(options: IslandRoomOptions): Deathmatch {
     this.state.mode = GameMode.Deathmatch;
-    this.state.scoreLimit = DEFAULT_DM.scoreLimit;
+    const rules = dmRoundRules();
+    this.state.scoreLimit = rules.scoreLimit;
     return new Deathmatch(
       this.sim,
       {
         ...DEFAULT_DM,
+        ...rules,
+        players: dmPlayers(),
+        // Kill limit, round time and break: read again at every round start (admin settings).
+        rules: dmRoundRules,
         bots: options.bots !== false,
         createBot: options.createBot,
         isFar: (viewer, target, now, rtt) => this.interest.isFarAt(viewer, target, now, rtt),
@@ -112,7 +147,10 @@ export class IslandRoom extends GameRoom<Deathmatch> {
         damaged: (victim, from, damage) => this.sendDamaged(victim, from, damage),
         kill: (killer, victim, weapon, head) => this.sendKill(killer, victim, weapon, head),
         roundEnd: () => this.recordRound(),
-        roundStart: () => (this.roundStartedAt = Date.now()),
+        roundStart: () => {
+          this.roundStartedAt = Date.now();
+          if (this.match) this.state.scoreLimit = this.match.scoreLimit;
+        },
       },
     );
   }
@@ -125,7 +163,7 @@ export class IslandRoom extends GameRoom<Deathmatch> {
    * the party registry) share an ally group, so they cannot hurt each other
    * and always see each other.
    */
-  protected addHuman(client: Client, name: string, auth: JoinAuth | undefined): Seat {
+  protected addHuman(client: Client, name: string, auth: JoinAuth | undefined, character: number): Seat {
     const party = parties.partyOf(auth?.playerId);
     let team = 0;
     if (party) {
@@ -139,7 +177,7 @@ export class IslandRoom extends GameRoom<Deathmatch> {
         this.partyTeams.set(party.id, team);
       }
     }
-    return this.match.addHuman(client.sessionId, name, team);
+    return this.match.addHuman(client.sessionId, name, team, character);
   }
 
   protected removeHuman(id: string): void {

@@ -2,18 +2,28 @@
  * Duck visuals. Today: a placeholder built from primitives (yellow body, orange
  * beak, dot eyes) so facing is obvious. Later: the rigged GLB.
  *
- * GLB hook: `apps/client/public/models/duck.glb`. On start, `loadDuckGlb()`
- * checks for it; when present every avatar swaps its placeholder for a clone
- * of the GLB (see Avatar.setModel). Its feet are put on y = 0 and it is turned
- * to face -z (the sim's forward at yaw 0; the art faces +z).
+ * GLB hook: `apps/client/public/models/duck.glb`, and `duck_<key>.glb` for
+ * every other character (`@qwakk/shared` characters.ts; the same skeleton, so
+ * the same clips and weapon attach). `loadDuckGlb(character)` loads one when a
+ * duck wearing it shows up; each avatar swaps its placeholder for a clone of
+ * its character's GLB (see Avatar.setModel). A character whose file is missing
+ * keeps the Qwakk-shaped placeholder until a retry succeeds. Feet are put on y = 0 and the model is turned to face
+ * -z (the sim's forward at yaw 0; the art faces +z).
  */
 import * as THREE from 'three/webgpu';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkinned } from 'three/addons/utils/SkeletonUtils.js';
+import { characterKey, DEFAULT_CHARACTER } from '@qwakk/shared/characters';
 import { outlineMaterial, skinnedOutlineMaterial, toonFrom, toonMaterial } from '../render/materials.ts';
 import { BRAND } from '../render/palette.ts';
 
 export const DUCK_GLB_URL = `${import.meta.env.BASE_URL}models/duck.glb`;
+
+/** A character's model file: the classic is `duck.glb`, the others `duck_<key>.glb`. */
+export function duckGlbUrl(character: number): string {
+  const key = characterKey(character);
+  return key === 'classic' ? DUCK_GLB_URL : `${import.meta.env.BASE_URL}models/duck_${key}.glb`;
+}
 
 /** Named parts the avatar animates procedurally. */
 export interface DuckParts {
@@ -106,18 +116,33 @@ export function createPlaceholderDuck(): DuckParts {
   return { root, body, head, footL, footR };
 }
 
-let glbPromise: Promise<THREE.Object3D | null> | null = null;
+const glbPromises = new Map<number, Promise<THREE.Object3D | null>>();
 
-/** Load duck.glb once if it exists. Resolves to null when there is no file. */
-export function loadDuckGlb(): Promise<THREE.Object3D | null> {
-  if (glbPromise) return glbPromise;
-  glbPromise = (async () => {
+/**
+ * Cache successful model loads per page. Failures resolve to null and are
+ * evicted so the game can retry while keeping the placeholder.
+ */
+export function loadDuckGlb(character: number = DEFAULT_CHARACTER): Promise<THREE.Object3D | null> {
+  const known = glbPromises.get(character);
+  if (known) return known;
+  const url = duckGlbUrl(character);
+  const p = loadFrom(url).then((model) => {
+    // Failed requests must not poison the page cache. The caller can retry.
+    if (!model) glbPromises.delete(character);
+    return model;
+  });
+  glbPromises.set(character, p);
+  return p;
+}
+
+function loadFrom(url: string): Promise<THREE.Object3D | null> {
+  return (async () => {
     try {
-      const head = await fetch(DUCK_GLB_URL, { method: 'HEAD' });
+      const head = await fetch(url, { method: 'HEAD' });
       const type = head.headers.get('content-type') ?? '';
       // Vite's dev server answers unknown paths with index.html, so check the type too.
       if (!head.ok || type.includes('text/html')) return null;
-      const gltf = await new GLTFLoader().loadAsync(DUCK_GLB_URL);
+      const gltf = await new GLTFLoader().loadAsync(url);
       const model = gltf.scene;
       // The art is authored in meters at game size (1.62 m to the head top), so
       // no rescale: the server hitboxes are matched to it. Only put the feet on y = 0.
@@ -129,15 +154,18 @@ export function loadDuckGlb(): Promise<THREE.Object3D | null> {
       model.traverse((o) => {
         const mesh = o as THREE.Mesh;
         if (!mesh.isMesh) return;
+        const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        mesh.userData.headwear = materials.some((m) => m.name === 'QwakkHeadwear');
         mesh.castShadow = true;
         mesh.material = Array.isArray(mesh.material) ? mesh.material.map(toonFrom) : toonFrom(mesh.material);
         if ((o as THREE.SkinnedMesh).isSkinnedMesh) skinned.push(o as THREE.SkinnedMesh);
       });
       for (const mesh of skinned) {
-        const hull = new THREE.SkinnedMesh(mesh.geometry, skinnedOutlineMaterial());
+        const hull = new THREE.SkinnedMesh(mesh.geometry, skinnedOutlineMaterial(url.endsWith('duck_mallard.glb') ? 0.04 : 0.0075));
         hull.bind(mesh.skeleton, mesh.bindMatrix);
         hull.castShadow = false;
         hull.name = `${mesh.name}-outline`;
+        hull.userData.headwear = mesh.userData.headwear;
         mesh.parent?.add(hull);
       }
       const wrapper = new THREE.Group();
@@ -145,11 +173,10 @@ export function loadDuckGlb(): Promise<THREE.Object3D | null> {
       wrapper.add(model);
       return wrapper;
     } catch (err) {
-      console.warn('[duck] could not load duck.glb, keeping the placeholder', err);
+      console.warn(`[duck] could not load ${url}, keeping the placeholder`, err);
       return null;
     }
   })();
-  return glbPromise;
 }
 
 /** A per-avatar copy of the loaded GLB (skinned meshes need SkeletonUtils.clone). */

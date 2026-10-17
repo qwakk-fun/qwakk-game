@@ -1,3 +1,4 @@
+import { t as translate } from '../../i18n/game.ts';
 /**
  * Battle royale HUD: minimap and compass with the zone direction, zone timer,
  * ducks alive and kills, the inventory bar (weapon slots, armor, backpack
@@ -167,7 +168,7 @@ export class BrHud {
     this.big = el('canvas', 'br-map-canvas', this.bigWrap);
     this.big.width = 900;
     this.big.height = 900;
-    this.mapHint = el('div', 'br-map-hint', this.bigWrap, 'M to close');
+    this.mapHint = el('div', 'br-map-hint', this.bigWrap, translate('M to close'));
     this.bigWrap.hidden = true;
     // Touch: a tap on the map closes it (the map takes taps only while the touch controls are on).
     this.bigWrap.addEventListener('click', (e) => {
@@ -192,7 +193,7 @@ export class BrHud {
   toggleMap(): void {
     this.mapOpen = !this.mapOpen;
     this.bigWrap.hidden = !this.mapOpen;
-    this.mapHint.textContent = hint('M to close', COPY.touch.hints.mapClose);
+    this.mapHint.textContent = hint(translate('M to close'), COPY.touch.hints.mapClose);
   }
 
   get mapVisible(): boolean {
@@ -226,7 +227,7 @@ export class BrHud {
       this.zone.classList.toggle('outside', d.outside);
       this.root.classList.toggle('br-outside', d.outside);
     }
-    const counts = `${d.alive} alive${d.teams > 0 ? ` · ${d.teams} ${d.teams === 1 ? 'team' : 'teams'}` : ''} · ${d.kills} ${d.kills === 1 ? 'kill' : 'kills'}`;
+    const counts = `${translate('{n} alive', { n: d.alive })}${d.teams > 0 ? ` · ${translate('{n} teams', { n: d.teams })}` : ''} · ${translate('{n} kills', { n: d.kills })}`;
     if (counts !== this.last.counts) {
       this.last.counts = counts;
       this.counts.textContent = counts;
@@ -285,7 +286,7 @@ export class BrHud {
     inv.slots.forEach((s, i) => {
       const slot = el('div', `br-slot${s.active ? ' active' : ''}${s.has ? '' : ' empty'}`, this.inv);
       el('kbd', 'br-key', slot, String(i + 1));
-      el('span', 'br-slot-name', slot, s.has ? s.name : 'Empty');
+      el('span', 'br-slot-name', slot, s.has ? s.name : translate('Empty'));
       if (s.has) el('span', 'br-slot-ammo', slot, `${s.mag} / ${s.res}`);
     });
     const gear = el('div', 'br-gear', this.inv);
@@ -296,16 +297,16 @@ export class BrHud {
       const fill = el('div', 'br-piece-fill', bar);
       fill.style.width = `${level ? Math.round(pct * 100) : 0}%`;
     };
-    piece('Vest', inv.vest, inv.vestPct);
-    piece('Helmet', inv.helmet, inv.helmetPct);
+    piece(translate('Vest'), inv.vest, inv.vestPct);
+    piece(translate('Helmet'), inv.helmet, inv.helmetPct);
     // The backpack: load against capacity (orange when full).
     const share = inv.capacity > 0 ? Math.min(1, inv.load / inv.capacity) : 0;
     const pack = el('div', `br-piece br-pack${share >= 0.999 ? ' full' : ''}`, gear);
-    el('span', 'br-piece-name', pack, `${inv.pack ? `Pack ${inv.pack}` : 'Pack'} ${Math.round(inv.load)}/${inv.capacity}`);
+    el('span', 'br-piece-name', pack, `${inv.pack ? translate('Pack {n}', { n: inv.pack }) : translate('Pack')} ${Math.round(inv.load)}/${inv.capacity}`);
     const packFill = el('div', 'br-piece-fill', el('div', 'br-piece-bar', pack));
     packFill.style.width = `${Math.round(share * 100)}%`;
     const heals = el('div', 'br-heals', this.inv);
-    for (const [k, name, n] of [['4', 'Bandage', inv.bandages], ['5', 'Medkit', inv.medkits]] as const) {
+    for (const [k, name, n] of [['4', translate('Bandage'), inv.bandages], ['5', translate('Medkit'), inv.medkits]] as const) {
       const h = el('div', `br-healslot${n > 0 ? '' : ' empty'}`, heals);
       el('kbd', 'br-key', h, k);
       el('span', '', h, `${name} ${n}`);
@@ -332,17 +333,17 @@ export class BrHud {
     this.last.board = key;
     this.board.replaceChildren();
     const left = el('div', 'br-board-inv', this.board);
-    el('div', 'br-board-title', left, 'Your gear');
+    el('div', 'br-board-title', left, translate('Your gear'));
     if (inv) {
-      for (const s of inv.slots) el('div', 'br-board-line', left, s.has ? `${s.name}  ${s.mag} / ${s.res}` : 'Empty slot');
-      el('div', 'br-board-line', left, inv.vest ? `Vest level ${inv.vest}, ${Math.round(inv.vestPct * 100)}%` : 'No vest');
-      el('div', 'br-board-line', left, inv.helmet ? `Helmet level ${inv.helmet}, ${Math.round(inv.helmetPct * 100)}%` : 'No helmet');
+      for (const s of inv.slots) el('div', 'br-board-line', left, s.has ? `${s.name}  ${s.mag} / ${s.res}` : translate('Empty slot'));
+      el('div', 'br-board-line', left, inv.vest ? translate('Vest level {n}, {pct}%', { n: inv.vest, pct: Math.round(inv.vestPct * 100) }) : translate('No vest'));
+      el('div', 'br-board-line', left, inv.helmet ? translate('Helmet level {n}, {pct}%', { n: inv.helmet, pct: Math.round(inv.helmetPct * 100) }) : translate('No helmet'));
       el('div', 'br-board-line', left, `Bandages ${inv.bandages} (4), medkits ${inv.medkits} (5)`);
-      el('div', 'br-board-line', left, `${inv.pack ? `Backpack level ${inv.pack}` : 'No backpack'}, ${Math.round(inv.load)} / ${inv.capacity} carried`);
-      el('div', 'br-board-line hint', left, hint('I opens the inventory', COPY.touch.hints.boardInventory));
+      el('div', 'br-board-line', left, translate('{gear}, {load} / {capacity} carried', { gear: inv.pack ? translate('Backpack level {n}', { n: inv.pack }) : translate('No backpack'), load: Math.round(inv.load), capacity: inv.capacity }));
+      el('div', 'br-board-line hint', left, hint(translate('I opens the inventory'), COPY.touch.hints.boardInventory));
     }
     const right = el('div', 'br-board-list', this.board);
-    el('div', 'br-board-title', right, 'Ducks');
+    el('div', 'br-board-title', right, translate('Ducks'));
     for (const r of sorted) {
       const row = el('div', `br-board-row${r.me ? ' me' : ''}${r.ally ? ' ally' : ''}${r.alive ? '' : ' out'}`, right);
       el('span', 'n', row, r.name);
@@ -362,20 +363,20 @@ export class BrHud {
     const team = r.teamSize > 1;
     const others = Math.max(0, r.total - 1);
     if (r.win) {
-      el('div', 'br-card-eyebrow', c, team ? 'Last team standing' : 'Last duck standing');
-      el('div', 'br-card-title', c, 'Winner winner, bread dinner');
-      el('div', 'br-card-sub', c, team ? `Your team out-quacked ${others} ${others === 1 ? 'team' : 'teams'} on Sainte-Canard. The pond is yours.` : `You out-quacked ${others} ${others === 1 ? 'duck' : 'ducks'} on Sainte-Canard. The pond is yours.`);
+      el('div', 'br-card-eyebrow', c, team ? translate('Last team standing') : translate('Last duck standing'));
+      el('div', 'br-card-title', c, translate('Winner winner, bread dinner'));
+      el('div', 'br-card-sub', c, team ? translate('Your team beat {n} teams on Yelova. The pond is yours.', { n: others }) : translate('You beat {n} ducks on Yelova. The pond is yours.', { n: others }));
     } else {
       el('div', 'br-card-eyebrow', c, team ? `Team #${r.placement} of ${r.total}` : `#${r.placement} of ${r.total}`);
-      el('div', 'br-card-title', c, team ? 'Squad plucked!' : 'Plucked!');
-      el('div', 'br-card-sub', c, team ? 'Your whole team is out. Regroup and drop again.' : r.killer ? `Taken out by ${r.killer}. Shake off the feathers and drop again.` : 'Shake off the feathers and drop again.');
+      el('div', 'br-card-title', c, team ? translate('Squad plucked!') : translate('Plucked!'));
+      el('div', 'br-card-sub', c, team ? translate('Your whole team is out. Regroup and drop again.') : r.killer ? translate('Taken out by {name}. Shake off the feathers and drop again.', { name: r.killer }) : translate('Shake off the feathers and drop again.'));
     }
     const stats = el('div', 'br-card-stats', c);
     for (const [label, value] of [
-      ['Place', `#${r.placement}`],
-      ['Kills', `${r.kills}`],
-      ['Damage', `${r.damage}`],
-      ['Survived', clock(r.survivedMs / 1000)],
+      [translate('Place'), `#${r.placement}`],
+      [translate('Kills'), `${r.kills}`],
+      [translate('Damage'), `${r.damage}`],
+      [translate('Survived'), clock(r.survivedMs / 1000)],
     ] as const) {
       const s = el('div', 'br-stat', stats);
       el('div', 'v', s, value);
@@ -383,7 +384,7 @@ export class BrHud {
     }
     const buttons = el('div', 'br-card-buttons', c);
     if (onWatch) {
-      const w = el('button', 'br-btn ghost', buttons, 'Watch the rest');
+      const w = el('button', 'br-btn ghost', buttons, translate('Watch the rest'));
       w.type = 'button';
       w.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -391,7 +392,7 @@ export class BrHud {
         this.onWatch?.();
       });
     }
-    const b = el('button', 'br-btn', buttons, 'Back to the pond');
+    const b = el('button', 'br-btn', buttons, translate('Back to the pond'));
     b.type = 'button';
     b.addEventListener('click', (e) => {
       e.stopPropagation();

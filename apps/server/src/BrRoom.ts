@@ -1,5 +1,5 @@
 /**
- * The battle royale room on Sainte-Canard: networking glue (gameRoom.ts)
+ * The battle royale room on Yelova: networking glue (gameRoom.ts)
  * around the BattleRoyale rules. Players pick a room from the lobby list
  * (joinById), create one, or Quick Play (joinOrCreate). The countdown starts
  * at `BR.minHumans` humans; when it ends the room locks and bots fill the
@@ -25,6 +25,7 @@ import { recordMatch } from './meta/index.ts';
 import { parties } from './party/registry.ts';
 import type { TeamGroup } from './br/teams.ts';
 import { roomLabel, TEAM_ERROR, teamSizeOf, type RoomListing, type RoomStage } from '@qwakk/shared/lobby';
+import { brStartRules } from './settings/index.ts';
 
 export interface BrRoomOptions extends GameRoomOptions {
   /** Start countdown length override (s), for tests. */
@@ -77,7 +78,9 @@ export class BrRoom extends GameRoom<BattleRoyale> {
   }
 
   protected createMatch(options: BrRoomOptions): BattleRoyale {
-    this.countdownTicks = Math.max(1, Math.round((options.countdownSeconds ?? DEFAULT_BR.countdownSeconds) * TICK_RATE));
+    // The start rule from the admin settings (the room keeps it), unless the server options set one (tests).
+    const start = brStartRules();
+    this.countdownTicks = Math.max(1, Math.round((options.countdownSeconds ?? start.countdownSeconds) * TICK_RATE));
     this.state.mode = GameMode.BattleRoyale;
     this.state.phase = MatchPhase.Warmup;
     const teamSize = teamSizeOf(options.team);
@@ -91,7 +94,7 @@ export class BrRoom extends GameRoom<BattleRoyale> {
       {
         ...DEFAULT_BR,
         countdownSeconds: this.countdownTicks / TICK_RATE,
-        minHumans: options.minHumans ?? DEFAULT_BR.minHumans,
+        minHumans: options.minHumans ?? start.minHumans,
         endSeconds: options.endSeconds ?? DEFAULT_BR.endSeconds,
         bots: options.bots !== false,
         seed: options.seed,
@@ -145,6 +148,13 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     void this.setMetadata(this.listing(), false);
   }
 
+  protected override roomStatus(): { kind: 'dm' | 'br'; mode: string; phase: string; secondsLeft: number } {
+    const m = this.match;
+    const mode = m.teamSize === 4 ? 'Squad' : m.teamSize === 2 ? 'Duo' : 'Solo';
+    const phase = m.phase === 'warmup' ? (m.countingDown ? 'countdown' : 'waiting') : m.phase;
+    return { kind: 'br', mode, phase, secondsLeft: m.secondsLeft };
+  }
+
   /** What the lobby list shows for this room. Public: no names, ids or addresses. */
   listing(): RoomListing {
     const m = this.match;
@@ -193,8 +203,8 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     if (t === 'no-team') throw new ServerError(TEAM_ERROR.noTeam, 'no team in this room has room for you');
   }
 
-  protected addHuman(client: Client, name: string, auth: JoinAuth | undefined): Seat | null {
-    const seat = this.match.addHuman(client.sessionId, name, this.groupOf(auth));
+  protected addHuman(client: Client, name: string, auth: JoinAuth | undefined, character: number): Seat | null {
+    const seat = this.match.addHuman(client.sessionId, name, this.groupOf(auth), character);
     if (seat) this.items.addViewer(client.sessionId);
     return seat;
   }

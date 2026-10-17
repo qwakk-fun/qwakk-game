@@ -73,7 +73,7 @@ export async function loadMapAssets(id: string, onProgress?: (done: number, tota
   return { def, extras, ground, hash: hashBytes([jsonBytes, heightBytes, colliderBytes]) };
 }
 
-/** Sainte-Canard (the battle royale map; the dev map viewer). */
+/** Yelova (the battle royale map; the dev map viewer). */
 export function loadSainteCanard(onProgress?: (done: number, total: number) => void): Promise<MapAssets> {
   return loadMapAssets('sainte-canard', onProgress);
 }

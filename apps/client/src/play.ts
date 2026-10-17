@@ -1,3 +1,4 @@
+import { t as translate } from './i18n/game.ts';
 /**
  * Game entry for the menu (ui/menu) and for direct starts in dev:
  *
@@ -10,6 +11,7 @@
 import { CloseCode } from '@colyseus/sdk';
 import { initPhysics } from '@qwakk/shared';
 import { MatchPhase } from '@qwakk/shared/net';
+import { CLOSE_CODE } from '@qwakk/shared/lobby';
 import { config } from './config.ts';
 import { Game, type ExitReason, type ExitSummary } from './game.ts';
 import { coarsePointer, isTouchOnly } from './input/touch/device.ts';
@@ -30,6 +32,8 @@ export interface StartGameOptions {
   team?: number;
   token?: string;
   name?: string;
+  /** The picked duck (shared catalog id); the server checks it and falls back to the classic duck. */
+  character?: number;
   settings: { sensitivity: number; adsSensitivity?: number; touchSensitivity?: number; fov: number; volume: number; quality?: 'low' | 'medium' | 'high' };
 }
 
@@ -82,11 +86,11 @@ function finish(reason: ExitReason, summary?: ExitSummary): void {
     overlay.classList.add('hidden');
     exitCallback(reason, summary ?? cur.game.br?.summary() ?? { mode: cur.mode });
   } else if (reason === 'disconnected') {
-    setOverlay('Disconnected from the island. Check your connection and reconnect.', { stopped: true });
+    setOverlay(translate('Disconnected from the island. Check your connection and reconnect.'), { stopped: true });
   } else {
-    setOverlay('Thanks for playing! Reload to drop in again.', { stopped: true });
+    setOverlay(translate('Thanks for playing! Reload to drop in again.'), { stopped: true });
     reconnect.hidden = false;
-    reconnect.textContent = 'Play again';
+    reconnect.textContent = translate('Play again');
   }
 }
 
@@ -95,7 +99,7 @@ function ensureLeaveButton(): void {
   leaveButton = document.createElement('button');
   leaveButton.type = 'button';
   leaveButton.id = 'leave';
-  leaveButton.textContent = 'Leave the match';
+  leaveButton.textContent = translate('Leave the match');
   leaveButton.hidden = true;
   leaveButton.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -142,7 +146,7 @@ function wireOnce(): void {
     // Touch play shows its own pause card (the pause button); the mouse is not locked then.
     if (cur.game.touch?.active) return;
     if (locked || config.autopilot !== '' || config.spectate || cur.game.br?.resultOpen || cur.game.br?.inventoryOpen) overlay.classList.add('hidden');
-    else setOverlay('Click to play', { leave: true });
+    else setOverlay(translate('Click to play'), { leave: true });
   });
   window.addEventListener('beforeunload', () => current?.session.leave());
 }
@@ -171,19 +175,19 @@ async function joinAndPlay(opts: StartGameOptions): Promise<{ roomId: string }> 
   if (current) finish('left');
   // Phones: the rotate screen covers portrait from the loading screen on.
   setTouchGame(isTouchOnly());
-  setOverlay('Loading the island...');
+  setOverlay(translate('Loading the island...'));
   const ctx = await renderer();
   await initPhysics();
   ctx.scene = freshScene();
-  setOverlay(config.devtools ? `Joining ${config.server} ...` : opts.mode === 'br' ? 'Finding a match...' : 'Joining the island...');
+  setOverlay(config.devtools ? `Joining ${config.server} ...` : opts.mode === 'br' ? translate('Finding a match...') : translate('Joining the island...'));
   let session: Session;
   try {
-    session = await Session.join(config.server, { mode: opts.mode, roomId: opts.roomId, create: opts.create, team: opts.team, name: opts.name, token: opts.token }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
+    session = await Session.join(config.server, { mode: opts.mode, roomId: opts.roomId, create: opts.create, team: opts.team, name: opts.name, token: opts.token, character: opts.character }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
   } catch (err) {
     // The server refuses a second seat for the same player (another tab).
     if ((err as { code?: number }).code === ALREADY_IN_MATCH) {
-      setOverlay('You are already in this match in another tab or window.', { stopped: true });
-      throw Object.assign(new Error('You are already in this match in another tab or window.'), { code: ALREADY_IN_MATCH });
+      setOverlay(translate('You are already in this match in another tab or window.'), { stopped: true });
+      throw Object.assign(new Error(translate('You are already in this match in another tab or window.')), { code: ALREADY_IN_MATCH });
     }
     throw err;
   }
@@ -201,7 +205,7 @@ async function joinAndPlay(opts: StartGameOptions): Promise<{ roomId: string }> 
   } catch (err) {
     session.leave();
     if (err instanceof MapMismatchError) {
-      setOverlay('This page is out of date with the game server. Reload to get the latest island.', { stopped: true });
+      setOverlay(translate('This page is out of date with the game server. Reload to get the latest island.'), { stopped: true });
       reconnect.hidden = false;
     }
     throw err;
@@ -228,13 +232,16 @@ async function joinAndPlay(opts: StartGameOptions): Promise<{ roomId: string }> 
   const entry = { game, session, mode: opts.mode, ended: false };
   current = entry;
   game.start();
-  setOverlay(isTouchOnly() ? COPY.touch.tapToPlay : 'Click to play', { leave: true });
+  setOverlay(isTouchOnly() ? COPY.touch.tapToPlay : translate('Click to play'), { leave: true });
   if (config.autopilot || config.spectate) overlay.classList.add('hidden');
 
   // Server closed the connection: a finished battle royale ends normally, anything else is a disconnect.
   session.room.onLeave((code) => {
     if (current !== entry) return;
     if (code === CloseCode.CONSENTED) return;
+    // The server took this player out, or closed the room (the menu says which).
+    if (code === CLOSE_CODE.removed) return finish('removed');
+    if (code === CLOSE_CODE.roomClosed && !game.br?.resultOpen) return finish('closed');
     if (session.room.state.phase === MatchPhase.Ended || game.br?.resultOpen) {
       // The results card stays up; its button returns to the menu.
       entry.ended = true;
@@ -253,7 +260,7 @@ export function showStartError(err: unknown): void {
   if (overlay.dataset.stopped === '1') return;
   const detail = err instanceof Error ? err.message : String(err);
   setOverlay(
-    import.meta.env.DEV ? `Could not start: ${detail}. Is the game server running (npm run dev)?` : 'Could not reach the island right now. Please try again in a moment.',
+    import.meta.env.DEV ? `Could not start: ${detail}. Is the game server running (npm run dev)?` : translate('Could not reach the island right now. Please try again in a moment.'),
     { stopped: true },
   );
   reconnect.hidden = false;

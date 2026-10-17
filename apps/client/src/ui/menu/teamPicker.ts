@@ -15,13 +15,15 @@ export class TeamPicker {
   private pick = 1;
   private partySize = 1;
   private busy = false;
+  /** Team sizes the server lets players open now (GET /api/status). */
+  private modes = new Set<number>(TEAM_SIZES);
 
   constructor() {
     this.el = h('div', { class: 'qm-modes', role: 'radiogroup', 'aria-label': M.label });
     for (const t of TEAM_SIZES) {
       const b = h('button', { type: 'button', class: 'qm-mode', role: 'radio', 'data-team': t }, M.names[t] ?? `${t}`);
       b.addEventListener('click', () => {
-        if (t < this.partySize) return;
+        if (t < this.partySize || !this.modes.has(t)) return;
         this.pick = t;
         this.render();
       });
@@ -40,9 +42,19 @@ export class TeamPicker {
     this.render();
   }
 
-  /** The team size picked (never smaller than the party). */
+  /** The team size picked (never smaller than the party; an open mode when there is one). */
   get mode(): number {
-    return Math.max(this.pick, teamSizeFor(this.partySize));
+    const want = Math.max(this.pick, teamSizeFor(this.partySize));
+    if (this.modes.has(want)) return want;
+    return TEAM_SIZES.find((t) => t >= want && this.modes.has(t)) ?? TEAM_SIZES.find((t) => t >= this.partySize && this.modes.has(t)) ?? want;
+  }
+
+  /** The modes the server runs now; the others are off. */
+  setModes(modes: readonly number[]): void {
+    const next = new Set(modes.filter((t) => (TEAM_SIZES as readonly number[]).includes(t)));
+    if (next.size === this.modes.size && [...next].every((t) => this.modes.has(t))) return;
+    this.modes = next;
+    this.render();
   }
 
   /** Your party's size (1 without one): smaller modes switch off, the pick moves up. */
@@ -65,8 +77,9 @@ export class TeamPicker {
       b.setAttribute('aria-checked', on ? 'true' : 'false');
       b.tabIndex = on ? 0 : -1;
       b.classList.toggle('is-on', on);
-      b.disabled = this.busy || t < this.partySize;
-      b.title = t < this.partySize ? M.tooSmall : '';
+      const off = !this.modes.has(t);
+      b.disabled = this.busy || t < this.partySize || off;
+      b.title = t < this.partySize ? M.tooSmall : off ? M.off : '';
     }
   }
 }

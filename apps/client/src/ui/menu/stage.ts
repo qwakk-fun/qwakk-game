@@ -21,7 +21,7 @@ export class Stage {
   constructor(character: Character, loadHero?: () => Promise<HeroModule>) {
     this.img = h('img', { src: asset(character.portrait), alt: '', width: 800, height: 800, decoding: 'async', fetchpriority: 'high' });
     const duck = h('div', { class: 'qm-art-duck' }, this.img);
-    this.hero = new HeroSlot(duck, loadHero);
+    this.hero = new HeroSlot(duck, loadHero, character.id);
     this.charName = h('span', { class: 'qm-plate-char' });
     this.player = h('span', { class: 'qm-plate-name' });
     this.playerTag = h('span', { class: 'qm-plate-tag' });
@@ -41,6 +41,7 @@ export class Stage {
     this.charName.textContent = characterCopy(c.id).name;
     const src = asset(c.portrait);
     if (this.img.getAttribute('src') !== src) this.img.src = src;
+    this.hero.setCharacter(c.id);
   }
 
   /** Your name and #tag on the plate (null tag: not given yet). */

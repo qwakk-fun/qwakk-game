@@ -1,3 +1,4 @@
+import { t as translate } from './i18n/game.ts';
 /**
  * The game loop. Rendering runs at the display refresh rate; the sim runs at a
  * fixed 30 Hz inside the Colyseus prediction stack. Each frame:
@@ -37,7 +38,8 @@ import type { WorldHandle } from './world/worldHandle.ts';
 
 const LAG_PRESETS = [0, 60, 120, 150, 250];
 
-export type ExitReason = 'ended' | 'left' | 'disconnected';
+/** removed: the server took this player out; closed: the room was closed. */
+export type ExitReason = 'ended' | 'left' | 'disconnected' | 'removed' | 'closed';
 
 export interface ExitSummary {
   mode: 'br' | 'dm';
@@ -77,7 +79,7 @@ export class Game {
   readonly sound = new Sound();
   private readonly combat: CombatFeedback;
   readonly br: BrClient | null;
-  /** Name tags (allies always, an enemy under the crosshair) and the team panel. */
+  /** Faint names over nearby ducks and the team panel. */
   readonly tags: NameTags;
   private readonly teamPanel: TeamPanel;
   private readonly tagList: TagDuck[] = [];
@@ -94,7 +96,14 @@ export class Game {
   private readonly adsSensitivity: number;
   private hudClock = 0;
   private lagIndex = 0;
-  private duckGlb: THREE.Object3D | null = null;
+  /** Loaded duck models by character id, the ones loading, and which character each avatar wears and shows. */
+  private readonly models = new Map<number, THREE.Object3D>();
+  private readonly loading = new Set<number>();
+  private readonly modelRetryAt = new Map<number, number>();
+  private readonly wears = new Map<Avatar, number>();
+  private readonly shown = new WeakMap<Avatar, number>();
+  /** Clips and weapons are in (models load from then on), unless `?duck=placeholder`. */
+  private modelsOn = false;
   private showBoard = false;
   private crouchBlend = 0;
   private spectateIndex = 0;
@@ -191,21 +200,28 @@ export class Game {
         picked: (kind, amount) => this.br?.picked(kind, amount),
         denied: (reason, kind) => this.br?.denied(reason, kind),
         result: (placement, total, kills, damage, survivedMs, teamSize) => this.br?.result(placement, total, kills, damage, survivedMs, teamSize),
+        notice: (text) => this.ghud.notice(text),
       },
       (id, state, local) => {
         if (local) {
           this.localAvatar.object.visible = true;
           this.controls.yaw = state.spawnYaw;
+          // The duck the server seated us as (our pick if it is in the catalog).
+          this.dress(this.localAvatar, state.character);
           return;
         }
         const avatar = new Avatar();
         avatar.onMagEvent = (e, at) => this.sound.magClick(e, at);
-        if (this.duckGlb) avatar.setModel(this.duckGlb);
+        this.dress(avatar, state.character);
         scene.add(avatar.object);
         this.remotes.set(id, { state, avatar, motion: new MotionProbe(), lastAct: 0 });
       },
       (id) => {
-        this.remotes.get(id)?.avatar.dispose();
+        const r = this.remotes.get(id);
+        if (r) {
+          r.avatar.dispose();
+          this.wears.delete(r.avatar);
+        }
         this.remotes.delete(id);
       },
     );
@@ -215,13 +231,41 @@ export class Game {
       await Promise.all([loadClips(), loadWeaponLibrary()]);
       const all = () => [this.localAvatar, ...[...this.remotes.values()].map((r) => r.avatar)];
       if (hasWeaponArt(0) || hasWeaponArt(1)) for (const a of all()) a.refreshWeapons();
-      const glb = config.placeholderDuck ? null : await loadDuckGlb();
-      if (!glb || !this.running) return;
-      this.duckGlb = glb;
-      for (const a of all()) a.setModel(glb);
+      if (config.placeholderDuck || !this.running) return;
+      // Models load per character, each once, when a duck wearing it is in the match.
+      this.modelsOn = true;
+      for (const c of new Set(this.wears.values())) this.loadModel(c);
     })();
 
     if (import.meta.env.DEV || import.meta.env.VITE_DEVTOOLS === '1') void import('./game/testHook.ts').then((m) => m.exposeTestHook(this.testView()));
+  }
+
+  /** Put an avatar in its character's model (now if loaded, else once it is). */
+  private dress(avatar: Avatar, character: number): void {
+    this.wears.set(avatar, character);
+    const glb = this.models.get(character);
+    if (glb) {
+      avatar.setModel(glb);
+      this.shown.set(avatar, character);
+    } else if (this.modelsOn) this.loadModel(character);
+  }
+
+  private loadModel(character: number): void {
+    if (this.loading.has(character) || (this.modelRetryAt.get(character) ?? 0) > performance.now()) return;
+    this.loading.add(character);
+    void loadDuckGlb(character).then((glb) => {
+      if (!glb) {
+        this.modelRetryAt.set(character, performance.now() + 5000);
+        return;
+      }
+      if (!this.running) return;
+      this.models.set(character, glb);
+      for (const [avatar, c] of this.wears) {
+        if (c !== character || this.shown.get(avatar) === c) continue;
+        avatar.setModel(glb);
+        this.shown.set(avatar, c);
+      }
+    }).finally(() => this.loading.delete(character));
   }
 
   private readonly onSpectatorClick = (): void => {
@@ -401,7 +445,7 @@ export class Game {
       r.lastAct = p.act;
     }
 
-    this.tags.update(this.ctx.camera, tags, performance.now());
+    this.tags.update(this.ctx.camera, tags, this.myPos);
     this.br?.frame(dt, this.myPos);
     this.world.update(this.ctx.camera, dt);
     this.fx.update(dt, this.ctx.camera);
@@ -412,6 +456,7 @@ export class Game {
     this.hudClock += dt;
     if (this.hudClock > 0.2) {
       this.hudClock = 0;
+      if (this.modelsOn) for (const c of new Set(this.wears.values())) if (!this.models.has(c)) this.loadModel(c);
       this.renderHud();
     }
     this.timer.cpuSample(performance.now() - t0);
@@ -442,7 +487,7 @@ export class Game {
       const armed = mine.armed === 1;
       const mag = s.weapon === 0 ? s.mag0 : s.mag1;
       const res = s.weapon === 0 ? s.res0 : s.res1;
-      if (armed) g.ammoInfo(w.name, mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
+      if (armed) g.ammoInfo(translate(w.name), mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
       else g.ammoInfo('Unarmed', 0, 0, 0);
       g.crosshair(inaccuracy(w, s as never, Math.floor(s.spray)), this.ctx.camera.fov, window.innerHeight);
       g.protection(mine.protect === 1);
@@ -470,10 +515,10 @@ export class Game {
     g.scoreboard(this.showBoard || intermission ? rows : null);
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
     if (intermission) {
-      g.message(`<div class="big">Round over</div><div>${st.winner ? `${esc(st.winner)} wins` : 'Time is up'}. Next round in ${st.timeLeft}</div>`);
+      g.message(`<div class="big">${translate('Round over')}</div><div>${st.winner ? translate('{name} wins', { name: esc(st.winner) }) : translate('Time is up')}. ${translate('Next round in {n}', { n: st.timeLeft })}</div>`);
     } else if (mine && mine.alive === 0) {
       const left = Math.max(0, COMBAT.respawnTicks / 30 - (performance.now() - this.combat.diedAt) / 1000);
-      g.message(`<div class="big">Plucked</div><div>${this.combat.killerName ? `by ${esc(this.combat.killerName)}. ` : ''}Back in ${Math.ceil(left)}</div>`);
+      g.message(`<div class="big">${translate('Plucked')}</div><div>${this.combat.killerName ? translate('by {name}. ', { name: esc(this.combat.killerName) }) : ''}${translate('Back in {n}', { n: Math.ceil(left) })}</div>`);
     } else {
       g.message(null);
     }
@@ -493,7 +538,7 @@ export class Game {
     f.br = this.br !== null;
     f.armed = mine?.armed === 1;
     const other = s && s.weapon === 0 ? 1 : 0;
-    f.otherWeapon = s && mine?.armed === 1 && hasWeapon(s as never, other) ? weaponStats(other).name : '';
+    f.otherWeapon = s && mine?.armed === 1 && hasWeapon(s as never, other) ? translate(weaponStats(other).name) : '';
     if (this.br) Object.assign(f, this.br.touchState());
     else {
       f.promptKey = '';

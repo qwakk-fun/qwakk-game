@@ -1,3 +1,4 @@
+import { t as translate } from '../i18n/game.ts';
 /**
  * Turns shots, hits and kills into feedback: tracers, flashes, feathers,
  * splats, sounds, hit markers, camera kick and the kill feed.
@@ -46,7 +47,7 @@ export interface CombatStats {
   lastTracerAt: number;
 }
 
-const WEAPON_NAMES = ['Rifle', 'Pistol'];
+const WEAPON_NAMES = [translate('Rifle'), translate('Pistol')];
 
 export class CombatFeedback {
   readonly stats: CombatStats = { shotsFired: 0, predictedHits: 0, confirmedHits: 0, kills: 0, knocks: 0, deaths: 0, tracers: 0, featherBursts: 0, lastMarkerAt: 0, lastFeatherAt: 0, lastTracerAt: 0 };

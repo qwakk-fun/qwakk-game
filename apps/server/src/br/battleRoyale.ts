@@ -248,11 +248,11 @@ export class BattleRoyale extends Arena {
   }
 
   /** A human joins: only during the warm-up (the room is locked after), on a team with room for its party. */
-  addHuman(id: string, name: string, g: TeamGroup | null = null): Seat | null {
+  addHuman(id: string, name: string, g: TeamGroup | null = null, character?: number): Seat | null {
     if (this.phase !== 'warmup') return null;
     const team = this.admit(g);
     if (typeof team !== 'number') return null;
-    const seat = this.makeSeat(id, name, null, createPlayerSim(0, -100, 0), team);
+    const seat = this.makeSeat(id, name, null, createPlayerSim(0, -100, 0), team, character);
     this.teams.assign(id, team, g, this.tick + PARTY.reserveSeconds * TICK_RATE);
     this.armorFor(id);
     this.spawnWarmup(seat);

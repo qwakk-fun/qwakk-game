@@ -1,4 +1,4 @@
-"""Generate map_v1: the Sainte-Canard island layout as placement data for the shared sim.
+"""Generate map_v1: the Yelova island layout as placement data for the shared sim.
 
 Pure Python 3, standard library only, fully deterministic (fixed seed, own RNG). Reads the prop manifest
 (footprints, loot points) written by art/map/blender/build_props.py and writes:
@@ -51,28 +51,28 @@ class Rng:
 
 # ---------------------------------------------------------------- layout data
 ZONES = [
-    {"id": "beach", "name": "Mallard Beach", "tier": 2, "drop": "medium",
+    {"id": "beach", "name": "Kumra", "tier": 2, "drop": "medium",
      "poly": [(-168, -352), (238, -352), (238, -262), (-168, -262)]},
-    {"id": "headland", "name": "Pointe du Bec", "tier": 3, "drop": "medium",
+    {"id": "headland", "name": "Sarpin", "tier": 3, "drop": "medium",
      "poly": [(-405, -395), (-182, -395), (-166, -305), (-200, -222), (-300, -208), (-398, -210)]},
-    {"id": "village", "name": "Sainte-Canard", "tier": 3, "drop": "hot",
+    {"id": "village", "name": "Kavren", "tier": 3, "drop": "hot",
      "poly": [(-58, -262), (150, -262), (150, -105), (-58, -105)]},
-    {"id": "bridge", "name": "Pont Vieux", "tier": 2, "drop": "medium",
+    {"id": "bridge", "name": "Kavren Bridge", "tier": 2, "drop": "medium",
      "poly": [(166, -186), (238, -186), (238, -112), (166, -112)]},
-    {"id": "ridge", "name": "Feather Ridge", "tier": 3, "drop": "medium",
+    {"id": "ridge", "name": "Akyel", "tier": 3, "drop": "medium",
      "poly": [(240, -112), (328, -112), (328, 178), (240, 178)]},
-    {"id": "farm", "name": "Ferme Colvert", "tier": 2, "drop": "medium",
+    {"id": "farm", "name": "Harman", "tier": 2, "drop": "medium",
      "poly": [(-218, -8), (-104, -8), (-104, 100), (-218, 100)]},
-    {"id": "crossroads", "name": "Convoy Crossroads", "tier": 3, "drop": "hot",
+    {"id": "crossroads", "name": "Yolca", "tier": 3, "drop": "hot",
      "poly": [(-38, 18), (78, 18), (78, 106), (-38, 106)]},
-    {"id": "forest", "name": "Bois des Plumes", "tier": 1, "drop": "quiet",
+    {"id": "forest", "name": "Koru", "tier": 1, "drop": "quiet",
      "poly": [(-366, 128), (-150, 118), (-118, 250), (-182, 345), (-300, 338), (-362, 252)]},
-    {"id": "orchard", "name": "Le Verger", "tier": 1, "drop": "quiet",
+    {"id": "orchard", "name": "Harman Gardens", "tier": 1, "drop": "quiet",
      "poly": [(-28, 188), (112, 188), (112, 302), (-28, 302)]},
-    {"id": "hamlet", "name": "Hameau Sud", "tier": 2, "drop": "quiet",
+    {"id": "hamlet", "name": "Tanoba", "tier": 2, "drop": "quiet",
      "poly": [(202, 236), (278, 236), (278, 312), (202, 312)]},
 ]
-COUNTRYSIDE = {"id": "countryside", "name": "Bocage", "tier": 1, "drop": "quiet"}
+COUNTRYSIDE = {"id": "countryside", "name": "Yelova Fields", "tier": 1, "drop": "quiet"}
 
 ROADS = [
     {"id": "main", "width": 6, "pts": [(40, -296), (40, -150), (32, -40), (20, 60), (32, 180), (55, 300), (62, 372)]},
@@ -94,9 +94,9 @@ BUILDINGS = [
     ("farmhouse", -38, -204, FACE_S), ("townhouse", -38, -175, FACE_N),
     ("townhouse", 96, -201, FACE_S), ("townhouse", 117, -164, FACE_N),
     ("townhouse", 22, -134, FACE_E), ("house_ruined", 21, -116, FACE_E), ("farmhouse", 54, -134, FACE_W),
-    # Pointe du Bec
+    # Sarpin
     ("lighthouse", -334, -342, FACE_S), ("townhouse", -296, -302, FACE_N), ("barn", -262, -262, FACE_W),
-    # Ferme Colvert
+    # Harman
     ("farmhouse", -166, 46, FACE_E), ("barn", -126, 30, FACE_W),
     # crossroads corner
     ("townhouse", 5, 36, FACE_E), ("house_ruined", 41, 88, FACE_W), ("farmhouse", 50, 36, FACE_W),
@@ -114,14 +114,14 @@ LOTS = [
 BRIDGES = [(201.0, -150.0, FACE_E), (192.6, 120.0, FACE_E)]
 
 FINAL_CIRCLES = [
-    {"name": "Feather Ridge south", "x": 278, "z": 70, "r": 60, "weight": 3},
-    {"name": "Convoy Crossroads", "x": 22, "z": 62, "r": 55, "weight": 3},
-    {"name": "Ferme Colvert", "x": -145, "z": 48, "r": 55, "weight": 2},
-    {"name": "Le Verger", "x": 40, "z": 240, "r": 55, "weight": 2},
-    {"name": "Sainte-Canard south", "x": 40, "z": -135, "r": 50, "weight": 2},
-    {"name": "Hameau Sud", "x": 236, "z": 272, "r": 50, "weight": 1},
-    {"name": "Bois des Plumes edge", "x": -170, "z": 150, "r": 55, "weight": 1},
-    {"name": "Pont Vieux", "x": 205, "z": -150, "r": 45, "weight": 1},
+    {"name": "Akyel south", "x": 278, "z": 70, "r": 60, "weight": 3},
+    {"name": "Yolca", "x": 22, "z": 62, "r": 55, "weight": 3},
+    {"name": "Harman", "x": -145, "z": 48, "r": 55, "weight": 2},
+    {"name": "Harman Gardens", "x": 40, "z": 240, "r": 55, "weight": 2},
+    {"name": "Kavren south", "x": 40, "z": -135, "r": 50, "weight": 2},
+    {"name": "Tanoba", "x": 236, "z": 272, "r": 50, "weight": 1},
+    {"name": "Koru edge", "x": -170, "z": 150, "r": 55, "weight": 1},
+    {"name": "Kavren Bridge", "x": 205, "z": -150, "r": 45, "weight": 1},
 ]
 
 GROUND = ["grass", "grass_dark", "sand", "rock", "dirt_road", "cobble", "wheat", "green_crop", "plowed",
@@ -740,7 +740,7 @@ def bocage(g, rng):
 
 def nature(g, rng):
     forest = zone_by_id("forest")
-    # Bois des Plumes: dense trees with clearings
+    # Koru: dense trees with clearings
     count = 0
     for _ in range(4200):
         if count >= 330:
@@ -921,7 +921,7 @@ def write(g, fields, ground):
     river = [{"x": x, "z": z, "bed": round(b, 2), "water": round(b + T.WATER_DEPTH, 2)} for x, z, b in T.RIVER]
     doc = {
         "version": 2,
-        "name": "Sainte-Canard",
+        "name": "Yelova",
         "seed": SEED,
         "size": T.SIZE,
         "seaLevel": 0,
@@ -946,7 +946,7 @@ def write(g, fields, ground):
         "roads": [{"id": r["id"], "width": r["width"], "pts": [list(p) for p in r["pts"]]} for r in ROADS],
         "plaza": list(PLAZA),
         "zones": [{"id": z["id"], "name": z["name"], "tier": z["tier"], "drop": z["drop"], "poly": [list(p) for p in z["poly"]]} for z in ZONES]
-                 + [{"id": "countryside", "name": "Bocage", "tier": 1, "drop": "quiet", "poly": None}],
+                 + [{"id": "countryside", "name": "Yelova Fields", "tier": 1, "drop": "quiet", "poly": None}],
         "fields": [{"crop": f["crop"], "quad": [[round(a, 1), round(b, 1)] for a, b in f["quad"]]} for f in fields],
         "drop": {
             "plane": {"prop": "transport_plane", "altitude": 180, "speed": 55, "spinNodes": ["PropLeft", "PropRight"], "paths": flight_paths()},

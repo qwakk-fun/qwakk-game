@@ -2,11 +2,11 @@
  * Copies the map workstream's exports into the shared package, where the
  * server (fs) and the client (Vite asset imports) both load them:
  *
- *   Sainte-Canard (battle royale):
+ *   Yelova (battle royale):
  *     art/map/export/map_v1.json, map_v1_heights.bin, map_v1_ground.bin
  *     apps/client/public/models/props/colliders.json
  *       -> packages/shared/src/maps/sainte-canard/
- *   Canard Quarter (deathmatch):
+ *   Kavren (deathmatch):
  *     art/map/export/canard-quarter/map_v1.json, map_v1_heights.bin, map_v1_ground.bin
  *     apps/client/public/models/props/colliders.json
  *       -> packages/shared/src/maps/canard-quarter/
@@ -32,7 +32,7 @@ function sources(exportDir: string): readonly [string, string][] {
   ];
 }
 
-/** Sainte-Canard's files (kept for existing imports). */
+/** Yelova's files (kept for existing imports). */
 export const MAP_SOURCES: readonly [string, string][] = sources('art/map/export/');
 
 /** Every shipped map: id (the folder under packages/shared/src/maps/) and its sources. */

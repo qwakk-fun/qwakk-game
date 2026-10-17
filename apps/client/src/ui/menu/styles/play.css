@@ -234,6 +234,41 @@
   font-family: var(--qm-mono);
 }
 
+/* News from the server (statusBar.ts): a banner, or the maintenance note */
+.qm-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--qm-accent-line);
+  border-radius: var(--qm-r-card);
+  background: var(--qm-wash);
+  color: var(--qm-text);
+  font-size: 15px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.qm-notice[hidden] {
+  display: none;
+}
+.qm-notice.is-maintenance {
+  border-color: rgba(255, 138, 61, 0.55);
+  background: rgba(255, 138, 61, 0.1);
+}
+.qm-notice-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--qm-yellow);
+}
+.qm-notice.is-maintenance .qm-notice-icon {
+  color: var(--qm-beak);
+}
+.qm-notice-icon .qm-icon {
+  width: 20px;
+  height: 20px;
+}
+
 /* Last round */
 .qm-result {
   display: grid;
@@ -495,18 +530,6 @@ button.qm-char:hover:not(:disabled) {
 .qm-char.is-on .qm-char-check {
   opacity: 1;
   transform: none;
-}
-.qm-char-soon {
-  border-style: dashed;
-  background: transparent;
-  color: var(--qm-text-3);
-}
-.qm-char-soon .qm-char-portrait {
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--qm-text-3);
-}
-.qm-char-soon .qm-char-blurb {
-  color: var(--qm-text-3);
 }
 
 /* Step 3: mode, Quick Play, Deathmatch */

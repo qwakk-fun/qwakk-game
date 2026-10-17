@@ -26,12 +26,12 @@ export const LOBBY_ROOM = 'lobby';
  * the name the menu shows. Ids stay lowercase a to z.
  */
 export const DM_ROOM_CATALOG = [
-  { id: 'istanbul', label: 'Istanbul' },
-  { id: 'paris', label: 'Paris' },
-  { id: 'hongkong', label: 'Hong Kong' },
+  { id: 'istanbul', label: 'Kavren' },
+  { id: 'paris', label: 'Kumra' },
+  { id: 'hongkong', label: 'Tanoba' },
 ] as const;
 
-/** Deathmatch rooms open at launch: the first entries of the catalog. Raise to open Paris, then Hong Kong. */
+/** Deathmatch rooms open at launch: the first entries of the catalog. Raise to open Kumra, then Tanoba. */
 export const DM_OPEN_ROOMS = 1;
 
 /** The open deathmatch rooms (server and menu both read this list). */
@@ -171,7 +171,44 @@ export const LOBBY_ERROR = {
   joinLimited: 531,
   /** Parties are joined by code only (no join or Quick Play into a party). */
   codeOnly: 532,
+  /** That battle royale mode (Solo, Duo or Squad) is switched off on this server for now. */
+  modeOff: 533,
+  /** Maintenance: no new joins or rooms while running matches finish. */
+  maintenance: 503,
 } as const;
+
+/** Close codes of a game room when the server takes a player out (the menu explains them). */
+export const CLOSE_CODE = {
+  /** This player was removed from the match. */
+  removed: 4403,
+  /** The room was closed. */
+  roomClosed: 4404,
+} as const;
+
+/** The rules the server runs right now (they can differ from the defaults above). */
+export interface LiveRules {
+  brMaxRooms: number;
+  brMinHumans: number;
+  brCountdownSeconds: number;
+  /** Battle royale team sizes that can be opened (1 solo, 2 duo, 4 squad). */
+  teamModes: number[];
+  /** Deathmatch: humans plus bots per room, most humans per room, the open room ids (DM_ROOM_CATALOG order). */
+  dmPlayers: number;
+  dmCap: number;
+  dmRooms: string[];
+}
+
+/**
+ * GET /api/status: what the menu shows (a banner, maintenance) and the live
+ * rules. Public by design: no names, ids or addresses.
+ */
+export interface ServerStatus {
+  banner: string | null;
+  maintenance: boolean;
+  /** The maintenance note from the server; null: the menu's own words. */
+  maintenanceMessage: string | null;
+  rules: LiveRules;
+}
 
 const ADJ = ['Muddy', 'Sunny', 'Foggy', 'Breezy', 'Misty', 'Golden', 'Quiet', 'Rowdy', 'Salty', 'Sleepy', 'Windy', 'Lucky', 'Mossy', 'Rainy', 'Crispy', 'Bubbly'];
 const PLACE = ['Pond', 'Marsh', 'Creek', 'Harbor', 'Meadow', 'Orchard', 'Lagoon', 'Puddle', 'Mill', 'Dock', 'Bay', 'Reeds'];

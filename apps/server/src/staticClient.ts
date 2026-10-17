@@ -15,7 +15,7 @@
  *   - `/game` and `/game/...` redirect to the same path at the root, for links
  *     made for the qwakk.fun/game hosting;
  *   - never the reserved server routes (/api, /health, /matchmake,
- *     /__healthcheck): those fall through to their own handlers.
+ *     /__healthcheck, /admin): those fall through to their own handlers.
  *
  * Caching: `assets/` (Vite output with content hashes) is immutable for a
  * year; everything else (index.html, models with fixed names) revalidates
@@ -54,7 +54,7 @@ const TYPES: Record<string, string> = {
 };
 
 /** Paths owned by the server itself; the client handler never answers them. */
-const RESERVED = ['/api', '/health', '/matchmake', '/__healthcheck'];
+const RESERVED = ['/api', '/health', '/matchmake', '/__healthcheck', '/admin'];
 
 interface Entry {
   file: string;

@@ -29,7 +29,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-party');
 mkdirSync(out, { recursive: true });
 // The menu's API calls go to port 2567 in test builds (net/endpoint.ts), so the server runs there.
-const SERVER_PORT = 2567;
+const SERVER_PORT = Number(process.env.E2E_SERVER_PORT ?? 2567);
 const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 5173);
 const server_ = `ws://localhost:${SERVER_PORT}`;
 const VILLAGE = { x: 40, z: -192 };
@@ -67,6 +67,23 @@ async function until<T>(label: string, get: () => Promise<T>, test: (v: T) => bo
 }
 
 const hideOverlay = (p: Page): Promise<void> => p.evaluate(() => document.getElementById('overlay')?.classList.add('hidden'));
+/** Approach using normal inputs before checking names, which only show nearby. */
+async function walkNear(page: Page, target: string, range: number): Promise<number> {
+  const end = Date.now() + 45000;
+  let distance = Infinity;
+  while (Date.now() < end) {
+    const me = (await snap(page)).me;
+    const pose = await page.evaluate((id) => (window as any).__qwakk.poseOf(id), target);
+    if (!me || !pose) { await sleep(200); continue; }
+    distance = Math.hypot(pose.x - me.x, pose.z - me.z);
+    await page.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 120000, -0.1), [pose.x, pose.z]);
+    if (distance < range) return distance;
+    const ms = Math.round(Math.min(1000, Math.max(120, (distance - range + 0.5) * 110)));
+    await page.evaluate(([btn, t]) => (window as any).__qwakk.press(btn, t, 1), [distance > 6 ? Button.Sprint : 0, ms]);
+    await sleep(ms);
+  }
+  throw new Error(`Could not approach teammate within ${range} m (distance ${distance})`);
+}
 const partyNames = async (p: Page): Promise<string[]> => (await p.locator('.qm-party-member .qm-party-name').allInnerTexts()).map((t) => t.replace(/\s+/g, ''));
 
 /** A creates a party in the menu, B opens the share link; both see two members. Returns the code. */
@@ -81,7 +98,7 @@ async function formParty(a: Page, b: Page, menuUrl: string): Promise<string> {
 }
 
 async function newPlayer(browser: import('playwright').Browser, name: string): Promise<{ ctx: BrowserContext; page: Page }> {
-  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 720 } });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.error(`[${name}] page error:`, e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error(`[${name}] console:`, m.text()));
@@ -93,7 +110,7 @@ async function deathmatch(browser: import('playwright').Browser): Promise<void> 
   const B = await newPlayer(browser, 'B');
   const a = A.page;
   const b = B.page;
-  await formParty(a, b, `http://localhost:${WEB_PORT}/game/?server=${server_}&hud=0&menu=1`);
+  await formParty(a, b, `http://localhost:${WEB_PORT}/game/?lang=en&server=${server_}&hud=0&menu=1`);
   await sleep(300);
   await a.screenshot({ path: `${out}/1-party-menu-leader.png` });
   await b.screenshot({ path: `${out}/2-party-menu-member.png` });
@@ -108,7 +125,9 @@ async function deathmatch(browser: import('playwright').Browser): Promise<void> 
   const bId = sb.sessionId;
   const aId = sa.sessionId;
 
-  // Face each other: green name tags both ways.
+  await a.evaluate(() => (window as any).__qwakk.face(0, 0, 120000, 0));
+  await walkNear(b, aId, 6);
+  // Face each other nearby: green name tags both ways.
   for (const [p, other] of [[a, bId], [b, aId]] as const) {
     const pose = await until('ally pose', () => p.evaluate((id) => (window as any).__qwakk.poseOf(id), other), (v) => v !== null, 10000);
     await p.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 8000, 0.0), [pose.x, pose.z]);
@@ -141,7 +160,7 @@ async function duo(browser: import('playwright').Browser): Promise<void> {
   const B = await newPlayer(browser, 'B');
   const a = A.page;
   const b = B.page;
-  await formParty(a, b, `http://localhost:${WEB_PORT}/game/?server=${server_}&hud=0&menu=1&autopilot=br&aptarget=${VILLAGE.x},${VILLAGE.z}`);
+  await formParty(a, b, `http://localhost:${WEB_PORT}/game/?lang=en&server=${server_}&hud=0&menu=1&autopilot=br&aptarget=${VILLAGE.x},${VILLAGE.z}`);
   const mode = await a.locator('.qm-mode.is-on').innerText();
   if (mode !== 'Duo') throw new Error(`a party of two should pick Duo, picked ${mode}`);
   await a.locator('.qm-btn-play').click();
@@ -162,6 +181,8 @@ async function duo(browser: import('playwright').Browser): Promise<void> {
   const ally = landed.team.allies[0];
   console.log(`landed: A has B's pose ${ally?.pose}, teammate entry ${JSON.stringify(ally?.mate)}`);
   if (!ally?.pose || !ally.mate) throw new Error('A does not get its teammate (pose and team entry)');
+  await a.evaluate(() => (window as any).__qwakk.face(0, 0, 120000, 0));
+  await walkNear(b, aId, 6);
   const bPose = await a.evaluate((id) => (window as any).__qwakk.poseOf(id), bId);
   await a.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 3000, -0.1), [bPose.x, bPose.z]);
   await until('A shows B tag', () => snap(a), (s) => s.team.tags.allyTags >= 1, 10000);

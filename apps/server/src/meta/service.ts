@@ -16,6 +16,9 @@ import { CONNECTIONS_PER_IP, ConnectionCounter, LIMITS, RateLimiter } from './ra
 import { SCORE } from './score.ts';
 import { mintDeviceToken, signSession, verifyDeviceToken, verifySessionToken } from './token.ts';
 import { verifyTurnstile, type FetchLike } from './turnstile.ts';
+import { isBanned } from '../ops/bans.ts';
+import { isIpBlocked } from '../ops/ipBlocks.ts';
+import { publicStatus } from '../ops/notice.ts';
 
 export interface Identity {
   playerId: string;
@@ -133,7 +136,8 @@ export class MetaService {
       return { playerId: `dev-${randomBytes(6).toString('hex')}`, name: `Duck${n}`, tag: n };
     }
     const c = verifySessionToken(this.config.sessionSecret, token);
-    return c ? { playerId: c.playerId, name: c.name, tag: c.tag } : null;
+    // A banned player id (admin panel) has no valid session, even with an unexpired token.
+    return c && !isBanned(c.playerId) ? { playerId: c.playerId, name: c.name, tag: c.tag } : null;
   }
 
   /**
@@ -169,6 +173,7 @@ export class MetaService {
    * outside production, like the other limits.
    */
   admitSocket(ip: string, socket: { once(event: 'close', listener: () => void): unknown }): boolean {
+    if (isIpBlocked(ip)) return false;
     if (this.loopbackExempt(ip)) return true;
     const key = ipKey(ip);
     if (!this.connections.tryOpen(key)) return false;
@@ -177,6 +182,7 @@ export class MetaService {
   }
 
   private allow(kind: 'join' | 'createRoom' | 'lobby' | 'partyCreate' | 'partyJoin', ip: string): boolean {
+    if (isIpBlocked(ip)) return false;
     if (this.loopbackExempt(ip)) return true;
     return this.limits[kind].take(ipKey(ip));
   }
@@ -218,6 +224,7 @@ export class MetaService {
   /** POST /api/session { name, deviceToken?, turnstileToken? } */
   async createSession(body: unknown, ip: string): Promise<ApiResult> {
     const key = ipKey(ip);
+    if (isIpBlocked(ip)) return fail(429, 'rate_limited', { 'Retry-After': '600' });
     if (!this.limits.session.take(key)) return fail(429, 'rate_limited', { 'Retry-After': String(this.limits.session.retryAfter(key)) });
     if (!body || typeof body !== 'object') return fail(400, 'bad_request');
     const b = body as Record<string, unknown>;
@@ -226,6 +233,8 @@ export class MetaService {
 
     const secret = this.config.sessionSecret;
     let playerId = verifyDeviceToken(secret, b.deviceToken);
+    // A banned player (admin panel) gets no new session for this device token.
+    if (playerId && isBanned(playerId)) return fail(403, 'banned');
     let deviceToken = typeof b.deviceToken === 'string' ? b.deviceToken : '';
     if (!playerId) {
       // A new guest. Turnstile guards this step only.
@@ -313,6 +322,18 @@ export class MetaService {
       console.error('[meta] me failed:', err instanceof Error ? err.message : err);
       return fail(503, 'unavailable');
     }
+  }
+
+  /** GET /api/status: the menu banner, maintenance and the live rules (public, in memory). */
+  status(ip: string): ApiResult {
+    const key = ipKey(ip);
+    if (!this.limits.read.take(key)) return fail(429, 'rate_limited', { 'Retry-After': String(this.limits.read.retryAfter(key)) });
+    return { status: 200, body: publicStatus() };
+  }
+
+  /** Forget cached leaderboard pages (after the admin hides or shows a player). */
+  clearCache(): void {
+    this.cache.clear();
   }
 
   // ---- CORS ---------------------------------------------------------------

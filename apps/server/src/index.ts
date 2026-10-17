@@ -23,9 +23,12 @@
  *                     (the server image sets it; unset in dev, where Vite serves it)
  *   Meta layer (identity, leaderboard, limits): DATABASE_URL, SESSION_SECRET,
  *   TURNSTILE_SECRET, TRUST_PROXY, ALLOWED_ORIGINS (see src/meta/config.ts)
+ *   Admin panel at /admin: ADMIN_PASSWORD_HASH, ADMIN_TOTP_SECRET (both, or the
+ *   panel is off), QWAKK_ADMIN_DIR (see src/admin/config.ts). The runtime
+ *   settings it changes are in src/settings/ (the constants are the defaults).
  */
 import { matchMaker, Server } from '@colyseus/core';
-import { createServer } from 'node:http';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { BR, NET, PARTY, ROOM } from '@qwakk/shared';
 import { IslandRoom, type IslandRoomOptions } from './IslandRoom.ts';
@@ -39,8 +42,13 @@ import { allowCreateRoom, allowPartyCreate, allowPartyJoin, applyMatchmakingCors
 import { PartyRoom } from './party/PartyRoom.ts';
 import { QwakkLobby } from './lobby.ts';
 import { installMatchmakingGuard } from './matchmaking.ts';
-import { DM_OPEN_ROOMS, DM_ROOM_CATALOG, LOBBY_ROOM } from '@qwakk/shared/lobby';
+import { CLOSE_CODE, LOBBY_ROOM } from '@qwakk/shared/lobby';
 import { createClientHandler } from './staticClient.ts';
+import { brMaxRooms, openDmRooms } from './settings/index.ts';
+import { startAdmin } from './admin/index.ts';
+import { createAdminHandler, type AdminHandler } from './admin/http.ts';
+import { installDmRoomControl } from './ops/dmRooms.ts';
+import { beforeCreate } from './ops/policy.ts';
 
 const port = Number(process.env.PORT ?? 2567);
 const envNumber = (name: string): number | undefined => (process.env[name] ? Number(process.env[name]) : undefined);
@@ -48,12 +56,15 @@ const roomOptions: IslandRoomOptions = {
   seed: Number(process.env.QWAKK_SEED ?? ROOM.defaultSeed),
   statsMs: process.env.QWAKK_STATS === '1' ? Number(process.env.QWAKK_STATS_MS ?? 5000) : 0,
   bots: process.env.QWAKK_BOTS !== '0',
-  maxClients: Number(process.env.QWAKK_MAX_CLIENTS ?? ROOM.maxClients),
+  // Unset: humans per deathmatch room from the admin settings (dm.maxHumans, default ROOM.maxClients).
+  maxClients: envNumber('QWAKK_MAX_CLIENTS'),
   interest: process.env.QWAKK_INTEREST !== '0',
   spectators: process.env.QWAKK_SPECTATORS === '1',
 };
 
 const clientDir = process.env.QWAKK_CLIENT_DIR?.trim() || null;
+// The /admin handler (a plain 404 until the admin module has started, and for good when it is off).
+let adminHandler: AdminHandler = createAdminHandler(null);
 
 // Our own HTTP server, so the meta layer can sanitize client IP headers on
 // upgrades before Colyseus reads them (per-IP join limits).
@@ -71,6 +82,8 @@ const server = new Server({
   express: (app) => {
     app.disable('x-powered-by');
     app.use(['/api', '/health'], metaHttpHandler);
+    // Admin panel: before the client files; its app bundle is served from its own folder, never the public one.
+    app.use((req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => adminHandler(req, res, next));
     if (clientDir) app.use(createClientHandler(clientDir));
   },
 });
@@ -78,10 +91,12 @@ const server = new Server({
 guardJoinIps(httpServer);
 applyMatchmakingCors(matchMaker.controller);
 await startMeta();
+// Stored admin state (runtime settings, bans, blocked words), then the /admin handler.
+adminHandler = (await startAdmin()).handler;
 
-// Bot navmeshes for the map_v1 maps in play (Sainte-Canard for the battle
+// Bot navmeshes for the map_v1 maps in play (Yelova for the battle
 // royale, the deathmatch map): from the cache (fast), or built on a worker
-// thread (about a minute for Sainte-Canard) while the server already runs;
+// thread (about a minute for Yelova) while the server already runs;
 // bots steer without paths until theirs is ready.
 const navs = new Map<string, BotNav | null>();
 function startNav(id: string): void {
@@ -101,9 +116,9 @@ const dmMap = dmMapId();
 startNav(SAINTE_CANARD);
 startNav(dmMap);
 
-// Deathmatch rooms: static (DM_ROOMS), opened below, never by a client.
-// QWAKK_DM_ROOMS opens more of the catalog for the benchmark only: the menu lists DM_ROOMS.
-const dmRooms = DM_ROOM_CATALOG.slice(0, envNumber('QWAKK_DM_ROOMS') ?? DM_OPEN_ROOMS);
+// Deathmatch rooms: static, opened below by the server (never by a client) as the
+// `dm.room.*` settings say (default: DM_OPEN_ROOMS of the catalog), and opened or
+// closed live from the admin panel. QWAKK_DM_ROOMS opens the first N (benchmark).
 // Quick Play joins the open one with the most humans (matchmaking guard: join only).
 const spawnRadius = envNumber('QWAKK_DM_SPAWN_RADIUS');
 server
@@ -131,7 +146,14 @@ server.define(LOBBY_ROOM, QwakkLobby);
 server.define(PARTY.roomName, PartyRoom);
 // Room creation limits and join option filtering on every matchmaking request (matchmaking.ts).
 installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
-  maxRooms: { [BR.roomName]: envNumber('QWAKK_BR_MAX_ROOMS') ?? BR.maxRooms },
+  // Read on every request: the admin settings (br.maxRooms; QWAKK_BR_MAX_ROOMS overrides).
+  maxRooms: {
+    get [BR.roomName]() {
+      return brMaxRooms();
+    },
+  },
+  // Maintenance and the team modes switched off (admin settings).
+  beforeCreate,
   noCreate: [LOBBY_ROOM],
   joinOnly: [ROOM.name],
   countRooms: async (name) => (await matchMaker.query({ name })).length,
@@ -142,5 +164,9 @@ installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
 });
 
 await server.listen(port);
-for (const r of dmRooms) await matchMaker.createRoom(ROOM.name, { dmRoom: r.id });
-console.log(`[qwakk-game] server listening on ws://localhost:${port} (deathmatch rooms ${dmRooms.map((r) => r.id).join(', ')} on ${dmMap}, "${BR.roomName}" battle royale)`);
+await installDmRoomControl({
+  isOpen: (id) => matchMaker.getLocalRoomById(id) !== undefined,
+  open: (id) => matchMaker.createRoom(ROOM.name, { dmRoom: id }),
+  close: async (id) => matchMaker.getLocalRoomById(id)?.disconnect(CLOSE_CODE.roomClosed),
+});
+console.log(`[qwakk-game] server listening on ws://localhost:${port} (deathmatch rooms ${openDmRooms().join(', ') || 'none'} on ${dmMap}, "${BR.roomName}" battle royale)`);

@@ -70,6 +70,9 @@ export function exposeTestHook(v: TestView): void {
         netsim: { ...s.netsim.settings },
         combat: { ...v.combat.stats, now: performance.now() },
         kills: [...s.room.state.players.values()].reduce((n, p) => n + p.kills, 0),
+        /** Ducks per character id in the room, and the one the server seated us as. */
+        characters: [...s.room.state.players.values()].reduce<Record<number, number>>((n, p) => ((n[p.character] = (n[p.character] ?? 0) + 1), n), {}),
+        myCharacter: s.mine?.character ?? -1,
         poseEntries: { near: s.room.state.poses.size, far: s.room.state.farPoses.size },
         visibleRemotes: Object.keys(remotes).filter((id) => s.pose(id) !== null),
         mode: s.room.state.mode,

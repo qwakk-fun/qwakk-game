@@ -1,5 +1,5 @@
 /**
- * Sainte-Canard map determinism: two loads give the same terrain and the same
+ * Yelova map determinism: two loads give the same terrain and the same
  * collider list (hash), the terrain lookup matches the Rapier heightfield,
  * collider kinds map to the right groups, and the shipped copy of the map
  * files matches the map workstream's export.
@@ -30,7 +30,7 @@ function load() {
   return buildMapDef('sainte-canard', JSON.parse(read('map_v1.json').toString()), new Uint8Array(read('map_v1_heights.bin')), JSON.parse(read('colliders.json').toString()));
 }
 
-describe('Sainte-Canard map', () => {
+describe('Yelova map', () => {
   it('two loads give identical terrain and collider lists, and every collider kind is known', () => {
     const a = load();
     const b = load();

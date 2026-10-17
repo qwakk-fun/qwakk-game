@@ -1,3 +1,4 @@
+import { t as translate } from '../i18n/game.ts';
 /**
  * Your team on the HUD (team battle royale and deathmatch party allies): one
  * row per teammate with its name, health (or bleed meter while knocked) and
@@ -39,7 +40,7 @@ export class TeamPanel {
         name.textContent = r.name;
         const state = document.createElement('span');
         state.className = 'team-state';
-        state.textContent = !r.alive ? 'out' : r.down ? (r.revive > 0 ? `reviving ${Math.round(r.revive * 100)}%` : 'knocked') : `${Math.ceil(r.hp)}`;
+        state.textContent = !r.alive ? translate('out') : r.down ? (r.revive > 0 ? translate('reviving {n}%', { n: Math.round(r.revive * 100) }) : translate('knocked')) : `${Math.ceil(r.hp)}`;
         const bar = document.createElement('div');
         bar.className = 'team-bar';
         const fill = document.createElement('div');

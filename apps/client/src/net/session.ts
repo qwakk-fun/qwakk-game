@@ -62,6 +62,8 @@ export interface SessionHandlers {
   result(placement: number, total: number, kills: number, damage: number, survivedMs: number, teamSize: number): void;
   /** The local sim fired (live step only, never on replay). `state` is the post-step state. */
   localShot(shot: ShotFired, state: PlayerSim, buttons: number): void;
+  /** A short notice from the server operators (plain text, shown as a toast). */
+  notice?(text: string): void;
 }
 
 export interface RemotePose {
@@ -118,11 +120,12 @@ export class Session {
    * with the most players, or opens one). Deathmatch Quick Play joins the open
    * room with the most humans; deathmatch rooms are never created by a client.
    */
-  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; team?: number; name?: string; token?: string }, net: NetSimSettings, spectate = false): Promise<Session> {
+  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; team?: number; name?: string; token?: string; character?: number }, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
     const roomName = opts.mode === 'br' ? BR.roomName : ROOM.name;
     // `team`: the battle royale team size a new room gets (the server ignores it when joining).
-    const joinOpts = { name: opts.name ?? '', token: opts.token, spectate, ...(opts.mode === 'br' && opts.team ? { team: opts.team } : {}) };
+    // `character`: the picked duck (looks only; the server keeps catalog ids and nothing else).
+    const joinOpts = { name: opts.name ?? '', token: opts.token, spectate, ...(opts.mode === 'br' && opts.team ? { team: opts.team } : {}), ...(opts.character !== undefined ? { character: opts.character } : {}) };
     const room = opts.roomId
       ? await client.joinById<IslandState>(opts.roomId, joinOpts, IslandState)
       : opts.mode === 'br' && opts.create
@@ -216,6 +219,9 @@ export class Session {
     this.room.onMessage(Msg.Picked, (d: number[]) => handlers.picked(d[0] ?? 0, d[1] ?? 0));
     this.room.onMessage(Msg.Denied, (d: number[]) => handlers.denied(d[0] ?? 0, d[1] ?? 0));
     this.room.onMessage(Msg.Result, (d: number[]) => handlers.result(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] ?? 0, d[4] ?? 0, d[5] ?? 1));
+    this.room.onMessage(Msg.Notice, (text: unknown) => {
+      if (typeof text === 'string' && text) handlers.notice?.(text.slice(0, 200));
+    });
   }
 
   /** Loot items in our view (battle royale): added, changed (amount), removed. */
