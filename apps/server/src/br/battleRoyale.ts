@@ -2,8 +2,8 @@
  * Battle royale rules on top of the shared combat core (arena.ts):
  *
  *   warm-up  the lobby room: humans run around the village square (damage
- *            off). The countdown starts once `minHumans` humans are in and
- *            resets when they drop below that; when it ends the room locks
+ *            off). With bots enabled, the first human starts a 30-second
+ *            countdown, with 15 s added per later arrival; at zero the room locks
  *   playing  bots fill the seats, everyone boards the plane, jumps (F) or is
  *            ejected before the coast, loots, the zone shrinks, last duck wins
  *   ended    results are up; the room closes after a while
@@ -71,7 +71,7 @@ export interface BrEvents extends ArenaEvents {
 export interface BrOptions extends ArenaOptions {
   bots: boolean;
   players: number;
-  /** Humans needed in the room before the countdown starts. */
+  /** Humans needed for the configured countdown (bot rooms also have a 30 s fallback). */
   minHumans: number;
   countdownSeconds: number;
   /** Countdown cap once the room is full of humans. */
@@ -108,7 +108,7 @@ const CHEST = 0.9;
 
 export class BattleRoyale extends Arena {
   phase: 'warmup' | 'playing' | 'ended' = 'warmup';
-  /** Countdown ticks left (-1: waiting for enough humans). */
+  /** Countdown ticks left (-1: empty, or waiting for humans with bots disabled). */
   warmupTicks = -1;
   endTicks = 0;
   readonly seed: number;
@@ -249,20 +249,20 @@ export class BattleRoyale extends Arena {
 
   /** A human joins: only during the warm-up (the room is locked after), on a team with room for its party. */
   addHuman(id: string, name: string, g: TeamGroup | null = null, character?: number): Seat | null {
-    if (this.phase !== 'warmup') return null;
+    if (this.phase !== 'warmup' || this.seats.has(id)) return null;
     const team = this.admit(g);
     if (typeof team !== 'number') return null;
     const seat = this.makeSeat(id, name, null, createPlayerSim(0, -100, 0), team, character);
     this.teams.assign(id, team, g, this.tick + PARTY.reserveSeconds * TICK_RATE);
     this.armorFor(id);
     this.spawnWarmup(seat);
-    this.updateCountdown();
+    this.updateCountdown(true);
     return seat;
   }
 
   /** More humans needed before the countdown starts (0 once it runs or after the start). */
   get waitingFor(): number {
-    return this.phase === 'warmup' ? Math.max(0, this.o.minHumans - this.humans) : 0;
+    return this.phase === 'warmup' && !this.countingDown ? Math.max(0, this.o.minHumans - this.humans) : 0;
   }
 
   /** True while the start countdown runs. */
@@ -271,18 +271,29 @@ export class BattleRoyale extends Arena {
   }
 
   /**
-   * The start rule: the countdown starts once `minHumans` humans are in, goes
-   * back to waiting when they drop below that, and is capped once the room is
-   * full of humans.
+   * The first human starts the bot-fill countdown; each later arrival adds
+   * 15 seconds to the remaining time, including when the human target is met.
+   * Departures keep the timer unless the room empties. Without bots, keep the human gate.
    */
-  private updateCountdown(): void {
+  private updateCountdown(joined = false): void {
     if (this.phase !== 'warmup') return;
     const humans = this.humans;
-    if (humans < Math.max(1, this.o.minHumans)) {
+    const enoughHumans = humans >= Math.max(1, this.o.minHumans);
+    if (humans === 0 || (!this.o.bots && !enoughHumans)) {
       this.warmupTicks = -1;
       return;
     }
-    if (this.warmupTicks < 0) this.warmupTicks = Math.max(1, Math.round(this.o.countdownSeconds * TICK_RATE));
+    const countdown = Math.max(1, Math.round(this.o.countdownSeconds * TICK_RATE));
+    if (this.o.bots) {
+      if (this.warmupTicks < 0) {
+        this.warmupTicks = BR.initialWaitSeconds * TICK_RATE;
+        if (enoughHumans) this.warmupTicks = Math.min(this.warmupTicks, countdown);
+      } else if (joined) {
+        this.warmupTicks += BR.joinExtraSeconds * TICK_RATE;
+      }
+      return;
+    }
+    if (this.warmupTicks < 0) this.warmupTicks = countdown;
     if (humans >= this.o.players) this.warmupTicks = Math.min(this.warmupTicks, Math.max(1, Math.round(this.o.fullCountdownSeconds * TICK_RATE)));
   }
 

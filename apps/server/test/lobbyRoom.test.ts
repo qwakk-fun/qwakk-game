@@ -1,7 +1,7 @@
 /**
  * Lobby rooms over real WebSockets (in-process server, meta mocked): the
  * lobby lists battle royale rooms live; two humans join one room from the
- * list, the countdown starts, resets when one leaves, and when it ends bots
+ * list, the countdown starts, continues when one leaves, and when it ends bots
  * fill the seats and the match starts; a room in progress cannot be joined;
  * creation is limited per IP and capped; join options cannot tune a room.
  * The static deathmatch rooms are listed with their names and live human
@@ -131,38 +131,35 @@ describe('lobby rooms', () => {
     }
   }, 20_000);
 
-  it('two humans from the list start the countdown; a leave resets it; then bots fill and the match starts', async () => {
+  it('each later arrival extends the visible countdown; departures preserve it and bots fill the seats', async () => {
     const lobby = await openLobby();
     const a = await new Client(url).create<IslandState>(BR.roomName, { token: 'tok-1' }, IslandState);
     const id = a.roomId;
     const listing = () => lobby.rooms.get(id)?.metadata;
-    await waitUntil('listed, waiting for 1', () => listing()?.stage === 'waiting' && listing()?.need === 1 && listing()?.humans === 1);
+    await waitUntil('listed, counting down with one human', () => listing()?.stage === 'countdown' && listing()?.need === 0 && listing()?.humans === 1);
+    expect(listing()?.left).toBeGreaterThan(0);
+    expect(listing()?.left).toBeLessThanOrEqual(BR.initialWaitSeconds);
     expect(listing()?.label).toBeTruthy();
     expect(listing()?.cap).toBe(BR.players);
     // Nothing private in the listing.
     expect(JSON.stringify(lobby.rooms.get(id))).not.toMatch(/tok-|Duck1|10\.0\.0\.1|0000-4000/);
-    await waitUntil('room state says need 1', () => a.state.need === 1 && a.state.phase === MatchPhase.Warmup);
-    expect(a.state.timeLeft).toBe(0);
-    await sleep(COUNTDOWN_S * 1000 + 300);
-    expect(listing()?.stage).toBe('waiting');
+    await waitUntil('room state shows fallback countdown', () => a.state.need === 0 && a.state.timeLeft > 0 && a.state.phase === MatchPhase.Warmup);
 
+    const remaining = a.state.timeLeft;
     const b = await join(id, 2);
-    await waitUntil('countdown', () => listing()?.stage === 'countdown' && listing()?.need === 0);
+    await waitUntil('extended countdown', () => listing()?.stage === 'countdown' && listing()?.humans === 2 && b.state.timeLeft > remaining && (listing()?.left ?? 0) > remaining);
+    expect(b.state.timeLeft).toBeLessThanOrEqual(remaining + BR.joinExtraSeconds);
+    expect(b.state.timeLeft).toBeGreaterThanOrEqual(remaining + BR.joinExtraSeconds - 2);
     expect(b.state.need).toBe(0);
     // Names and tags are in the room state for the waiting room panel.
     await waitUntil('roster', () => b.state.players.size === 2);
     expect([...b.state.players.values()].map((p) => `${p.name}#${p.tag}`).sort()).toEqual(['Duck1#1001', 'Duck2#1002']);
 
     await b.leave(true);
-    await waitUntil('reset to waiting', () => listing()?.stage === 'waiting' && listing()?.need === 1);
-    await sleep(COUNTDOWN_S * 1000 + 300);
-    expect(a.state.phase).toBe(MatchPhase.Warmup);
-
-    const b2 = await join(id, 3);
-    await waitUntil('countdown again', () => listing()?.stage === 'countdown');
-    await waitUntil('match started', () => a.state.phase === MatchPhase.Playing, COUNTDOWN_S * 1000 + 3000);
+    await waitUntil('one human still counting down', () => listing()?.stage === 'countdown' && listing()?.need === 0 && listing()?.humans === 1);
+    await waitUntil('match started', () => a.state.phase === MatchPhase.Playing, (BR.initialWaitSeconds + BR.joinExtraSeconds) * 1000 + 3000);
     await waitUntil('bots fill the seats', () => a.state.total === BR.players && a.state.players.size === BR.players);
-    expect([...a.state.players.values()].filter((p) => !p.bot).length).toBe(2);
+    expect([...a.state.players.values()].filter((p) => !p.bot).length).toBe(1);
     await waitUntil('listed as in progress', () => listing()?.stage === 'playing' && lobby.rooms.get(id)?.locked === true);
 
     // In progress: not joinable.
@@ -171,15 +168,16 @@ describe('lobby rooms', () => {
     const q = await new Client(url).joinOrCreate<IslandState>(BR.roomName, { token: 'tok-6' }, IslandState);
     expect(q.roomId).not.toBe(id);
 
-    for (const r of [a, b2, q, lobby.room]) await r.leave(true);
-  }, 40_000);
+    for (const r of [a, q, lobby.room]) await r.leave(true);
+  }, 60_000);
 
   it('join options cannot tune a room', async () => {
     const r = await new Client(url).create<IslandState>(BR.roomName, { token: 'tok-7', maxClients: 99, countdownSeconds: 0, minHumans: 1 }, IslandState);
     const listing = (await matchMaker.query({ roomId: r.roomId }))[0];
     expect(listing?.maxClients).toBe(BR.players);
     await sleep(500);
-    await waitUntil('state', () => r.state.need === BR.minHumans - 1);
+    await waitUntil('state', () => r.state.timeLeft > COUNTDOWN_S);
+    expect(r.state.need).toBe(0);
     expect(r.state.phase).toBe(MatchPhase.Warmup);
     await r.leave(true);
   }, 20_000);

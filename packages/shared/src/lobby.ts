@@ -12,7 +12,7 @@ import { BR, MATCH, PARTY, ROOM, TEAM_SIZES } from './constants.ts';
 export { PARTY, TEAM_SIZES };
 
 /** The default start rule, for the menu's explanation (a server may run other numbers in tests). */
-export const START_RULE = { minHumans: BR.minHumans, countdownSeconds: BR.countdownSeconds, players: BR.players } as const;
+export const START_RULE = { minHumans: BR.minHumans, countdownSeconds: BR.countdownSeconds, initialWaitSeconds: BR.initialWaitSeconds, joinExtraSeconds: BR.joinExtraSeconds, players: BR.players } as const;
 
 /** Battle royale rooms one server opens at once (the default; QWAKK_BR_MAX_ROOMS can change it on the server). */
 export const BR_ROOM_CAP: number = BR.maxRooms;

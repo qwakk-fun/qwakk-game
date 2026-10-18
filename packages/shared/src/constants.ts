@@ -302,12 +302,16 @@ export const BR = {
   players: 16,
   /**
    * Lobby rooms. Humans wait on the village square (damage off). The countdown
-   * starts once `minHumans` real players are in a room and resets if they drop
-   * below it; when it ends, bots fill the empty seats and the match starts.
+   * uses the configured duration once `minHumans` real players are in. With
+   * bots enabled, the first human starts a countdown and later arrivals add time.
    */
   minHumans: 2,
   countdownSeconds: 30,
-  /** A room full of humans starts this soon (or sooner, if the countdown is lower). */
+  /** Initial wait for the first human; empty seats are filled with bots at zero. */
+  initialWaitSeconds: 30,
+  /** Added to the remaining bot-fill countdown for each subsequent human arrival. */
+  joinExtraSeconds: 15,
+  /** Without bots, a full room starts this soon (or sooner if the countdown is lower). */
   fullCountdownSeconds: 10,
   /** Battle royale rooms open at once on one server (waiting, counting down or playing). Launch: one room; QWAKK_BR_MAX_ROOMS overrides. */
   maxRooms: 1,

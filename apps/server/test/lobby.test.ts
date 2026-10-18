@@ -1,7 +1,7 @@
 /**
  * Lobby rooms, headless:
- * - the start rule (BattleRoyale): no countdown below BR.minHumans humans,
- *   countdown at BR.minHumans, back to waiting when humans drop below it,
+ * - the start rule (BattleRoyale): 30 s from the first human,
+ *   later joins add 15 s; departures keep the timer and empty rooms reset it,
  *   bots fill the seats and the match starts when it ends, no joins after;
  * - the matchmaking guard: join options filtered, room creation limited per
  *   IP and capped per room type, the lobby never created by clients.
@@ -9,7 +9,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { BR, createSimWorld, emptyInput, initPhysics, TICK_RATE } from '@qwakk/shared';
 import { compareListings, LOBBY_ERROR, roomLabel, type RoomListing } from '@qwakk/shared/lobby';
-import { BattleRoyale, DEFAULT_BR, type BrEvents } from '../src/br/battleRoyale.ts';
+import { BattleRoyale, DEFAULT_BR, type BrEvents, type BrOptions } from '../src/br/battleRoyale.ts';
 import { loadSainteCanard } from '../src/maps.ts';
 import { checkCreate, cleanClientOptions, matchmakingMethod, type GuardOptions } from '../src/matchmaking.ts';
 
@@ -27,8 +27,8 @@ const idleBot = () => {
   return { think: () => f, respawned: noop, damagedFrom: noop };
 };
 
-function newMatch(started?: () => void): { br: BattleRoyale; tick: (n: number) => void } {
-  const br = new BattleRoyale(createSimWorld(loadSainteCanard().def), { ...DEFAULT_BR, bots: true, seed: 9, createBot: idleBot }, events(started));
+function newMatch(started?: () => void, options: Partial<BrOptions> = {}): { br: BattleRoyale; tick: (n: number) => void } {
+  const br = new BattleRoyale(createSimWorld(loadSainteCanard().def), { ...DEFAULT_BR, bots: true, seed: 9, createBot: idleBot, ...options }, events(started));
   let t = 0;
   br.beginTick(0, 0);
   const tick = (n: number): void => {
@@ -42,47 +42,110 @@ function newMatch(started?: () => void): { br: BattleRoyale; tick: (n: number) =
 }
 
 describe('lobby start rule', () => {
-  it('defaults: 2 humans start a 30 s countdown', () => {
-    expect(BR.minHumans).toBe(2);
-    expect(BR.countdownSeconds).toBe(30);
-  });
-
-  it('one human waits: no countdown, however long they wait', () => {
-    const { br, tick } = newMatch();
-    br.addHuman('a', 'A');
-    tick(5 * TICK_RATE);
-    expect(br.phase).toBe('warmup');
-    expect(br.countingDown).toBe(false);
-    expect(br.waitingFor).toBe(1);
-    expect(br.secondsLeft).toBe(0);
-  });
-
-  it('the second human starts the countdown; dropping to one resets it; the next second starts it fresh', () => {
-    const { br, tick } = newMatch();
-    for (const id of ['a', 'b']) br.addHuman(id, id);
+  it.each([1, 2])('starts with %i humans after the initial wait plus join extensions even when the target is 5', (humans) => {
+    let started = 0;
+    const { br, tick } = newMatch(() => started++, { minHumans: 5, countdownSeconds: 120 });
+    for (let i = 0; i < humans; i++) br.addHuman(`h${i}`, `h${i}`);
     expect(br.countingDown).toBe(true);
     expect(br.waitingFor).toBe(0);
-    expect(br.secondsLeft).toBe(BR.countdownSeconds);
+    const seconds = 30 + (humans - 1) * 15;
+    expect(br.secondsLeft).toBe(seconds);
+    tick(seconds * TICK_RATE - 1);
+    expect(br.phase).toBe('warmup');
+    expect(br.seats.size).toBe(humans);
+    tick(1);
+    expect(br.phase).toBe('playing');
+    expect(started).toBe(1);
+    expect(br.humans).toBe(humans);
+    expect(br.seats.size).toBe(BR.players);
+    expect([...br.seats.values()].filter((s) => s.bot)).toHaveLength(BR.players - humans);
+    expect(br.addHuman('late', 'Late')).toBeNull();
+    tick(1);
+    expect(started).toBe(1);
+  });
+
+  it('a later join adds 15 s to remaining time and a departure does not change it', () => {
+    const { br, tick } = newMatch(undefined, { minHumans: 5 });
+    br.addHuman('a', 'A');
     tick(10 * TICK_RATE);
-    expect(br.secondsLeft).toBe(BR.countdownSeconds - 10);
-    // A third joins during the countdown: it keeps running, not restarted.
-    br.addHuman('c', 'c');
-    expect(br.secondsLeft).toBe(BR.countdownSeconds - 10);
-    br.remove('c');
-    br.remove('b');
+    br.addHuman('b', 'B');
+    expect(br.secondsLeft).toBe(35);
+    tick(10 * TICK_RATE);
+    br.remove('a');
+    expect(br.secondsLeft).toBe(25);
+    expect(br.countingDown).toBe(true);
+    tick(25 * TICK_RATE);
+    expect(br.phase).toBe('playing');
+    expect(br.humans).toBe(1);
+  });
+
+  it('an empty room does not start and the next human gets a fresh countdown', () => {
+    const { br, tick } = newMatch();
+    tick(60 * TICK_RATE);
     expect(br.countingDown).toBe(false);
-    expect(br.waitingFor).toBe(1);
+    br.addHuman('a', 'A');
+    tick(20 * TICK_RATE);
+    br.remove('a');
+    expect(br.countingDown).toBe(false);
+    expect(br.secondsLeft).toBe(0);
     tick(60 * TICK_RATE);
     expect(br.phase).toBe('warmup');
-    br.addHuman('e', 'e');
-    expect(br.secondsLeft).toBe(BR.countdownSeconds);
+    expect(br.seats.size).toBe(0);
+    br.addHuman('b', 'B');
+    expect(br.secondsLeft).toBe(30);
+  });
+
+  it('reaching the human target keeps the extension even with a shorter configured countdown', () => {
+    const { br, tick } = newMatch(undefined, { minHumans: 2, countdownSeconds: 5 });
+    br.addHuman('a', 'A');
+    tick(20 * TICK_RATE);
+    br.addHuman('b', 'B');
+    expect(br.secondsLeft).toBe(25);
+    br.remove('b');
+    expect(br.secondsLeft).toBe(25);
+    br.addHuman('c', 'C');
+    expect(br.secondsLeft).toBe(40);
+    tick(40 * TICK_RATE);
+    expect(br.phase).toBe('playing');
+  });
+
+  it('a last-second join adds time, while a duplicate or rejected join does not', () => {
+    const { br, tick } = newMatch(undefined, { minHumans: 5, players: 2 });
+    br.addHuman('a', 'A');
+    tick(29 * TICK_RATE);
+    expect(br.addHuman('a', 'A')).toBeNull();
+    expect(br.secondsLeft).toBe(1);
+    br.addHuman('b', 'B');
+    expect(br.secondsLeft).toBe(16);
+    expect(br.addHuman('c', 'C')).toBeNull();
+    expect(br.secondsLeft).toBe(16);
+    tick(16 * TICK_RATE);
+    expect(br.phase).toBe('playing');
+  });
+
+  it('without bots the human threshold still gates and resets the countdown', () => {
+    const { br, tick } = newMatch(undefined, { bots: false, minHumans: 2, countdownSeconds: 5 });
+    br.addHuman('a', 'A');
+    tick(60 * TICK_RATE);
+    expect(br.countingDown).toBe(false);
+    expect(br.waitingFor).toBe(1);
+    br.addHuman('b', 'B');
+    expect(br.secondsLeft).toBe(5);
+    tick(TICK_RATE);
+    br.remove('b');
+    expect(br.countingDown).toBe(false);
+    br.addHuman('c', 'C');
+    expect(br.secondsLeft).toBe(5);
+    tick(5 * TICK_RATE);
+    expect(br.phase).toBe('playing');
+    expect(br.seats.size).toBe(2);
   });
 
   it('when the countdown ends, bots fill the seats and the match starts; nobody joins after', () => {
     let started = 0;
     const { br, tick } = newMatch(() => started++);
     for (const id of ['a', 'b', 'c']) br.addHuman(id, id);
-    tick(BR.countdownSeconds * TICK_RATE - 1);
+    tick((BR.initialWaitSeconds + 2 * BR.joinExtraSeconds) * TICK_RATE - 1);
     expect(br.phase).toBe('warmup');
     tick(1);
     expect(br.phase).toBe('playing');
@@ -92,8 +155,14 @@ describe('lobby start rule', () => {
     expect(br.addHuman('late', 'Late')).toBeNull();
   });
 
-  it('a room full of humans starts sooner', () => {
+  it('even the last seat adds 15 s in a bot room', () => {
     const { br } = newMatch();
+    for (let i = 0; i < BR.players; i++) br.addHuman(`h${i}`, `h${i}`);
+    expect(br.secondsLeft).toBe(30 + (BR.players - 1) * 15);
+  });
+
+  it('without bots a room full of humans starts sooner', () => {
+    const { br } = newMatch(undefined, { bots: false });
     for (let i = 0; i < BR.players; i++) br.addHuman(`h${i}`, `h${i}`);
     expect(br.secondsLeft).toBe(BR.fullCountdownSeconds);
   });

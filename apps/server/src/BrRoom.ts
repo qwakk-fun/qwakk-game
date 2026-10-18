@@ -2,8 +2,8 @@
  * The battle royale room on Yelova: networking glue (gameRoom.ts)
  * around the BattleRoyale rules. Players pick a room from the lobby list
  * (joinById), create one, or Quick Play (joinOrCreate). The countdown starts
- * at `BR.minHumans` humans; when it ends the room locks and bots fill the
- * empty seats. The room's listing (label, humans, stage, countdown) is its
+ * with the first human when bots are enabled; later arrivals add 15 s. Bots fill the
+ * empty seats at zero. The room's listing (label, humans, stage, countdown) is its
  * Colyseus metadata, pushed to menus by the lobby (lobby.ts).
  *
  * Owner-only state (inventory, ammo, armor durability, hp) uses `.view()`

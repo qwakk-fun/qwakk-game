@@ -63,7 +63,7 @@ export class RoomsPanel {
     this.createBtn.addEventListener('click', () => this.hooks.create());
     this.listEl = h('ul', { class: 'qm-rooms-list', 'aria-label': R.heading });
     this.msg = h('p', { class: 'qm-rooms-msg', role: 'status', 'aria-live': 'polite' });
-    this.ruleEl = h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.minHumans, START_RULE.countdownSeconds));
+    this.ruleEl = h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.initialWaitSeconds, START_RULE.joinExtraSeconds));
     this.el = h(
       'section',
       { class: 'qm-rooms', 'aria-labelledby': 'qm-rooms-h' },
@@ -108,7 +108,7 @@ export class RoomsPanel {
   /** The rules the server runs now (rooms at once, the start rule, the deathmatch rooms). */
   setRules(rules: LiveRules): void {
     this.cap = rules.brMaxRooms;
-    this.ruleEl.textContent = R.rule(rules.brMinHumans, rules.brCountdownSeconds);
+    this.ruleEl.textContent = R.rule(rules.brMinHumans <= 1 ? Math.min(START_RULE.initialWaitSeconds, rules.brCountdownSeconds) : START_RULE.initialWaitSeconds, START_RULE.joinExtraSeconds);
     this.dm.setRules(rules.dmRooms, rules.dmPlayers, rules.dmCap);
     this.render();
   }

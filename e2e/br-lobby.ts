@@ -3,10 +3,10 @@
  * short countdown for the test), `vite preview` of the test bundle, one
  * headless Chrome player and two Node players (npm run build:test first).
  *
- *   1. Node B creates a room. A Node lobby watcher sees it listed: waiting, needs 2.
+ *   1. Node B creates a room. A Node lobby watcher sees it listed: counting down with one human.
  *   2. Chrome A opens the menu, sees the room in the live list and joins it from
- *      there. The waiting room shows the roster and "Waiting for 1 more duck".
- *   3. Node C picks the room from the lobby list and joins: the countdown starts
+ *      there. The waiting room shows the roster and the plane countdown.
+ *   3. Node C picks the room from the lobby list and joins: the countdown gains 15 seconds
  *      (listed as counting down; the waiting room shows the plane timer).
  *   4. When it ends, bots fill the seats (16 ducks) and the match starts; the
  *      room is listed as in progress and a late join by id is refused.
@@ -95,7 +95,7 @@ async function main(): Promise<void> {
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
     QWAKK_BR_COUNTDOWN: String(COUNTDOWN_S),
-    // Three humans (the default is 2), so the menu's waiting states get a step of their own.
+    // The human target must not cancel the 15-second extension on arrival.
     QWAKK_BR_MIN_HUMANS: '3',
     QWAKK_BR_SEED: '7',
   });
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
     b.onMessage('*', () => {}); // match messages (kills, shots) are not read here
     rooms.push(b);
     const id = b.roomId;
-    await until('listed: waiting, needs 2', () => listing(id)?.stage === 'waiting' && listing(id)?.need === 2);
+    await until('listed: solo countdown', () => listing(id)?.stage === 'countdown' && listing(id)?.need === 0 && listing(id)?.humans === 1);
     console.log(`room ${id} "${listing(id)?.label}" listed: ${JSON.stringify(listing(id))}`);
 
     // 2. Chrome A joins it from the menu's list.
@@ -134,7 +134,7 @@ async function main(): Promise<void> {
     await row.waitFor({ timeout: 30000 });
     const rowText = await row.innerText();
     console.log(`menu list row: ${rowText.replace(/\s+/g, ' ')}`);
-    if (!rowText.includes('Needs 2 more') || !rowText.includes('1/16')) throw new Error('the room row does not show 1/16, needs 2 more');
+    if (!(await row.getAttribute('class'))?.includes('is-countdown') || !rowText.includes('1/16')) throw new Error('the room row does not show 1/16 and a countdown');
     await sleep(600);
     await a.screenshot({ path: `${out}/1-room-list.png` });
     await row.locator('button').click();
@@ -142,14 +142,14 @@ async function main(): Promise<void> {
     await until('waiting room panel', async () => (await text(a, '.br-lobby')).includes('NodeB'), 15000);
     const banner = await text(a, '.br-banner');
     console.log(`waiting room: ${banner.replace(/\s+/g, ' ')} | ${(await text(a, '.br-lobby')).replace(/\s+/g, ' ')}`);
-    if (!banner.includes('Waiting for 1 more duck')) throw new Error('the waiting room does not say it waits for 1 more duck');
-    await until('listed: 2 humans, needs 1', () => listing(id)?.humans === 2 && listing(id)?.need === 1);
+    if (!banner.includes('The plane leaves in')) throw new Error('the waiting room does not show the fallback countdown');
+    await until('listed: 2 humans, counting down', () => listing(id)?.humans === 2 && listing(id)?.need === 0 && listing(id)?.stage === 'countdown');
     await a.screenshot({ path: `${out}/2a-waiting-overlay.png` });
     await hideOverlay(a);
     await sleep(300);
     await a.screenshot({ path: `${out}/2-waiting-room.png` });
 
-    // 3. C picks the room from the lobby list (the first one it can join) and joins: the countdown starts.
+    // 3. C picks the room from the lobby list (the first one it can join) and joins: the countdown gains 15 seconds.
     const pick = [...lobby.rooms.entries()].find(([, r]) => r.name === BR.roomName && !r.locked && (r.metadata.stage === 'waiting' || r.metadata.stage === 'countdown'))?.[0];
     if (pick !== id) throw new Error(`C would pick ${pick}, not ${id}`);
     const c = await new Client(server_).joinById<IslandState>(pick, { name: 'NodeC' }, IslandState);
@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     await d.screenshot({ path: `${out}/4-list-countdown.png` });
 
     // 4. The countdown ends: bots fill the seats and the match starts.
-    await until('match started', () => b.state.phase === MatchPhase.Playing, (COUNTDOWN_S + 10) * 1000);
+    await until('match started', () => b.state.phase === MatchPhase.Playing, (BR.initialWaitSeconds + 2 * BR.joinExtraSeconds + 10) * 1000);
     await until('bots fill the seats', () => b.state.total === BR.players && b.state.players.size === BR.players, 5000);
     const humans = [...b.state.players.values()].filter((p) => !p.bot).length;
     console.log(`match started: ${b.state.total} ducks, ${humans} humans, ${b.state.total - humans} bots`);
