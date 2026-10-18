@@ -60,6 +60,14 @@ export class Effects {
   private readonly tracers: Tracer[] = [];
   private readonly flashes: Flash[] = [];
   private readonly decals: Decal[] = [];
+  /** Keep current combat effects out of the recorded death replay. */
+  hideForReplay(): () => void {
+    const objects = [this.feathers.mesh, this.blobs.mesh, ...this.tracers.map((t) => t.mesh), ...this.flashes.map((f) => f.mesh), ...this.decals.map((d) => d.mesh)];
+    const visible = objects.map((o) => o.visible);
+    objects.forEach((o) => { o.visible = false; });
+    return () => objects.forEach((o, i) => { o.visible = visible[i]!; });
+  }
+
   private nextTracer = 0;
   private nextFlash = 0;
   private nextDecal = 0;

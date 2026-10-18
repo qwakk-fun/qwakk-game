@@ -11,9 +11,11 @@
  * (idle: no bots think, nothing is simulated); the next human starts a fresh
  * round.
  */
-import { COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, type SimWorld, type Vec3 } from '@qwakk/shared';
+import { DM, DmPower, freshDmStats, compareDmResults, weaponStats, WeaponId, type DmStats, type DmReward, type DmResult, COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, type SimWorld, type Vec3 } from '@qwakk/shared';
 import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from './arena.ts';
 import { BOT_NAMES, BotBrain } from './bots.ts';
+import { DmReplayHistory } from './dmReplay.ts';
+import { DmPowerups } from './dmPowerups.ts';
 import { spawnProtectTicks } from './settings/index.ts';
 
 export type { BotTarget, Seat } from './arena.ts';
@@ -22,6 +24,8 @@ export type { BotTarget, Seat } from './arena.ts';
 export interface DeathmatchEvents extends ArenaEvents {
   roundEnd(winner: Seat | null): void;
   roundStart(): void;
+  reward?(seat: Seat, reward: DmReward): void;
+  powerup?(seat: Seat, kind: number): void;
 }
 
 export interface DeathmatchOptions extends ArenaOptions {
@@ -40,6 +44,12 @@ export class Deathmatch extends Arena {
   phase: 'playing' | 'intermission' = 'playing';
   ticksLeft: number;
   winner = '';
+  readonly stats = new Map<string, DmStats>();
+  readonly powerups: DmPowerups;
+  readonly replay = new DmReplayHistory();
+  results: DmResult[] = [];
+  rotationWeapon: number = WeaponId.Rifle;
+  private rotationAt = 0;
   private botCount = 0;
   private readonly o: DeathmatchOptions;
   private readonly dev: DeathmatchEvents;
@@ -50,6 +60,7 @@ export class Deathmatch extends Arena {
     super(sim, options, events);
     this.o = options;
     this.dev = events;
+    this.powerups = new DmPowerups(sim);
     this.ticksLeft = options.roundSeconds * TICK_RATE;
   }
 
@@ -71,7 +82,7 @@ export class Deathmatch extends Arena {
   }
 
   remove(id: string): void {
-    this.seats.delete(id);
+    this.forgetSeat(id);
     this.fillBots();
   }
 
@@ -83,12 +94,23 @@ export class Deathmatch extends Arena {
     while (this.seats.size > want) {
       const bot = this.botToRemove();
       if (!bot) break;
-      this.seats.delete(bot.id);
+      this.forgetSeat(bot.id);
     }
     while (this.seats.size < want) {
       this.botCount++;
       const id = `bot-${this.botCount}`;
       this.addSeat(id, this.botName(), this.o.createBot ? this.o.createBot(this.sim, id) : new BotBrain(this.sim));
+    }
+  }
+
+  private forgetSeat(id: string): void {
+    this.seats.delete(id);
+    this.replay.remove(id);
+    this.stats.delete(id);
+    for (const st of this.stats.values()) if (st.lastKiller === id) st.lastKiller = null;
+    if (this.idle) {
+      this.powerups.reset(this.tick);
+      this.results = [];
     }
   }
 
@@ -134,6 +156,7 @@ export class Deathmatch extends Arena {
 
   private addSeat(id: string, name: string, bot: BotLike | null, team = 0, character?: number): Seat {
     const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0), team, character);
+    this.stats.set(id, freshDmStats());
     this.spawn(seat);
     return seat;
   }
@@ -178,6 +201,7 @@ export class Deathmatch extends Arena {
     const yaw = given ?? Math.atan2(p[0] - arena.x, p[2] - arena.z);
     const fresh = createPlayerSim(p[0], y, p[2], yaw);
     Object.assign(seat.sim, fresh);
+    this.equipRotation(seat, true);
     seat.protect = spawnProtectTicks();
     seat.respawnAt = -1;
     seat.life++;
@@ -204,15 +228,85 @@ export class Deathmatch extends Arena {
     return false;
   }
 
-  protected onKilled(killer: Seat | null, victim: Seat): void {
+  protected override onShot(seat: Seat): void {
+    if (this.phase === 'playing') this.stats.get(seat.id)!.shots++;
+  }
+
+  protected override onHit(shooter: Seat, _victim: Seat, head: boolean, killed: boolean): void {
+    if (this.phase !== 'playing') return;
+    const stats = this.stats.get(shooter.id)!;
+    stats.hits++;
+    if (head && !killed) {
+      stats.points += DM.headHitPoints;
+      this.dev.reward?.(shooter, { points: DM.headHitPoints, total: stats.points, streak: stats.streak, milestone: 0, head: true, revenge: false, kill: false });
+    }
+  }
+
+  protected override adjustDamage(victim: Seat, raw: number, _head: boolean): number {
+    const sim = victim.sim;
+    if (sim.dmPower !== DmPower.Armor || sim.dmPowerTicks <= 0) return raw;
+    const absorbed = Math.min(sim.dmShield, raw * DM.armorReduction);
+    sim.dmShield = Math.max(0, sim.dmShield - absorbed);
+    if (sim.dmShield === 0) { sim.dmPower = 0; sim.dmPowerTicks = 0; }
+    return raw - absorbed;
+  }
+
+  protected onKilled(killer: Seat | null, victim: Seat, _weapon: number, head: boolean): void {
     victim.respawnAt = this.tick + COMBAT.respawnTicks;
-    if (killer && killer.kills >= this.o.scoreLimit) this.endRound(killer);
+    victim.sim.dmPower = 0;
+    victim.sim.dmPowerTicks = 0;
+    victim.sim.dmShield = 0;
+    const lost = this.stats.get(victim.id)!;
+    lost.streak = 0;
+    lost.lastKiller = killer && killer !== victim ? killer.id : null;
+    if (this.phase !== 'playing' || !killer || killer === victim || this.allies(killer, victim)) return;
+    const stats = this.stats.get(killer.id)!;
+    stats.streak++;
+    stats.bestStreak = Math.max(stats.bestStreak, stats.streak);
+    const revenge = stats.lastKiller === victim.id;
+    if (revenge) stats.lastKiller = null;
+    const bonus = DM.streakPoints[stats.streak] ?? 0;
+    const points = DM.killPoints + (head ? DM.headKillPoints : 0) + (revenge ? DM.revengePoints : 0) + bonus;
+    stats.points += points;
+    this.dev.reward?.(killer, { points, total: stats.points, streak: stats.streak, milestone: bonus ? stats.streak : 0, head, revenge, kill: true });
+    if (killer.kills >= this.o.scoreLimit) this.endRound(killer);
+  }
+
+  /** The same single-weapon loadout for humans, bots, late joins and respawns. */
+  private equipRotation(seat: Seat, ready = false): void {
+    const s = seat.sim;
+    s.weapon = this.rotationWeapon;
+    s.arms = 1 << this.rotationWeapon;
+    s.mag0 = weaponStats(WeaponId.Rifle).magSize;
+    s.mag1 = weaponStats(WeaponId.Pistol).magSize;
+    s.res0 = weaponStats(WeaponId.Rifle).reserve;
+    s.res1 = weaponStats(WeaponId.Pistol).reserve;
+    s.reload = 0;
+    s.cooldown = 0;
+    s.spray = 0;
+    s.equip = ready ? 0 : weaponStats(this.rotationWeapon).equipTicks;
+  }
+
+  get rotationSecondsLeft(): number {
+    return this.phase === 'playing' && !this.idle ? Math.max(0, Math.ceil((this.rotationAt - this.tick) / TICK_RATE)) : 0;
+  }
+
+  /** Rotate before either human inputs or bot inputs run, on the same authoritative tick. */
+  override beginTick(tick: number, nowMs: number): void {
+    super.beginTick(tick, nowMs);
+    if (this.idle) return;
+    if (this.phase === 'playing' && this.tick >= this.rotationAt) {
+      this.rotationWeapon = this.rotationWeapon === WeaponId.Rifle ? WeaponId.Pistol : WeaponId.Rifle;
+      this.rotationAt = this.tick + DM.rotationSeconds * TICK_RATE;
+      for (const seat of this.seats.values()) this.equipRotation(seat);
+    }
   }
 
   /** End of a tick: bots, timers, respawns, player separation, round clock, lag history. Nothing while idle. */
   endTick(): void {
     if (this.idle) return;
     this.thinkBots();
+    if (this.phase === 'playing') this.powerups.step(this.tick, this.seats.values(), (seat, kind) => this.dev.powerup?.(seat, kind));
 
     for (const s of this.seats.values()) {
       if (s.protect > 0) s.protect--;
@@ -227,6 +321,7 @@ export class Deathmatch extends Arena {
       else this.startRound();
     }
     this.recordHistory();
+    if (this.phase === 'playing') this.replay.record(this.tick, this.seats.values());
   }
 
   private leader(): Seat | null {
@@ -236,6 +331,15 @@ export class Deathmatch extends Arena {
   }
 
   private endRound(winner: Seat | null): void {
+    if (this.phase !== 'playing') return;
+    this.results = [...this.seats.values()].map((s) => {
+      const st = this.stats.get(s.id)!;
+      return { pid: s.pid, name: s.name, kills: s.kills, deaths: s.deaths, points: st.points, bestStreak: st.bestStreak, shots: st.shots, hits: st.hits };
+    }).sort(compareDmResults);
+    this.powerups.reset(this.tick);
+    for (const seat of this.seats.values()) {
+      seat.sim.dmPower = 0; seat.sim.dmPowerTicks = 0; seat.sim.dmShield = 0;
+    }
     this.phase = 'intermission';
     this.winner = winner?.name ?? '';
     this.ticksLeft = this.o.intermissionSeconds * TICK_RATE;
@@ -247,6 +351,8 @@ export class Deathmatch extends Arena {
     for (const s of this.seats.values()) {
       s.kills = 0;
       s.deaths = 0;
+      s.dealt = 0;
+      this.stats.set(s.id, freshDmStats());
     }
     for (const s of this.seats.values()) this.spawn(s);
   }
@@ -259,6 +365,11 @@ export class Deathmatch extends Arena {
     this.winner = '';
     this.ticksLeft = this.o.roundSeconds * TICK_RATE;
     this.usedSpawns.clear();
+    this.replay.clear();
+    this.results = [];
+    this.rotationWeapon = WeaponId.Rifle;
+    this.rotationAt = this.tick + DM.rotationSeconds * TICK_RATE;
+    this.powerups.reset(this.tick);
     this.dev.roundStart();
   }
 

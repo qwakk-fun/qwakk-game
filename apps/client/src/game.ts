@@ -18,6 +18,7 @@ import { TpsCamera } from './camera/tpsCamera.ts';
 import { config, DEVTOOLS } from './config.ts';
 import { Effects } from './fx/effects.ts';
 import type { Autopilot } from './game/autopilot.ts';
+import { DmClient } from './game/dmClient.ts';
 import { BrClient } from './game/brClient.ts';
 import { CombatFeedback } from './game/combatFeedback.ts';
 import { FrameTimer, MotionProbe } from './game/metrics.ts';
@@ -81,6 +82,7 @@ export class Game {
   readonly sound = new Sound();
   private readonly combat: CombatFeedback;
   readonly br: BrClient | null;
+  readonly dm: DmClient | null;
   /** Faint names over nearby ducks and the team panel. */
   readonly tags: NameTags;
   private readonly teamPanel: TeamPanel;
@@ -166,6 +168,8 @@ export class Game {
         })
       : null;
 
+    this.dm = isBr ? null : new DmClient(session, this.sound, this.ghud, scene, sim);
+
     this.combat = new CombatFeedback(session, sim, this.fx, this.sound, this.ghud, this.cam, {
       localAvatar: this.localAvatar,
       remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
@@ -207,6 +211,9 @@ export class Game {
       sim,
       {
         ...handlers,
+        dmKillcam: (replay) => this.dm?.killcam(replay),
+        dmReward: (reward) => this.dm?.reward(reward),
+        dmPower: (kind) => this.dm?.power(kind),
         shotHint: (weapon, angle, loud) => this.br?.shotHint(weapon, angle, loud, this.myPos),
         picked: (kind, amount) => this.br?.picked(kind, amount),
         denied: (reason, kind) => this.br?.denied(reason, kind),
@@ -310,6 +317,7 @@ export class Game {
     this.controls.dispose();
     this.ctx.renderer.domElement.removeEventListener('mousedown', this.onSpectatorClick);
     this.br?.dispose();
+    this.dm?.dispose();
     this.tags.dispose();
     this.teamPanel.dispose();
     this.ghud.dispose();
@@ -364,6 +372,7 @@ export class Game {
     // Local player: predicted pose, interpolated between fixed steps.
     const me = session.me;
     const mine = session.mine;
+    this.dm?.replay.syncLife(mine?.life ?? -1);
     if (me && mine) {
       const st = me.state;
       const x = me.value('x');
@@ -463,12 +472,17 @@ export class Game {
       r.lastAct = p.act;
     }
 
-    this.tags.update(this.ctx.camera, tags, this.myPos);
+    this.dm?.frame(now);
+    this.tags.update(this.ctx.camera, this.dm?.replay.active ? [] : tags, this.myPos);
     this.br?.frame(dt, this.myPos);
+    const replaying = this.dm?.replay.active ? this.dm.replay.draw(now, this.ctx.camera, [[session.sessionId, this.localAvatar], ...[...this.remotes].map(([id, r]): [string, Avatar] => [id, r.avatar])], dt) : false;
     this.world.update(this.ctx.camera, dt);
     this.fx.update(dt, this.ctx.camera);
     this.sound.listen(this.ctx.camera);
+    const restoreEffects = replaying ? this.fx.hideForReplay() : null;
     this.ctx.renderer.render(this.ctx.scene, this.ctx.camera);
+    restoreEffects?.();
+    this.dm?.replay.restoreCamera();
     this.updateGameHud(dt);
 
     this.hudClock += dt;
@@ -522,7 +536,7 @@ export class Game {
     let leaderKills = -1;
     const rows: ScoreRow[] = [];
     for (const [id, p] of st.players) {
-      rows.push({ name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot, me: id === this.session.sessionId });
+      rows.push({ name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot, me: id === this.session.sessionId, points: p.dmPoints });
       if (p.kills > leaderKills) {
         leaderKills = p.kills;
         leader = p.name;
@@ -530,9 +544,12 @@ export class Game {
     }
     g.round(st.timeLeft, mine?.kills ?? 0, st.scoreLimit, leader, Math.max(0, leaderKills));
     const intermission = st.phase === MatchPhase.Intermission;
-    g.scoreboard(this.showBoard || intermission ? rows : null);
+    g.scoreboard(this.showBoard ? rows : null);
+    this.dm?.hudFrame();
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
-    if (intermission) {
+    if (intermission && this.dm) {
+      g.message(null);
+    } else if (intermission) {
       g.message(`<div class="big">${translate('Round over')}</div><div>${st.winner ? translate('{name} wins', { name: esc(st.winner) }) : translate('Time is up')}. ${translate('Next round in {n}', { n: st.timeLeft })}</div>`);
     } else if (mine && mine.alive === 0) {
       const left = Math.max(0, COMBAT.respawnTicks / 30 - (performance.now() - this.combat.diedAt) / 1000);
@@ -562,7 +579,7 @@ export class Game {
       f.promptKey = '';
       f.bandages = 0;
       f.medkits = 0;
-      f.modal = false;
+      f.modal = this.session.room.state.phase === MatchPhase.Intermission || (this.dm?.replay.active ?? false);
       f.mapOpen = false;
       f.canBag = false;
       f.spectating = false;

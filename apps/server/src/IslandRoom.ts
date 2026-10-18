@@ -13,7 +13,7 @@ import type { Client } from '@colyseus/core';
 import { INTEREST, ROOM } from '@qwakk/shared';
 import { DM_ROOM_CATALOG, type RoomListing } from '@qwakk/shared/lobby';
 import { recordMatch } from './meta/index.ts';
-import { GameMode, MatchPhase, Msg } from '@qwakk/shared/net';
+import { DmPickup, DmRoundRow, GameMode, MatchPhase, Msg, type PlayerState } from '@qwakk/shared/net';
 import type { BotLike } from './arena.ts';
 import { Deathmatch, DEFAULT_DM, type Seat } from './deathmatch.ts';
 import { GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
@@ -145,7 +145,16 @@ export class IslandRoom extends GameRoom<Deathmatch> {
         shot: (shooter, weapon, r) => this.queueShot(shooter, weapon, r),
         hit: (shooter, victim, damage, head, killed) => this.clients.getById(shooter.id)?.send(Msg.HitConfirm, [victim.pid, damage, head ? 1 : 0, killed ? 1 : 0, 0]),
         damaged: (victim, from, damage) => this.sendDamaged(victim, from, damage),
-        kill: (killer, victim, weapon, head) => this.sendKill(killer, victim, weapon, head),
+        kill: (killer, victim, weapon, head) => {
+          this.sendKill(killer, victim, weapon, head);
+          const client = this.clients.getById(victim.id);
+          if (client) {
+            const replay = this.match.replay.forDeath(this.match.currentTick, killer, victim);
+            if (replay) client.send(Msg.DmKillcam, replay);
+          }
+        },
+        reward: (seat, reward) => this.clients.getById(seat.id)?.send(Msg.DmReward, reward),
+        powerup: (seat, kind) => this.clients.getById(seat.id)?.send(Msg.DmPower, kind),
         roundEnd: () => this.recordRound(),
         roundStart: () => {
           this.roundStartedAt = Date.now();
@@ -201,12 +210,29 @@ export class IslandRoom extends GameRoom<Deathmatch> {
     this.match.endTick();
   }
 
+  protected override writeSeatExtras(seat: Seat, st: PlayerState): void {
+    const stats = this.match.stats.get(seat.id);
+    st.dmPoints = stats?.points ?? 0;
+    st.dmStreak = stats?.streak ?? 0;
+    st.dmBestStreak = stats?.bestStreak ?? 0;
+  }
+
   protected writeMatchState(): void {
     const st = this.state;
     const dm = this.match;
     st.phase = dm.phase === 'playing' ? MatchPhase.Playing : MatchPhase.Intermission;
     st.timeLeft = dm.secondsLeft;
     if (st.winner !== dm.winner) st.winner = dm.winner;
+    st.dmWeapon = dm.rotationWeapon;
+    st.dmRotationLeft = dm.rotationSecondsLeft;
+    for (const id of st.dmPickups.keys()) if (!dm.powerups.pickups.has(id)) st.dmPickups.delete(id);
+    for (const [id, p] of dm.powerups.pickups) {
+      if (!st.dmPickups.has(id)) st.dmPickups.set(id, new DmPickup({ kind: p.kind, x: p.x, y: p.y, z: p.z }));
+    }
+    if (dm.phase === 'playing') st.dmResults.clear();
+    else for (const result of dm.results) {
+      if (!st.dmResults.has(String(result.pid))) st.dmResults.set(String(result.pid), new DmRoundRow(result));
+    }
     this.updateListing();
   }
 

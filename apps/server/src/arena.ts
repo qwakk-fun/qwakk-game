@@ -241,6 +241,7 @@ export abstract class Arena {
     // damage (the client predicts the same for both, so tracers and hit markers match).
     if (seat.team > 0 || this.anyProtected()) targets = targets.filter((t) => !this.alliesById(seat.id, t.id) && !this.isProtected(t.id));
     const r = resolveShot(this.sim, seat.sim, seat.id, seat.side, shot, spreadSeed(this.secret, seat.pid), targets);
+    this.onShot(seat);
     this.ev.shot(seat, shot.weapon, r);
     if (r.outcome !== ShotOutcome.Body && r.outcome !== ShotOutcome.Head) return;
     const victim = this.seats.get(r.targetId);
@@ -256,6 +257,7 @@ export abstract class Arena {
     const out = victim.sim.hp <= 0;
     const knocked = out && !down && this.canKnock(victim);
     const killed = out && !knocked;
+    this.onHit(seat, victim, head, killed);
     this.ev.hit(seat, victim, dmg, head, killed, knocked);
     this.ev.damaged(victim, seat, dmg);
     // Bots read the damage indicator: a rough direction, not the exact spot.
@@ -290,6 +292,10 @@ export abstract class Arena {
     seat.sim.hp = KNOCK.reviveHp;
     seat.knockedBy = null;
   }
+
+  /** Mode-specific statistics, only for actual shots and validated damaging hits. */
+  protected onShot(_seat: Seat): void {}
+  protected onHit(_shooter: Seat, _victim: Seat, _head: boolean, _killed: boolean): void {}
 
   /** Hooks around the sim step (battle royale: plane ejection before, pickups after). */
   protected beforeStep(_seat: Seat, _f: InputFrame): void {}

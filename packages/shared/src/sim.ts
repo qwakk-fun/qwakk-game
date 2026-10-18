@@ -5,6 +5,7 @@
  * (prediction and replay) and on the server (authority).
  */
 import { ADS, BODY, DT, HEAL, KNOCK, MOVE, TICK_RATE, WATER } from './constants.ts';
+import { DM, DmPower } from './deathmatch.ts';
 import { aimBlend, stepAim } from './ads.ts';
 import { Button, type InputFrame } from './input.ts';
 import { stepWeapon, type ShotFired } from './combat.ts';
@@ -85,13 +86,17 @@ export interface PlayerSim {
    * or heal. `hp` is then its bleed meter.
    */
   down: number;
+  /** Deathmatch temporary effect, remaining simulation ticks and armor pool (zero in BR). */
+  dmPower: number;
+  dmPowerTicks: number;
+  dmShield: number;
 }
 
 /** Field list in a fixed order: reconciler mirror list and test helpers. */
 export const PLAYER_SIM_FIELDS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'crouch', 'grounded', 'air', 'jumpBuf', 'prevButtons',
   'alive', 'weapon', 'equip', 'cooldown', 'reload', 'mag0', 'mag1', 'res0', 'res1', 'spray', 'shotSeq',
-  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits', 'aim', 'down',
+  'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits', 'aim', 'down', 'dmPower', 'dmPowerTicks', 'dmShield',
 ] as const satisfies readonly (keyof PlayerSim)[];
 
 export function createPlayerSim(x: number, y: number, z: number, yaw = 0): PlayerSim {
@@ -101,7 +106,7 @@ export function createPlayerSim(x: number, y: number, z: number, yaw = 0): Playe
     x, y, z, vx: 0, vy: 0, vz: 0, yaw, pitch: 0, crouch: 0, grounded: 0, air: 0, jumpBuf: 0, prevButtons: 0,
     alive: 1, weapon: WeaponId.Rifle, equip: 0, cooldown: 0, reload: 0,
     mag0: rifle.magSize, mag1: pistol.magSize, res0: rifle.reserve, res1: pistol.reserve, spray: 0, shotSeq: 0,
-    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0, aim: 0, down: 0,
+    mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0, aim: 0, down: 0, dmPower: 0, dmPowerTicks: 0, dmShield: 0,
   };
 }
 
@@ -194,6 +199,10 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
     s.pitch = input.pitch;
     s.aim = 0;
   }
+  if (s.dmPowerTicks > 0 && --s.dmPowerTicks === 0) {
+    s.dmPower = DmPower.None;
+    s.dmShield = 0;
+  }
   s.prevButtons = buttons;
   quantize(s);
   return shot;
@@ -239,7 +248,7 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   const wlen = Math.sqrt(wx * wx + wz * wz);
   let wishSpeed = 0;
   if (wlen > 1e-6) {
-    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s);
+    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1);
     wx /= wlen;
     wz /= wlen;
   }
@@ -255,7 +264,7 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
     s.vz *= drag;
   }
   if (canJump) {
-    s.vy = MOVE.jumpVelocity;
+    s.vy = MOVE.jumpVelocity * (s.dmPower === DmPower.Jump && s.dmPowerTicks > 0 ? DM.jumpMultiplier : 1);
     s.jumpBuf = 0;
     s.grounded = 0;
     s.air = COYOTE_TICKS + 1;

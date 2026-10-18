@@ -24,6 +24,10 @@ export const PlayerState = schema(
     bot: t.boolean(),
     kills: t.uint16(),
     deaths: t.uint16(),
+    /** Deathmatch bonus score and current/best life streak. */
+    dmPoints: t.uint32(),
+    dmStreak: t.uint16(),
+    dmBestStreak: t.uint16(),
     alive: t.uint8(),
     weapon: t.uint8(),
     /** 1 while spawn protection is on. */
@@ -89,6 +93,9 @@ export const PlayerState = schema(
     aim: t.uint8().view(),
     /** 1 while knocked (owner only: teammates read it from `mates`, enemies see the pose action). */
     down: t.uint8().view(),
+    dmPower: t.uint8().view(),
+    dmPowerTicks: t.uint16().view(),
+    dmShield: t.float32().view(),
   },
   'PlayerState',
 );
@@ -204,6 +211,17 @@ export const LootItem = schema(
 );
 export type LootItem = SchemaType<typeof LootItem>;
 
+/** Public map objectives, never player positions. */
+export const DmPickup = schema({ kind: t.uint8(), x: t.float32(), y: t.float32(), z: t.float32() }, 'DmPickup');
+export type DmPickup = SchemaType<typeof DmPickup>;
+
+/** Frozen round-end statistics, also available to late spectators. */
+export const DmRoundRow = schema({
+  pid: t.uint16(), name: t.string(), points: t.uint32(), kills: t.uint16(), deaths: t.uint16(),
+  bestStreak: t.uint16(), shots: t.uint32(), hits: t.uint32(),
+}, 'DmRoundRow');
+export type DmRoundRow = SchemaType<typeof DmRoundRow>;
+
 export const IslandState = schema(
   {
     /** GameMode: deathmatch or battle royale. */
@@ -223,6 +241,11 @@ export const IslandState = schema(
     players: t.map(PlayerState),
     poses: t.map(Pose).view(),
     farPoses: t.map(Pose).view(),
+    // Deathmatch.
+    dmPickups: t.map(DmPickup),
+    dmResults: t.map(DmRoundRow),
+    dmWeapon: t.uint8(),
+    dmRotationLeft: t.uint16(),
     // Battle royale.
     /** Lobby room name (roomLabel) and, while waiting, how many more humans the countdown needs. */
     label: t.string(),
@@ -313,6 +336,12 @@ export const Msg = {
   Chat: 'chat',
   /** To the sender only: the chat cooldown has not expired. */
   ChatLimited: 'chat-limit',
+  /** To the earning player only: DmReward, computed from verified server combat. */
+  DmReward: 'dm-reward',
+  /** To the collector only: DmPower kind. */
+  DmPower: 'dm-power',
+  /** Server to the dead victim only: DmKillcam. No client request handler. */
+  DmKillcam: 'dm-killcam',
 } as const;
 
 /** Plain room chat. No positions, device identities or tokens. */

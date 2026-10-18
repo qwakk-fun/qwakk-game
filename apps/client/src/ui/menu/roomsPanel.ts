@@ -7,7 +7,7 @@
  * Rooms whose teams cannot take your party cannot be joined (the mode picker
  * for rooms you create is teamPicker.ts, on the Play step).
  */
-import { BR_ROOM_CAP, shortRoomId, START_RULE, teamSizeOf, type LiveRules, type RoomListing } from '@qwakk/shared/lobby';
+import { BR_ROOM_CAP, shortRoomId, teamSizeOf, type LiveRules, type RoomListing } from '@qwakk/shared/lobby';
 import { gameServer } from './api.ts';
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
@@ -53,7 +53,6 @@ export class RoomsPanel {
   private partySize = 1;
   /** Battle royale rooms the server opens at once (GET /api/status; the default until it answers). */
   private cap = BR_ROOM_CAP;
-  private readonly ruleEl: HTMLElement;
 
   constructor(hooks: RoomsHooks) {
     this.hooks = hooks;
@@ -63,11 +62,10 @@ export class RoomsPanel {
     this.createBtn.addEventListener('click', () => this.hooks.create());
     this.listEl = h('ul', { class: 'qm-rooms-list', 'aria-label': R.heading });
     this.msg = h('p', { class: 'qm-rooms-msg', role: 'status', 'aria-live': 'polite' });
-    this.ruleEl = h('p', { class: 'qm-rooms-rule' }, R.rule(START_RULE.initialWaitSeconds, START_RULE.joinExtraSeconds));
     this.el = h(
       'section',
       { class: 'qm-rooms', 'aria-labelledby': 'qm-rooms-h' },
-      h('div', { class: 'qm-rooms-head' }, h('div', { class: 'qm-rooms-titles' }, h('h3', { id: 'qm-rooms-h' }, R.heading), this.ruleEl), this.createBtn),
+      h('div', { class: 'qm-rooms-head' }, h('div', { class: 'qm-rooms-titles' }, h('h3', { id: 'qm-rooms-h' }, R.heading)), this.createBtn),
       this.msg,
       this.listEl,
     );
@@ -108,7 +106,6 @@ export class RoomsPanel {
   /** The rules the server runs now (rooms at once, the start rule, the deathmatch rooms). */
   setRules(rules: LiveRules): void {
     this.cap = rules.brMaxRooms;
-    this.ruleEl.textContent = R.rule(rules.brMinHumans <= 1 ? Math.min(START_RULE.initialWaitSeconds, rules.brCountdownSeconds) : START_RULE.initialWaitSeconds, START_RULE.joinExtraSeconds);
     this.dm.setRules(rules.dmRooms, rules.dmPlayers, rules.dmCap);
     this.render();
   }

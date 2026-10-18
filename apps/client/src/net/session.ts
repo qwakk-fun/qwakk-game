@@ -23,6 +23,8 @@ import {
   sanitizeInputFields,
   stepPlayer,
   type InputFrame,
+  type DmReward,
+  type DmKillcam,
   type PlayerSim,
   type ShotFired,
   type SimWorld,
@@ -66,6 +68,9 @@ export interface SessionHandlers {
   notice?(text: string): void;
   chat?(message: ChatMessage): void;
   chatLimited?(): void;
+  dmReward?(reward: DmReward): void;
+  dmKillcam?(replay: DmKillcam): void;
+  dmPower?(kind: number): void;
 }
 
 export interface RemotePose {
@@ -226,6 +231,9 @@ export class Session {
     });
     this.room.onMessage(Msg.Chat, (message: ChatMessage) => handlers.chat?.(message));
     this.room.onMessage(Msg.ChatLimited, () => handlers.chatLimited?.());
+    this.room.onMessage(Msg.DmKillcam, (replay: DmKillcam) => handlers.dmKillcam?.(replay));
+    this.room.onMessage(Msg.DmReward, (reward: DmReward) => handlers.dmReward?.(reward));
+    this.room.onMessage(Msg.DmPower, (kind: number) => handlers.dmPower?.(kind));
   }
 
   sendChat(text: string): void {

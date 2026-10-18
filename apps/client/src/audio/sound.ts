@@ -167,6 +167,13 @@ export class Sound {
     if (e === 'in') this.noiseBurst(dest, t + 0.07, 0.06, 1800, 600, 0.3, 4);
   }
 
+  /** Short, ascending reward motif. Uses the player's existing volume/mute setting. */
+  reward(level = 0): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const notes = level >= 10 ? [523, 659, 784, 1047] : level >= 5 ? [440, 554, 880] : level >= 3 ? [440, 659, 784] : [659, 880];
+    notes.forEach((hz, i) => this.tone(this.master!, this.ctx!.currentTime + i * 0.085, 'sine', hz, hz, 0.16, 0.12));
+  }
+
   /** Hit marker tick. */
   hit(): void {
     if (!this.ready || !this.ctx || !this.master) return;

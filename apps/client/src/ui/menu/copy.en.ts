@@ -133,7 +133,6 @@ export const EN = {
   },
   rooms: {
     heading: 'Battle royale rooms',
-    rule: (initialWait: number, extra: number) => `First player starts a ${initialWait} s countdown. Each later arrival adds ${extra} s. Bots fill empty seats at zero.`,
     create: 'Create room',
     join: 'Join',
     joinLabel: (label: string) => `Join ${label}`,

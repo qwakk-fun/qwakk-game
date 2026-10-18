@@ -12,6 +12,7 @@ export interface ScoreRow {
   deaths: number;
   bot: boolean;
   me: boolean;
+  points?: number;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, parent: HTMLElement): HTMLElementTagNameMap[K] {
@@ -208,9 +209,11 @@ export class GameHud {
     }
     const sorted = [...rows].sort((a, b) => b.kills - a.kills || a.deaths - b.deaths);
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
+    const hasPoints = rows.some((r) => r.points !== undefined);
+    this.board.classList.toggle('dm-scores', hasPoints);
     const html =
-      `<div class="ghud-bhead"><span>${translate('Duck')}</span><span>${translate('Kills')}</span><span>${translate('Deaths')}</span></div>` +
-      sorted.map((r) => `<div class="ghud-brow${r.me ? ' me' : ''}"><span>${esc(r.name)}</span><span>${r.kills}</span><span>${r.deaths}</span></div>`).join('');
+      `<div class="ghud-bhead"><span>${translate('Duck')}</span><span>${translate('Kills')}</span><span>${translate('Deaths')}</span>${hasPoints ? `<span>${translate('Points')}</span>` : ''}</div>` +
+      sorted.map((r) => `<div class="ghud-brow${r.me ? ' me' : ''}"><span>${esc(r.name)}</span><span>${r.kills}</span><span>${r.deaths}</span>${hasPoints ? `<span>${r.points ?? 0}</span>` : ''}</div>`).join('');
     this.board.hidden = false;
     if (html !== this.lastBoard) {
       this.lastBoard = html;

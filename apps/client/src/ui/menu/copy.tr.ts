@@ -47,7 +47,7 @@ export const TR = {
     },
   },
   rooms: {
-    heading: 'Battle Royale odaları', rule: (initialWait: number, extra: number) => `İlk oyuncuyla ${initialWait} sn geri sayım başlar. Sonradan katılan her oyuncu kalan süreye ${extra} sn ekler. Süre dolunca boş yerleri botlar doldurur.`,
+    heading: 'Battle Royale odaları',
     create: 'Oda kur', join: 'Katıl', joinLabel: (label: string) => `${label} odasına katıl`, full: 'Dolu', noFit: 'Yer yok', connecting: 'Odalar aranıyor...',
     empty: 'Henüz oda yok. Bir oda kur, arkadaşlarını getir.', brBusy: 'Bir Battle Royale maçı sürüyor. Bitince yenisi açılır. Bu sırada Deathmatch oynayabilirsin.',
     offline: 'Oda listesi yüklenemedi. Hızlı Oyna hâlâ çalışıyor.', retry: 'Tekrar dene', ducks: (n: number, cap: number) => `${n}/${cap}`,
