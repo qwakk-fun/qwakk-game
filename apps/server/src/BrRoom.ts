@@ -152,7 +152,7 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     void this.setMetadata(this.listing(), false);
   }
 
-  protected override roomStatus(): { kind: 'dm' | 'br'; mode: string; phase: string; secondsLeft: number } {
+  protected override roomStatus(): { kind: 'dm' | 'br' | 'raid'; mode: string; phase: string; secondsLeft: number } {
     const m = this.match;
     const mode = m.teamSize === 4 ? 'Squad' : m.teamSize === 2 ? 'Duo' : 'Solo';
     const phase = m.phase === 'warmup' ? (m.countingDown ? 'countdown' : 'waiting') : m.phase;

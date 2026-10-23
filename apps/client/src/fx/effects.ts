@@ -237,6 +237,26 @@ export class Effects {
     d.mesh.scale.setScalar(1.4 + Math.random() * 0.6);
   }
 
+  /** Hunt Season: a toony pop with no blood (a hunter hit, a defeat, a decoy): dust puffs and yellow stars. */
+  toonPop(at: THREE.Vector3, power = 1, stars = true): void {
+    for (let i = 0; i < Math.round(10 * power); i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.blobs.spawn({
+        x: at.x, y: at.y, z: at.z,
+        vx: Math.cos(a) * (1.5 + Math.random() * 2) * power, vy: 0.4 + Math.random() * 1.2, vz: Math.sin(a) * (1.5 + Math.random() * 2) * power,
+        life: 0.45 + Math.random() * 0.3, size: (0.12 + Math.random() * 0.12) * power, grow: 2.6, gravity: 0.6, drag: 4, color: this.dust, spin: 0,
+      });
+    }
+    if (!stars) return;
+    for (let i = 0; i < Math.round(6 * power); i++) {
+      this.blobs.spawn({
+        x: at.x, y: at.y + 0.3, z: at.z,
+        vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 2.5, vz: (Math.random() - 0.5) * 3,
+        life: 0.6 + Math.random() * 0.3, size: 0.06 + Math.random() * 0.05, grow: 0.8, gravity: 6, drag: 1, color: this.yellow, spin: 0,
+      });
+    }
+  }
+
   update(dt: number, camera: THREE.Camera): void {
     this.feathers.update(dt, camera);
     this.blobs.update(dt, camera);

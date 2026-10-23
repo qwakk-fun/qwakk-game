@@ -95,7 +95,7 @@ export class IslandRoom extends GameRoom<Deathmatch> {
     super.onDispose();
   }
 
-  protected override roomStatus(): { kind: 'dm' | 'br'; mode: string; phase: string; secondsLeft: number } {
+  protected override roomStatus(): { kind: 'dm' | 'br' | 'raid'; mode: string; phase: string; secondsLeft: number } {
     const dm = this.match;
     return { kind: 'dm', mode: 'Free for all', phase: dm.idle ? 'idle' : dm.phase, secondsLeft: dm.idle ? 0 : dm.secondsLeft };
   }

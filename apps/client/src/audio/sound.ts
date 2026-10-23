@@ -221,6 +221,102 @@ export class Sound {
     this.tone(this.master, this.ctx.currentTime, 'sine', 1320, 1320, 0.09, 0.05);
   }
 
+  // ---- Hunt Season (all synthesized) ----
+
+  /** A hunter's duck call (wooden, nasal, a two-note honk), in 3D: a decoy thrower is near, or a decoy is about to pop. */
+  duckCall(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    for (const [dt, f0, f1] of [[0, 520, 300], [0.16, 480, 260]] as const) {
+      const o = this.ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f0, t + dt);
+      o.frequency.exponentialRampToValueAtTime(f1, t + dt + 0.13);
+      const f = this.ctx.createBiquadFilter();
+      f.type = 'bandpass';
+      f.frequency.value = 900;
+      f.Q.value = 5;
+      const g = this.ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t + dt);
+      g.gain.exponentialRampToValueAtTime(0.22, t + dt + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dt + 0.14);
+      o.connect(f).connect(g).connect(dest);
+      o.start(t + dt);
+      o.stop(t + dt + 0.16);
+    }
+  }
+
+  /** The Big Hunter's whistle: two shrill toots, in 3D. */
+  whistle(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    for (const dt of [0, 0.38]) {
+      this.tone(dest, t + dt, 'sine', 2900, 3200, 0.28, 0.25);
+      this.tone(dest, t + dt, 'sine', 3050, 3350, 0.28, 0.12);
+      this.noiseBurst(dest, t + dt, 0.25, 7000, 4000, 0.05, 6);
+    }
+  }
+
+  /** Wave start: a hunting horn (a low, then a rising brass note); the boss wave plays it twice, lower. */
+  horn(boss = false): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    const base = boss ? 147 : 196;
+    const notes = boss ? [base, base, base * 1.5] : [base, base * 1.5];
+    notes.forEach((hz, i) => {
+      const at = t + i * 0.42;
+      this.tone(this.master!, at, 'sawtooth', hz, hz * 1.01, 0.5, 0.12);
+      this.tone(this.master!, at, 'triangle', hz * 2, hz * 2.02, 0.5, 0.08);
+    });
+  }
+
+  /** A wave cleared: a short bright cheer of notes. */
+  waveClear(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    [523, 659, 784, 1047].forEach((hz, i) => this.tone(this.master!, t + i * 0.07, 'triangle', hz, hz, 0.22, 0.12));
+  }
+
+  /** A decoy pops: a hollow wooden bonk and a puff, in 3D. */
+  decoyPop(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 300, 90, 0.2, 0.45);
+    this.tone(dest, t, 'square', 700, 300, 0.06, 0.12);
+    this.noiseBurst(dest, t, 0.35, 3000, 300, 0.4, 1);
+  }
+
+  /** A trap snaps shut: a sharp clack and a rope zip, in 3D. */
+  trapSnap(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.noiseBurst(dest, t, 0.05, 6000, 1500, 0.5, 4);
+    this.noiseBurst(dest, t + 0.04, 0.25, 4000, 900, 0.2, 2);
+  }
+
+  /** The tower takes a hit (throttled by the server): a dull wooden knock. */
+  towerKnock(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    this.tone(this.master, t, 'sine', 160, 70, 0.18, 0.18);
+  }
+
+  /** A card picked: a soft click and a sparkle. */
+  cardPick(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    this.tone(this.master, t, 'triangle', 880, 1320, 0.12, 0.12);
+    this.tone(this.master, t + 0.06, 'sine', 1760, 1760, 0.18, 0.06);
+  }
+
   /** Hit marker tick. */
   hit(): void {
     if (!this.ready || !this.ctx || !this.master) return;

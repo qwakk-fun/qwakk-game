@@ -9,6 +9,12 @@ export const TR = {
   nameSaved: 'İsmin hazır.', nameSaving: 'Etiketin hazırlanıyor...',
   playBr: 'Hızlı Oyna', playBrSub: 'Uygun bir Battle Royale odasına katıl',
   playDm: 'Deathmatch', playDmSub: 'Yeniden doğ, en kalabalık odaya katıl',
+  raid: {
+    title: 'Av Sezonu', sub: 'Ortak mod: QoreChain Kulesini 15 avcı dalgasına karşı koru. XP kazandırır.',
+    party: (n: number) => `${n} kişilik grubunla ava başla`, locked: 'Av Sezonu için giriş yap',
+    lockedNote: 'Av Sezonu ördeğine XP kazandırır, bu yüzden hesap gerekir.', best: (wave: number) => `Rekor: dalga ${wave}`,
+    xp: (into: number, need: number) => `${into} / ${need} XP`, maxLevel: 'En yüksek seviye', xpLabel: (level: number) => `Seviye ${level} ilerlemesi`,
+  },
   finding: 'Oda aranıyor...', loadingGame: 'Adaya gidiliyor...',
   tabs: { play: 'Oyna', leaderboard: 'Sıralama', settings: 'Ayarlar', howto: 'Nasıl oynanır', account: 'Hesap' },
   aria: { tabs: 'Menü', home: 'Qwakk ana sayfa', links: 'Bağlantılar', tag: 'Etiketin', steps: 'Maça katıl', lobby: 'Arkadaşlar ve odalar', sortBy: 'Sıralama ölçütü' },
@@ -123,6 +129,7 @@ export const TR = {
     link: 'Depolama bildirimi', ok: 'Tamam', label: 'Depolama bildirimi',
   },
   errors: {
+    raid_full: 'O av başladı ya da dolu. Av Sezonunu yeniden dene.',
     email_invalid: 'Bu e-posta hatalı görünüyor. Kontrol edip tekrar dene.', code_format: 'Kod 6 haneden oluşur.',
     code_wrong: 'Kod eşleşmedi. E-postayı kontrol edip tekrar dene.', code_expired: 'Bu kodun süresi doldu. Yeni bir kod iste.',
     code_locked: 'Çok fazla yanlış deneme. Bu kod kilitlendi, yeni bir kod iste.', code_rate_limited: 'Yavaş ol. Yeni kod istemeden önce birkaç dakika bekle.',
@@ -130,7 +137,7 @@ export const TR = {
     signup_expired: 'Biraz uzun sürdü. Yeni bir kod isteyip tekrar dene.', account_banned: 'Bu hesap askıya alındı. Hata olduğunu düşünüyorsan hello@qwakk.fun adresine yaz.',
     consent_required: 'Devam etmek için ilk kutuyu işaretle. Zorunlu olan tek kutu bu.', confirm_mismatch: 'İsim eşleşmedi. Tam olarak gösterildiği gibi yaz.',
     in_match: 'Önce maçını bitir veya maçtan ayrıl.', slots_full: '4 yuva da dolu. Yer açmak için bir ördeği sil.',
-    needs_account: 'Battle Royale için giriş yap. Misafirler Deathmatch oynar.',
+    needs_account: 'Bu mod için giriş yap. Misafirler Deathmatch oynar.',
     party_has_guest: 'Grubunda bir misafir var. Misafirler sadece Deathmatch oynar, bu yüzden herkes giriş yapana kadar Battle Royale kapalı.',
     unavailable: 'Kayıtlar şu an uykuda. Bir dakika sonra tekrar dene.',
     name_format: '3-16 İngilizce harf, rakam veya _ kullan.', name_blocked: 'Bu isim kullanılamıyor. Başka bir isim dene.',
@@ -148,6 +155,7 @@ export const TR = {
   result: {
     heading: 'Son maç', win: 'Kazanana ekmek ziyafeti!', placed: (p: number, n?: number) => n ? `${n} ördek arasında #${p}` : `#${p}`,
     kills: (k: number) => `${k} eleme`, points: (p: number) => `+${p} puan`, ended: 'Maç bitti. Bir el daha?',
+    raidHeld: (n: number) => `${n} dalga dayandın`, raidXp: (n: number) => `+${n} XP`, raidWon: 'Gölet savunuldu! 15 dalganın hepsi geçildi.', raidEnded: 'Av bitti. Bir tur daha?',
     left: 'Maçtan ayrıldın. Ada seni bekliyor.', disconnected: 'Bağlantın koptu.', removed: 'Bu maçtan çıkarıldın.', closed: 'Oda kapandı. Başka bir oda seç.',
   },
   leaderboard: {
@@ -164,7 +172,7 @@ export const TR = {
     fov: 'Görüş açısı', volume: 'Ana ses', quality: 'Grafikler', qualities: { low: 'Düşük (daha hızlı)', high: 'Yüksek' }, reset: 'Varsayılana dön', saved: 'Kaydedildi',
   },
   howto: {
-    heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır.',
+    heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır. Av Sezonu ortak moddur: en fazla 3 arkadaşınla QoreChain Kulesini 15 avcı dalgasına karşı koru, tüfekli avcı ateş etmeden önce kırmızı lazere dikkat et, dalgalar arasında bir güçlendirme seç ve ördeğine XP kazandır.',
     keys: [
       ['T', 'Oda sohbeti. Enter ile gönder, Esc ile kapat'],
       ['Tıkla', 'Fareyi kilitle ve oyna'], ['W A S D', 'Yürü'], ['Shift', 'Koş'], ['Alt', 'Yavaş yürü'], ['C', 'Eğil (basılı tut)'], ['Space', 'Zıpla'],

@@ -18,6 +18,7 @@ import { stepHeal } from './heal.ts';
 import { isHero, stackSpeedFactor } from './dmBuffs.ts';
 import { heroThrust, stepHeroEnergy, stepHeroVertical } from './heroFlight.ts';
 import { exLauncher, lastExplosive, stepExplosives } from './explosives.ts';
+import { exRoot, tickRoot } from './raid/root.ts';
 
 /** Movement mode. Plane riders are not in the world; freefall and glide are the drop. */
 export const Mode = {
@@ -203,9 +204,11 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
     // Knocked: crawl only. The weapon, the aim and heals stay frozen.
     s.aim = 0;
     stepMovement(sim, s, input, dt);
+    tickRoot(s);
   } else if (s.alive && s.mode === Mode.Ground) {
     stepAim(s, input);
     stepMovement(sim, s, input, dt);
+    tickRoot(s);
     stepHeal(s, input);
     // Grenade throw and the rocket launcher slot; with the launcher up the gun does not step.
     stepExplosives(s, input);
@@ -254,8 +257,10 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   if (wantCrouch && !s.crouch) s.crouch = 1;
   else if (!wantCrouch && s.crouch && hasHeadroom(sim, s.x, s.y, s.z)) s.crouch = 0;
 
+  // Caught in a Hunt Season trap (raid/root.ts): no walking and no jumping until it lets go.
+  const rooted = s.ex !== 0 && exRoot(s) > 0;
   // Jump edge with a short buffer, so a press just before landing still fires.
-  const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0 && s.down === 0;
+  const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0 && s.down === 0 && !rooted;
   if (jumpPressed) s.jumpBuf = JUMP_BUFFER_TICKS;
   else if (s.jumpBuf > 0) s.jumpBuf -= 1;
 
@@ -266,13 +271,13 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   let wz = -input.mx * sy - input.mz * cy;
   const wlen = Math.sqrt(wx * wx + wz * wz);
   let wishSpeed = 0;
-  if (wlen > 1e-6) {
+  if (wlen > 1e-6 && !rooted) {
     wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1) * stackSpeedFactor(s);
     wx /= wlen;
     wz /= wlen;
   }
 
-  const canJump = s.down === 0 && s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
+  const canJump = s.down === 0 && !rooted && s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
   const hero = isHero(s);
   if (s.grounded) {
     applyFriction(s, dt, s.down ? KNOCK.crawlStopSpeed : MOVE.stopSpeed);

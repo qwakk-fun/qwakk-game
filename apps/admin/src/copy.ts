@@ -81,6 +81,7 @@ export const COPY = {
       dmBot: 'Deathmatch bots',
       br: 'Battle royale',
       brBot: 'Battle royale bots',
+      raid: 'Hunt Season',
       weapons: 'Weapon damage',
     } as Record<string, string>,
     applies: { now: 'Now', 'next-round': 'Next round', 'new-rooms': 'New rooms' } as Record<string, string>,

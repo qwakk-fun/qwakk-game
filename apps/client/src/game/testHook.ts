@@ -13,6 +13,7 @@ import type { FrameTimer, MotionProbe } from './metrics.ts';
 import type { BrClient } from './brClient.ts';
 import type { WorldHandle } from '../world/worldHandle.ts';
 import type { NameTags } from './nameTags.ts';
+import type { RaidClient } from './raidClient.ts';
 
 export interface TestView {
   session: Session;
@@ -32,6 +33,8 @@ export interface TestView {
   tags: NameTags;
   /** Deathmatch explosives (null in the battle royale). */
   explosives: { stats(): Record<string, number | boolean> } | null;
+  /** Hunt Season (null in the other modes). */
+  raid: RaidClient | null;
 }
 
 function renderStats(v: TestView): { drawCalls: number; triangles: number; world: { drawCalls: number; triangles: number } | null } {
@@ -100,6 +103,25 @@ export function exposeTestHook(v: TestView): void {
     },
     /** Deathmatch explosives drawn here: projectiles, blasts, our predicted throws, the throw preview. */
     explosives: () => ({ ...(v.explosives?.stats() ?? {}), now: performance.now() }),
+    /** Hunt Season: the run as this client sees it. */
+    raid: () => {
+      const r = v.raid;
+      if (!r) return null;
+      const st = v.session.room.state;
+      return {
+        stage: st.raid.stage, wave: st.raid.wave, left: st.raid.left, tower: st.raid.towerHp, towerMax: st.raid.towerMax, bossHp: st.raid.bossHp, bossMax: st.raid.bossMax,
+        huntersInState: st.hunters.size, traps: st.traps.size, drops: st.raidDrops.size, ducks: st.raid.ducks, teamKills: st.raid.kills,
+        ...r.stats, artLoaded: r.artLoaded, artChecked: r.artChecked, cardsOpen: r.hud.cardsOpen, endOpen: r.endOpen, maxHp: r.maxHp,
+        hp: v.session.me?.state.hp ?? 0, alive: v.session.mine?.alive ?? 0, down: v.session.me?.state.down ?? 0,
+        serverNow: v.session.room.clock.serverNow(), waveAt: st.raid.waveAt, ends: st.raid.ends,
+      };
+    },
+    /** Test servers only (QWAKK_TEST_HOOKS=1): skip to a wave, beat the wave, start now, end the break. */
+    devRaid: (op: string, wave = 0) => v.session.room.send('dev:raid', { op, wave }),
+    /** Hunt Season: the hunters as drawn, nearest first (screenshots). */
+    hunters: () => v.raid?.huntersDrawn() ?? [],
+    /** Pick a Hunt Season card as a click would. */
+    raidPick: (i: number) => v.raid?.pickCard(i),
     /** Test servers only (QWAKK_TEST_HOOKS=1): hurt our own battle royale duck (knock it for the revive e2e). */
     devHurt: (n: number) => v.session.room.send('dev:hurt', n),
     /** Where a player is drawn (pose) by session id, or null when not sent. */

@@ -66,9 +66,11 @@ function step(sim: SimWorld, s: PlayerSim, buttons: number): number {
 
 describe('packed explosive state', () => {
   it('round-trips and clamps, and every gate fits its bits', () => {
-    const e = { nades: 2, rockets: 3, out: 1, nadeCd: 24, rocketCd: 33 };
+    const e = { nades: 2, rockets: 3, out: 1, nadeCd: 24, rocketCd: 33, root: 40 };
     expect(unpackEx(packEx(e))).toEqual(e);
-    expect(unpackEx(packEx({ nades: 99, rockets: 99, out: 1, nadeCd: 99, rocketCd: 99 }))).toEqual({ nades: 7, rockets: 15, out: 1, nadeCd: 31, rocketCd: 63 });
+    expect(unpackEx(packEx({ nades: 99, rockets: 99, out: 1, nadeCd: 99, rocketCd: 99, root: 99 }))).toEqual({ nades: 7, rockets: 15, out: 1, nadeCd: 31, rocketCd: 63, root: 63 });
+    // Fits the uint32 wire field.
+    expect(packEx({ nades: 7, rockets: 15, out: 1, nadeCd: 31, rocketCd: 63, root: 63 })).toBeLessThan(2 ** 32);
     expect(EXPLOSIVE.grenade.throwTicks).toBeLessThanOrEqual(EX_MAX.nadeCd);
     expect(Math.max(EXPLOSIVE.rocket.fireTicks, EXPLOSIVE.rocket.equipTicks, EXPLOSIVE.grenade.busyTicks)).toBeLessThanOrEqual(EX_MAX.rocketCd);
     expect(EXPLOSIVE.grenade.perLife).toBeLessThanOrEqual(EX_MAX.nades);

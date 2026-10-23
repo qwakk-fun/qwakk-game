@@ -2,7 +2,7 @@
 
 export interface RoomInfo {
   roomId: string;
-  kind: 'dm' | 'br';
+  kind: 'dm' | 'br' | 'raid';
   label: string;
   mode: string;
   mapId: string;
@@ -58,7 +58,7 @@ export type SettingValue = number | boolean | string;
 
 export interface Setting {
   key: string;
-  group: 'dm' | 'dmBot' | 'br' | 'brBot' | 'weapons' | 'ops';
+  group: 'dm' | 'dmBot' | 'br' | 'brBot' | 'raid' | 'weapons' | 'ops';
   label: string;
   help: string;
   kind: 'int' | 'number' | 'bool' | 'text';

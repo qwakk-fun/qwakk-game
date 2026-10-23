@@ -374,6 +374,10 @@ textarea {
   background: rgba(255, 212, 59, 0.16);
   color: var(--yellow);
 }
+.badge.is-raid {
+  background: rgba(103, 232, 176, 0.14);
+  color: #67e8b0;
+}
 .badge.is-bad {
   background: rgba(255, 107, 91, 0.16);
   color: var(--bad);

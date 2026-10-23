@@ -83,7 +83,7 @@ export function dashboardPage(): Page {
       if (!players.hidden) void loadPlayers(r, players);
     });
     const actions = h('div', { class: 'room-actions' }, toggle);
-    if (r.kind === 'br')
+    if (r.kind === 'br' || r.kind === 'raid')
       actions.append(
         button(
           D.close,
@@ -107,7 +107,7 @@ export function dashboardPage(): Page {
       h(
         'div',
         { class: 'room-main' },
-        h('div', { class: 'room-name' }, h('span', { class: `badge is-${r.kind}` }, r.kind === 'dm' ? 'DM' : 'BR'), h('strong', {}, label), h('span', { class: 'muted mono' }, r.kind === 'br' ? `#${r.roomId.slice(0, 4).toUpperCase()}` : r.mapId)),
+        h('div', { class: 'room-name' }, h('span', { class: `badge is-${r.kind}` }, r.kind === 'dm' ? 'DM' : r.kind === 'raid' ? 'HUNT' : 'BR'), h('strong', {}, label), h('span', { class: 'muted mono' }, r.kind !== 'dm' ? `#${r.roomId.slice(0, 4).toUpperCase()}` : r.mapId)),
         h(
           'dl',
           { class: 'room-stats' },

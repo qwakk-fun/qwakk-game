@@ -44,6 +44,23 @@ describe('admin panel switched off', () => {
       server.close();
     }
   });
+
+  it('passes every other path on to the next handler (the client files)', () => {
+    const off = createAdminHandler(null);
+    for (const url of ['/', '/terms', '/assets/main.js', '/administrator']) {
+      let passed = false;
+      const res = { statusCode: 200, setHeader() {}, end() {} } as never;
+      off({ url } as never, res, () => { passed = true; });
+      expect(passed, url).toBe(true);
+    }
+    for (const url of ['/admin', '/admin/api/overview']) {
+      let passed = false;
+      const res = { statusCode: 200, setHeader() {}, end() {} } as { statusCode: number };
+      off({ url } as never, res as never, () => { passed = true; });
+      expect(passed, url).toBe(false);
+      expect(res.statusCode, url).toBe(404);
+    }
+  });
 });
 
 describe('admin panel', () => {

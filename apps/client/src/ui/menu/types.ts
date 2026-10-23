@@ -2,7 +2,7 @@
 import type { GameSettings } from '../../settings.ts';
 import type { HeroModule } from './heroSlot.ts';
 
-export type GameMode = 'br' | 'dm';
+export type GameMode = 'br' | 'dm' | 'raid';
 /** removed: the server took the player out of the match; closed: the room was closed. */
 export type ExitReason = 'ended' | 'left' | 'disconnected' | 'removed' | 'closed';
 
@@ -13,6 +13,10 @@ export interface MatchSummary {
   players?: number;
   kills?: number;
   points?: number;
+  /** Hunt Season: waves held, XP gained, and "Play again" from the end screen. */
+  waves?: number;
+  xp?: number;
+  again?: boolean;
 }
 
 export interface StartOptions {

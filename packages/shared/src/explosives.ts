@@ -20,7 +20,9 @@
  * All of it is packed into the one sim field `ex` (integers, so it stays
  * exact and deterministic): the player schema has a hard limit of 64 fields
  * and only a few are left. Layout, low bits first:
- *   nades 3 bits | rockets 4 bits | launcher up 1 bit | throw gate 5 bits | launcher gate 6 bits
+ *   nades 3 bits | rockets 4 bits | launcher up 1 bit | throw gate 5 bits | launcher gate 6 bits | root 6 bits
+ * `root` is Hunt Season's trap (raid/root.ts): ticks left that the duck
+ * cannot walk or jump, set by the server, counted down by the sim.
  * The battle royale never fills it (always 0), so none of this ever acts there.
  */
 import { EXPLOSIVE } from './constants.ts';
@@ -34,10 +36,12 @@ export const ExplosiveKind = {
   None: 0,
   Grenade: 1,
   Rocket: 2,
+  /** Hunt Season: a decoy thrower's wooden decoy duck (server flight like a grenade, a small toony pop). Never thrown by a duck. */
+  Decoy: 3,
 } as const;
 
 /** Largest values the packed `ex` field holds. */
-export const EX_MAX = { nades: 7, rockets: 15, nadeCd: 31, rocketCd: 63 } as const;
+export const EX_MAX = { nades: 7, rockets: 15, nadeCd: 31, rocketCd: 63, root: 63 } as const;
 
 /** The unpacked explosive state of a duck. */
 export interface ExState {
@@ -47,6 +51,8 @@ export interface ExState {
   out: number;
   nadeCd: number;
   rocketCd: number;
+  /** Hunt Season: ticks left rooted by a trap (raid/root.ts). */
+  root: number;
 }
 
 const clampInt = (v: number, max: number): number => Math.max(0, Math.min(max, Math.floor(v)));
@@ -57,17 +63,19 @@ export function packEx(e: ExState): number {
     (clampInt(e.rockets, EX_MAX.rockets) << 3) |
     ((e.out ? 1 : 0) << 7) |
     (clampInt(e.nadeCd, EX_MAX.nadeCd) << 8) |
-    (clampInt(e.rocketCd, EX_MAX.rocketCd) << 13)
+    (clampInt(e.rocketCd, EX_MAX.rocketCd) << 13) |
+    (clampInt(e.root, EX_MAX.root) << 19)
   );
 }
 
-export function unpackEx(ex: number, out: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0 }): ExState {
+export function unpackEx(ex: number, out: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0, root: 0 }): ExState {
   const v = ex | 0;
   out.nades = v & 7;
   out.rockets = (v >>> 3) & 15;
   out.out = (v >>> 7) & 1;
   out.nadeCd = (v >>> 8) & 31;
   out.rocketCd = (v >>> 13) & 63;
+  out.root = (v >>> 19) & 63;
   return out;
 }
 
@@ -100,7 +108,7 @@ export const lastExplosive = { kind: 0 as number };
 
 const pressed = (b: number, prev: number, bit: number): boolean => (b & bit) !== 0 && (prev & bit) === 0;
 const released = (b: number, prev: number, bit: number): boolean => (b & bit) === 0 && (prev & bit) !== 0;
-const scratch: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0 };
+const scratch: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0, root: 0 };
 
 /** Put the launcher away and bring the gun back up (equip time like a switch). */
 function holster(s: PlayerSim, e: ExState, want: number): void {

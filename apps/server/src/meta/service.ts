@@ -12,6 +12,7 @@ import { loadConfig, type MetaConfig } from './config.ts';
 import { ipKey, normalizeIp } from './ip.ts';
 import { currentSeason, MODES, playerStanding, seasonById, SORTS, topPlayers, type ModeFilter, type Season, type SortKey, type Standing } from './leaderboard.ts';
 import { insertMatch, normalizeMatch, type MatchResult } from './matches.ts';
+import { insertRaid, normalizeRaid, type RaidGrant, type RaidRunResult } from './raid.ts';
 import { migrate, readMigrations, MIGRATIONS_DIR } from './migrate.ts';
 import { checkName } from './names.ts';
 import { offlineTag, upsertPlayer } from './players.ts';
@@ -235,6 +236,27 @@ export class MetaService {
       this.cache.clear();
     } catch (err) {
       console.error('[meta] recordMatch failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  /**
+   * Record a finished Hunt Season run and grant its XP (server only, at the
+   * run end). Never throws. Null without a database, when the run was already
+   * recorded, or on failure (the XP then is not stored; the room said so).
+   */
+  async recordRaid(result: RaidRunResult): Promise<Map<string, RaidGrant> | null> {
+    if (!this.config.databaseUrl || !this.db) return null;
+    await new Promise<void>((r) => setImmediate(r));
+    try {
+      const run = normalizeRaid(result);
+      if (!run) {
+        console.warn('[meta] raid result rejected by validation:', result?.runId);
+        return null;
+      }
+      return await insertRaid(this.db, run);
+    } catch (err) {
+      console.error('[meta] recordRaid failed:', err instanceof Error ? err.message : err);
+      return null;
     }
   }
 

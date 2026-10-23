@@ -17,8 +17,11 @@
  *                     e2e and benchmarks with fewer browsers use 1 or 2)
  *   QWAKK_BR_SEED     battle royale match seed (default: random per match)
  *   QWAKK_ZONE_SCALE  zone timeline speed-up for tests (0.2 = five times faster)
+ *   QWAKK_RAID_COUNTDOWN Hunt Season lobby countdown seconds (default 15; tests use less)
+ *   QWAKK_RAID_MAX_ROOMS Hunt Season rooms open at once (default: the raid.maxRooms setting)
  *   QWAKK_TEST_HOOKS=1 tests only, refused in production: a client may hurt its own
- *                     battle royale duck (the party e2e knocks a duck to revive it), and
+ *                     battle royale duck (the party e2e knocks a duck to revive it), skip
+ *                     or beat Hunt Season waves (dev:raid), and
  *                     the dev mail sink's codes are readable at GET /api/test/mail
  *   Accounts (email sign-in codes): SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS,
  *                     MAIL_FROM (see src/meta/config.ts; unset in dev: a local mail sink)
@@ -34,9 +37,10 @@
 import { matchMaker, Server } from '@colyseus/core';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { WebSocketTransport } from '@colyseus/ws-transport';
-import { BR, NET, PARTY, ROOM } from '@qwakk/shared';
+import { BR, NET, PARTY, RAID, ROOM } from '@qwakk/shared';
 import { IslandRoom, type IslandRoomOptions } from './IslandRoom.ts';
 import { BrRoom, type BrRoomOptions } from './BrRoom.ts';
+import { RaidRoom, type RaidRoomOptions } from './RaidRoom.ts';
 import { createBrBot } from './br/brBot.ts';
 import { BotNav } from './nav/botNav.ts';
 import { loadOrBuildInBackground } from './nav/navmesh.ts';
@@ -49,7 +53,7 @@ import { QwakkLobby } from './lobby.ts';
 import { installMatchmakingGuard } from './matchmaking.ts';
 import { CLOSE_CODE, LOBBY_ROOM } from '@qwakk/shared/lobby';
 import { createClientHandler } from './staticClient.ts';
-import { brMaxRooms, openDmRooms } from './settings/index.ts';
+import { brMaxRooms, openDmRooms, raidMaxRooms } from './settings/index.ts';
 import { startAdmin } from './admin/index.ts';
 import { createAdminHandler, type AdminHandler } from './admin/http.ts';
 import { installDmRoomControl } from './ops/dmRooms.ts';
@@ -146,6 +150,16 @@ const brOptions: BrRoomOptions = {
 // Lobby rooms: the built-in LobbyRoom lists battle royale and deathmatch rooms live (lobby.ts);
 // battle royale Quick Play (joinOrCreate) picks the open room with the most players.
 server.define(BR.roomName, BrRoom, brOptions).enableRealtimeListing().sortBy({ clients: -1 });
+// Hunt Season: signed-in ducks only, on the deathmatch town (its navmesh). Not listed in the lobby;
+// Quick Play joins an open lobby (joinOrCreate), a party leader opens one (create).
+const raidOptions: RaidRoomOptions = {
+  statsMs: roomOptions.statsMs,
+  interest: roomOptions.interest,
+  nav: navOf(RAID.mapId),
+  testHooks: process.env.QWAKK_TEST_HOOKS === '1' && process.env.NODE_ENV !== 'production',
+};
+startNav(RAID.mapId);
+server.define(RAID.roomName, RaidRoom, raidOptions).sortBy({ clients: -1 });
 server.define(LOBBY_ROOM, QwakkLobby);
 // Parties: private rooms joined by code (party/PartyRoom.ts); never listed.
 server.define(PARTY.roomName, PartyRoom);
@@ -155,6 +169,9 @@ installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
   maxRooms: {
     get [BR.roomName]() {
       return brMaxRooms();
+    },
+    get [RAID.roomName]() {
+      return raidMaxRooms();
     },
   },
   // Maintenance and the team modes switched off (admin settings).
@@ -168,9 +185,9 @@ installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
   party: { roomName: PARTY.roomName, allowCreate: allowPartyCreate, allowJoin: allowPartyJoin },
   // `{ spectate: true }` only where spectators are on (QWAKK_SPECTATORS=1, the deathmatch rooms).
   spectators: (name) => roomOptions.spectators === true && name === ROOM.name,
-  // Guests play deathmatch only: battle royale needs an account (and a party without guests).
+  // Guests play deathmatch only: battle royale and Hunt Season need an account (and a party without guests).
   accountOnly: {
-    rooms: [BR.roomName],
+    rooms: [BR.roomName, RAID.roomName],
     identify: verifySession,
     partyHasGuest: (id) => parties.partyHasGuest(id),
     roomNameOf: (id) => matchMaker.getLocalRoomById(id)?.roomName,

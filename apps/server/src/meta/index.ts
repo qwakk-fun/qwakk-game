@@ -23,6 +23,7 @@ import { createMetaHandler } from './http.ts';
 import { MetaService } from './service.ts';
 
 export type { MatchResult } from './matches.ts';
+export type { RaidRunResult, RaidGrant } from './raid.ts';
 export type { Identity } from './service.ts';
 export { MetaService } from './service.ts';
 
@@ -43,6 +44,16 @@ export async function recordMatch(result: import('./matches.ts').MatchResult): P
     await meta().recordMatch(result);
   } catch (err) {
     console.error('[meta] recordMatch failed:', err instanceof Error ? err.message : err);
+  }
+}
+
+/** A finished Hunt Season run: stored, with the XP of its account ducks granted. Null without a database or on failure; never throws. */
+export async function recordRaid(result: import('./raid.ts').RaidRunResult): Promise<Map<string, import('./raid.ts').RaidGrant> | null> {
+  try {
+    return await meta().recordRaid(result);
+  } catch (err) {
+    console.error('[meta] recordRaid failed:', err instanceof Error ? err.message : err);
+    return null;
   }
 }
 

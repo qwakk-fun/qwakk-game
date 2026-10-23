@@ -970,3 +970,19 @@ button.qm-char:hover:not(:disabled) {
     min-height: 52px;
   }
 }
+
+/* Hunt Season (co-op): the third mode button, the brand yellow on its tower icon. */
+.qm-btn-raid .qm-btn-icon {
+  background: rgba(255, 212, 59, 0.14);
+  color: var(--qm-yellow);
+}
+.qm-btn-raid:hover:not(:disabled) {
+  border-color: rgba(255, 212, 59, 0.55);
+  background: rgba(255, 212, 59, 0.07);
+}
+.qm-btn-raid.is-locked .qm-btn-sub {
+  color: var(--qm-text-3);
+}
+.qm-play-buttons .qm-btn-raid {
+  grid-column: 1 / -1;
+}

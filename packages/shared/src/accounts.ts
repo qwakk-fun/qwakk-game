@@ -38,6 +38,9 @@ export const ACCOUNT_ERROR = {
   roomPartyHasGuest: 4413,
 } as const;
 
+/** Room names only signed-in ducks may join (the matchmaking guard and each room's onAuth check it). */
+export const ACCOUNT_ROOMS = ['br', 'raid'] as const;
+
 /** A duck of an account, as the account API sends it. */
 export interface CharacterView {
   /** The player id (the leaderboard and match rows use it). */
@@ -47,8 +50,11 @@ export interface CharacterView {
   tag: string;
   /** Shared character catalog id (`characters.ts`). */
   look: number;
+  /** Level and total XP (Hunt Season gives XP; levels are cosmetic, `@qwakk/shared/progress`). */
   level: number;
   xp: number;
+  /** Hunt Season personal best: most waves cleared and the fastest time to clear them, runs and wins; null before the first run. */
+  raidBest?: { wave: number; ms: number; runs: number; wins: number } | null;
 }
 
 /** The signed-in account, as GET /api/account sends it. */

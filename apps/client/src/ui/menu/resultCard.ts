@@ -38,6 +38,15 @@ export class ResultCard {
     const fill = (s: MatchSummary): void => {
       lines.length = 0;
       const mode = s.mode ?? lastMode;
+      if (mode === 'raid') {
+        won = (s.waves ?? 0) >= 15;
+        headline = won ? R.raidWon : R.raidEnded;
+        if (s.waves !== undefined) lines.push(R.raidHeld(s.waves));
+        if (s.kills !== undefined) lines.push(R.kills(s.kills));
+        if (s.xp) lines.push(R.raidXp(s.xp));
+        hasPoints = true;
+        return;
+      }
       if (s.placement === 1 && mode === 'br') {
         headline = R.win;
         won = true;

@@ -33,7 +33,7 @@ function wire(room: Room, hooks: PartyHooks): PartyConnection {
     if (v && Array.isArray(v.members)) hooks.view(v);
   });
   room.onMessage(PartyMsg.Go, (g: PartyGo) => {
-    if (g && (g.mode === 'br' || g.mode === 'dm') && typeof g.roomId === 'string') hooks.go(g);
+    if (g && (g.mode === 'br' || g.mode === 'dm' || g.mode === 'raid') && typeof g.roomId === 'string') hooks.go(g);
   });
   room.onLeave((code) => {
     if (!left) hooks.dropped(code);

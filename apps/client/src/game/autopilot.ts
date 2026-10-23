@@ -54,7 +54,32 @@ export class Autopilot {
     return { mx: Math.sin(this.t / 50) * 0.4, mz: 1, buttons: sprint | jump };
   }
 
-  fight(me: PlayerSim, view: { yaw: number; pitch: number }, ducks: readonly SeenDuck[]): { mx: number; mz: number; buttons: number } {
+  /**
+   * Hunt Season: fight the hunters it sees (as fight()), revive a knocked
+   * friend close by (hold E), else hold a spot by the tower.
+   */
+  raid(me: PlayerSim, view: { yaw: number; pitch: number }, v: { hunters: readonly SeenDuck[]; knocked: { x: number; z: number } | null; tower: { x: number; z: number } }): { mx: number; mz: number; buttons: number } {
+    // Knocked and alone: the second wind (hold E).
+    if (me.down) return { mx: 0, mz: 0, buttons: Button.Use };
+    if (v.knocked && Math.hypot(v.knocked.x - me.x, v.knocked.z - me.z) < 18) {
+      const near = v.hunters.some((h) => Math.hypot(h.x - me.x, h.z - me.z) < 12);
+      if (!near) {
+        const d = Math.hypot(v.knocked.x - me.x, v.knocked.z - me.z);
+        const want = Math.atan2(-(v.knocked.x - me.x), -(v.knocked.z - me.z));
+        const dy = ((want - view.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+        view.yaw += Math.max(-0.2, Math.min(0.2, dy));
+        view.pitch = -0.3;
+        return d > 1.4 ? { mx: 0, mz: 1, buttons: 0 } : { mx: 0, mz: 0, buttons: Button.Use };
+      }
+    }
+    // Nobody in sight: go for the nearest hunter (they are public in a hunt), else hold by the tower.
+    let near: SeenDuck | null = null;
+    for (const h of v.hunters) if (!near || Math.hypot(h.x - me.x, h.z - me.z) < Math.hypot(near.x - me.x, near.z - me.z)) near = h;
+    const home = near && Math.hypot(near.x - me.x, near.z - me.z) > 6 ? { x: near.x, z: near.z } : { x: v.tower.x + 4, z: v.tower.z + 14 };
+    return this.fight(me, view, v.hunters, home);
+  }
+
+  fight(me: PlayerSim, view: { yaw: number; pitch: number }, ducks: readonly SeenDuck[], home?: { x: number; z: number }): { mx: number; mz: number; buttons: number } {
     this.t += 1;
     if (this.t % 25 === 0) this.strafe = -this.strafe;
     const o = aimOrigin(this.sim, me, 1, this.tmp);
@@ -73,8 +98,8 @@ export class Autopilot {
       bestD = dist;
     }
     if (!best) {
-      // Wander toward the arena center (the deathmatch play area).
-      const c = this.sim.map.arena;
+      // Wander toward the arena center (the deathmatch play area), or the given home spot.
+      const c = home ?? this.sim.map.arena;
       const yaw = Math.atan2(me.x - c.x, me.z - c.z);
       view.yaw += Math.max(-0.1, Math.min(0.1, ((yaw - view.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI));
       view.pitch *= 0.9;

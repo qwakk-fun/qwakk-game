@@ -30,6 +30,10 @@ export interface CombatViews {
   localAvatar: Avatar;
   remoteAvatar(id: string): Avatar | null;
   myPosition(): THREE.Vector3;
+  /** Hunt Season: hunters and traps as drawn (our predicted shots hit them too; the server decides). */
+  otherTargets?(): HitTarget[];
+  /** Hunt Season: the kill feed name of a hunter (a KillWeapon.HunterBase code), or null for anything else. */
+  hunterOf?(weapon: number): string | null;
 }
 
 export interface CombatStats {
@@ -131,7 +135,9 @@ export class CombatFeedback {
         const by = this.session.playerByPid(byPid);
         const victim = this.session.playerByPid(victimPid);
         const myPid = this.session.mine?.pid ?? -1;
-        this.hud.killFeed(byPid === 0 ? 'The zone' : (by?.name ?? '?'), victim?.name ?? '?', `knocked${byPid === 0 ? '' : ` (${WEAPON_NAMES[weapon] ?? ''})`}`, head, byPid === myPid || victimPid === myPid);
+        const hunter = this.views.hunterOf?.(weapon) ?? null;
+        if (hunter) this.hud.killFeed(hunter, victim?.name ?? '?', 'knocked', head, victimPid === myPid);
+        else this.hud.killFeed(byPid === 0 ? 'The zone' : (by?.name ?? '?'), victim?.name ?? '?', `knocked${byPid === 0 ? '' : ` (${WEAPON_NAMES[weapon] ?? ''})`}`, head, byPid === myPid || victimPid === myPid);
         if (victimPid === myPid) this.sound.hurt();
       },
       kill: (killerPid, victimPid, weapon, head, at) => {
@@ -142,7 +148,9 @@ export class CombatFeedback {
         const zone = killerPid === 0;
         const left = weapon === KillWeapon.Left;
         const bled = weapon === KillWeapon.Bleed;
+        const hunter = this.views.hunterOf?.(weapon) ?? null;
         if (left) this.hud.killFeed(victim?.name ?? '?', '', 'left the pond', false, false);
+        else if (hunter) this.hud.killFeed(hunter, victim?.name ?? '?', 'bagged', head, victimPid === myPid);
         else if (bled) this.hud.killFeed(victim?.name ?? '?', '', 'bled out', false, victimPid === myPid || killerPid === myPid);
         else if (explosiveKill(weapon)) {
           // A grenade or rocket kill (killer 0: the thrower left before the blast).
@@ -165,7 +173,7 @@ export class CombatFeedback {
         if (victimPid === myPid) {
           this.diedAt = performance.now();
           this.stats.deaths++;
-          this.killerName = zone && !bled && !explosiveKill(weapon) ? 'the zone' : (killer?.name ?? '');
+          this.killerName = hunter ?? (zone && !bled && !explosiveKill(weapon) ? 'the zone' : (killer?.name ?? ''));
           this.killerId = zone ? null : this.session.idOfPid(killerPid);
           this.sound.quack(undefined, 0.4);
         }
@@ -193,6 +201,8 @@ export class CombatFeedback {
       const pose = this.session.pose(id);
       if (pose) targets.push({ id, x: pose.x, y: pose.y, z: pose.z, crouch: pose.crouch > 0.5 ? 1 : 0 });
     }
+    const others = playing ? this.views.otherTargets?.() : undefined;
+    if (others && others.length > 0) targets.push(...others);
     const side = buttons & Button.ShoulderLeft ? -1 : 1;
     // The server's spread seed includes a round secret, so this is our own guess at the random part of the
     // spread; the learnable pattern is exact. The server's result decides and is what others see.
@@ -213,7 +223,9 @@ export class CombatFeedback {
       this.stats.predictedHits++;
       this.lastPredictedMarker = performance.now();
       this.marker(r.outcome === ShotOutcome.Head);
-      this.fx.feathersBurst(this.b, this.d, r.outcome === ShotOutcome.Head ? 14 : 9);
+      // A hunter is not a duck: a toony puff, no feathers.
+      if (!this.session.remotes.has(r.targetId)) this.fx.toonPop(this.b, 0.5, r.outcome === ShotOutcome.Head);
+      else this.fx.feathersBurst(this.b, this.d, r.outcome === ShotOutcome.Head ? 14 : 9);
       this.stats.featherBursts++;
       this.stats.lastFeatherAt = performance.now();
     } else if (r.outcome === ShotOutcome.World) {
@@ -235,6 +247,7 @@ export class CombatFeedback {
     this.fx.tracer(this.a, this.b, 0.025);
     this.sound.shot(weapon, this.a);
     if (outcome === ShotOutcome.Body || outcome === ShotOutcome.Head) {
+      // pid 0 is a hunter's shot (Hunt Season): only ducks lose feathers, and a hunter's hit is on a duck.
       this.fx.feathersBurst(this.b, this.d, outcome === ShotOutcome.Head ? 12 : 7);
       this.stats.featherBursts++;
     } else if (outcome === ShotOutcome.World) {

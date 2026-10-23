@@ -7,7 +7,7 @@
  * client also simulates for prediction (movement, fire rate, spread, recoil,
  * aim down sights) stays a constant (it needs a client deploy).
  */
-import { BR, DM_BOT, DM_HERO, EXPLOSIVE, KILL_STACKS, MATCH, ROOM, SPAWN_PROTECTION, TICK_RATE, WEAPONS, ZONE } from '@qwakk/shared';
+import { BR, DM_BOT, DM_HERO, EXPLOSIVE, KILL_STACKS, MATCH, RAID, ROOM, SPAWN_PROTECTION, TICK_RATE, WEAPONS, ZONE } from '@qwakk/shared';
 import { DM_OPEN_ROOMS, DM_ROOM_CATALOG } from '@qwakk/shared/lobby';
 import { BR_SKILL } from '../br/brBot.ts';
 
@@ -15,7 +15,7 @@ import { BR_SKILL } from '../br/brBot.ts';
 export type Applies = 'now' | 'next-round' | 'new-rooms';
 export type SettingKind = 'int' | 'number' | 'bool' | 'text';
 export type SettingValue = number | boolean | string;
-export type SettingGroup = 'dm' | 'dmBot' | 'br' | 'brBot' | 'weapons' | 'ops';
+export type SettingGroup = 'dm' | 'dmBot' | 'br' | 'brBot' | 'raid' | 'weapons' | 'ops';
 
 export interface SettingDef {
   key: string;
@@ -208,6 +208,36 @@ function dmBuffDefs(): SettingDef[] {
   ];
 }
 
+/** Hunt Season (raid/rules.ts): everything the server alone decides about a run. Read when a room opens. */
+function raidDefs(): SettingDef[] {
+  const n = (key: string, label: string, help: string, def: number, min: number, max: number, step: number, unit: string, kind: 'int' | 'number' = 'number'): SettingDef => ({ key: `raid.${key}`, group: 'raid', label, help, kind, default: def, min, max, step, unit, applies: 'new-rooms' });
+  return [
+    { key: 'raid.maxRooms', group: 'raid', label: 'Runs at once', help: 'Hunt Season rooms open at the same time (lobby or running). 0 opens none.', kind: 'int', default: 3, min: 0, max: 12, step: 1, unit: 'rooms', applies: 'now', env: 'QWAKK_RAID_MAX_ROOMS' },
+    { ...n('lobbySeconds', 'Lobby countdown', 'The first duck starts it; each later duck adds 5 s (up to 30 s); four ducks start in 5 s.', RAID.lobbySeconds, 3, 60, 1, 's', 'int'), env: 'QWAKK_RAID_COUNTDOWN' },
+    n('breakSeconds', 'Break between waves', 'Time to pick an upgrade before the next wave.', RAID.breakSeconds, 5, 60, 1, 's', 'int'),
+    n('towerHp', 'Tower health', 'The QoreChain Tower falls (the run is lost) at 0.', RAID.towerHp, 100, 5000, 50, 'hp', 'int'),
+    n('maxLive', 'Hunters at once', 'Most hunters and dogs alive at the same time; the rest of a wave waits.', RAID.maxLive, 5, 40, 1, 'hunters', 'int'),
+    n('hunterHpScale', 'Hunter health', 'Every hunter health times this.', 1, 0.3, 3, 0.05, 'x'),
+    n('hunterDamageScale', 'Hunter damage', 'Every hunter shot, bite, trap and decoy times this.', 1, 0.2, 3, 0.05, 'x'),
+    n('towerDamageScale', 'Tower damage', 'How hard hunters at the tower hit it, times this.', 1, 0.2, 3, 0.05, 'x'),
+    n('hunterReactionMin', 'Hunter reaction, fastest', 'Ticks from first seeing a duck to the first shot (on top of the aim telegraph; 30 ticks = 1 s).', 15, 0, 90, 1, 'ticks', 'int'),
+    n('hunterReactionMax', 'Hunter reaction, slowest', 'Upper end of the reaction range.', 25, 0, 90, 1, 'ticks', 'int'),
+    n('hunterAimError', 'Hunter aim error', 'Aim error on a new target (rad, either way); it settles while the hunter aims.', 0.1, 0, 0.4, 0.005, 'rad'),
+    n('hunterSpreadDeg', 'Hunter spread', 'Random cone added to every hunter bullet and pellet.', 1.1, 0, 6, 0.1, 'deg'),
+    n('upgrade.damagePercent', 'Upgrade: damage', 'More damage per card.', 15, 1, 50, 1, '%', 'int'),
+    n('upgrade.maxHealth', 'Upgrade: max health', 'More max health per card.', 20, 5, 60, 5, 'hp', 'int'),
+    n('upgrade.armorPercent', 'Upgrade: armor', 'Less damage taken per card (at most 70% in all).', 10, 1, 30, 1, '%', 'int'),
+    n('upgrade.regenPerSecond', 'Upgrade: regen', 'Health per second per card, after 3 s without a hit.', 1.5, 0.5, 6, 0.5, 'hp/s'),
+    n('upgrade.revivePercent', 'Upgrade: faster revive', 'Shorter revives per card.', 25, 5, 50, 5, '%', 'int'),
+    n('upgrade.headshotPercent', 'Upgrade: headshot', 'More headshot damage per card.', 30, 5, 100, 5, '%', 'int'),
+    n('upgrade.lifesteal', 'Upgrade: lifesteal', 'Health back per hunter bagged, per card.', 6, 1, 30, 1, 'hp', 'int'),
+    n('upgrade.repair', 'Upgrade: tower repair kit', 'Tower health back (offered only when the tower is hurt).', 250, 50, 1000, 50, 'hp', 'int'),
+    n('dropAmmoPercent', 'Ammo drop chance', 'Chance a defeated hunter drops ammo.', 22, 0, 100, 1, '%', 'int'),
+    n('dropHealPercent', 'Heal drop chance', 'Chance a defeated hunter drops a small heal.', 12, 0, 100, 1, '%', 'int'),
+    n('healAmount', 'Heal drop', 'Health a heal drop gives.', 25, 5, 100, 5, 'hp', 'int'),
+  ];
+}
+
 export const SETTING_DEFS: readonly SettingDef[] = [
   ...dmRoomDefs(),
   { key: 'dm.players', group: 'dm', label: 'Ducks per room', help: 'Humans plus bots in every deathmatch room. Bots fill the seats humans do not take.', kind: 'int', default: MATCH.players, min: 2, max: 32, step: 1, unit: 'ducks', applies: 'now' },
@@ -228,6 +258,7 @@ export const SETTING_DEFS: readonly SettingDef[] = [
   { key: 'br.zoneDamageScale', group: 'br', label: 'Zone damage', help: 'Damage per second outside the zone, times this (rounded, at least 1 per second).', kind: 'number', default: 1, min: 0.5, max: 3, step: 0.1, unit: 'x', applies: 'new-rooms' },
   { key: 'br.firstCircleRadius', group: 'br', label: 'First circle', help: 'Radius of the first safe circle, shown while the plane flies. The plane flies over it and ejects everyone soon after its center.', kind: 'int', default: ZONE.phases[0].radius, min: 160, max: 380, step: 5, unit: 'm', applies: 'new-rooms' },
   ...skillDefs('brBot', BR_BOT_DEFAULTS),
+  ...raidDefs(),
   ...weaponDefs(),
   ...explosiveDefs(),
   { key: 'ops.banner', group: 'ops', label: 'Menu banner', help: 'A short line at the top of the menu. Empty hides it.', kind: 'text', default: '', maxLength: 160, applies: 'now' },

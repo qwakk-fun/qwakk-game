@@ -150,10 +150,10 @@ describe('matchmaking account check', () => {
   const who = { guest: { playerId: 'g', account: false }, acc: { playerId: 'a', account: true }, lead: { playerId: 'l', account: true } } as const;
   const o = {
     accountOnly: {
-      rooms: ['br'],
+      rooms: ['br', 'raid'],
       identify: async (t: string | undefined) => (t ? (who[t as keyof typeof who] ?? null) : null),
       partyHasGuest: (id: string) => id === 'l',
-      roomNameOf: (id: string) => (id === 'room1' ? 'br' : id === 'dm1' ? 'dm' : undefined),
+      roomNameOf: (id: string) => (id === 'room1' ? 'br' : id === 'dm1' ? 'dm' : id === 'hunt1' ? 'raid' : undefined),
     },
   };
   const code = async (method: string, room: string, options: Record<string, unknown>): Promise<number> => {
@@ -164,6 +164,14 @@ describe('matchmaking account check', () => {
       return (err as { code?: number }).code ?? -1;
     }
   };
+
+  it('refuses guests and parties with a guest a Hunt Season room, by any method', async () => {
+    expect(await code('joinOrCreate', 'raid', { token: 'guest' })).toBe(ACCOUNT_ERROR.needsAccount);
+    expect(await code('create', 'raid', { token: 'guest' })).toBe(ACCOUNT_ERROR.needsAccount);
+    expect(await code('joinById', 'hunt1', { token: 'guest' })).toBe(ACCOUNT_ERROR.needsAccount);
+    expect(await code('create', 'raid', { token: 'lead' })).toBe(ACCOUNT_ERROR.partyHasGuest);
+    expect(await code('joinOrCreate', 'raid', { token: 'acc' })).toBe(0);
+  });
 
   it('refuses guests and parties with a guest a battle royale room, by any method', async () => {
     expect(await code('create', 'br', { token: 'guest' })).toBe(ACCOUNT_ERROR.needsAccount);

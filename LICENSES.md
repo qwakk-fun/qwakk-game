@@ -3,7 +3,8 @@
 | Asset | Source | License |
 | --- | --- | --- |
 | Duck models (classic and mallard), animations, rifle, pistol (`apps/client/public/models/`) | Made for Qwakk by script in this repo (`art/`) | Owned by Qwakk |
-| Sound effects (gunshots, reloads, hit marker, headshot, kill confirm, quack, damage) | Synthesized at runtime with WebAudio in `apps/client/src/audio/sound.ts`; no sample files | Owned by Qwakk |
+| Hunt Season hunters, dog, decoy, trap and defeat effects (`apps/client/public/models/hunters/`) | Made for Qwakk by script in this repo (`art/hunters/`, Blender driven by Python) | Owned by Qwakk |
+| Sound effects (gunshots, reloads, hit marker, headshot, kill confirm, quack, damage; Hunt Season's horn, whistle, duck call, decoy pop, trap snap) | Synthesized at runtime with WebAudio in `apps/client/src/audio/sound.ts`; no sample files | Owned by Qwakk |
 | Ground textures (`apps/client/public/textures/ground/`) | Procedural, made for Qwakk by script in this repo (`art/ground/`, Blender and numpy); no photos, scans or texture packs | Owned by Qwakk |
 | Greybox island, effects, HUD | Generated in code in this repo | Owned by Qwakk |
 | Menu art (`apps/client/public/ui/duck-rifle.webp`, `duck-mallard-rifle.webp`) | Resized from `art/renders/hold_rifle_three_quarter.png` and `art/renders/mallard/hold_rifle_three_quarter.png` (the art build writes the second) | Owned by Qwakk |

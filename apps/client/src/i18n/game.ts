@@ -1,4 +1,5 @@
 import { isTurkish } from './locale.ts';
+import { RAID_TR } from './raid.ts';
 /** Player-facing game copy. Protocol values, player names and operator notices are never translated. */
 const TR: Record<string, string> = {
   'Room chat': 'Oda sohbeti', 'T · Chat': 'T · Sohbet', 'Say something...': 'Bir şeyler yaz...',
@@ -75,6 +76,6 @@ const TR: Record<string, string> = {
   'Grenade': 'El bombası', 'Rocket': 'Roket', 'Rocket launcher': 'Roketatar', '{n} rockets · press 3': '{n} roket · 3 tuşuna bas',
 };
 export function t(text: string, values: Record<string, string | number> = {}): string {
-  const template = isTurkish ? TR[text] ?? text : text;
+  const template = isTurkish ? TR[text] ?? RAID_TR[text] ?? text : text;
   return template.replace(/\{(\w+)\}/g, (match, key: string) => String(values[key] ?? match));
 }

@@ -53,8 +53,8 @@ export type RoomStage = 'waiting' | 'countdown' | 'playing' | 'ended';
  * counts and the stage. Never player ids, names, IPs or tokens.
  */
 export interface RoomListing {
-  /** Battle royale (default when missing) or a static deathmatch room. */
-  mode?: 'br' | 'dm';
+  /** Battle royale (default when missing), a static deathmatch room, or a Hunt Season run. */
+  mode?: 'br' | 'dm' | 'raid';
   /** Friendly room name: derived from the room id (roomLabel), or the deathmatch room's name. */
   label: string;
   stage: RoomStage;
@@ -91,7 +91,7 @@ export function teamSizeFor(partySize: number): number {
 export function pickQuickRoom<T extends { roomId: string; locked: boolean; listing: RoomListing }>(rooms: readonly T[], partySize: number, want?: number): T | null {
   const open = rooms.filter((r) => {
     const l = r.listing;
-    if (l.mode === 'dm' || r.locked || (l.stage !== 'waiting' && l.stage !== 'countdown') || l.humans >= l.cap) return false;
+    if (l.mode === 'dm' || l.mode === 'raid' || r.locked || (l.stage !== 'waiting' && l.stage !== 'countdown') || l.humans >= l.cap) return false;
     const team = teamSizeOf(l.team);
     if (want !== undefined && team !== want) return false;
     return team >= partySize && (l.fit ?? team) >= partySize;
@@ -131,7 +131,8 @@ export interface PartyView {
 }
 
 export interface PartyGo {
-  mode: 'br' | 'dm';
+  /** Battle royale, deathmatch, or Hunt Season (raid). */
+  mode: 'br' | 'dm' | 'raid';
   roomId: string;
 }
 

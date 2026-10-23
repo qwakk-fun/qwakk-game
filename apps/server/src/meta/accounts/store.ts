@@ -26,9 +26,17 @@ interface CharacterRow {
   look: number;
   level: number;
   xp: string | number;
+  /** Hunt Season personal best (left join raid_bests; null without a run). */
+  best_wave?: number | null;
+  best_ms?: number | null;
+  raid_runs?: number | null;
+  raid_wins?: number | null;
 }
 
-const toCharacter = (r: CharacterRow): CharacterView => ({ id: r.id, slot: r.slot, name: r.name, tag: String(r.tag), look: r.look, level: r.level, xp: Number(r.xp) });
+const toCharacter = (r: CharacterRow): CharacterView => ({
+  id: r.id, slot: r.slot, name: r.name, tag: String(r.tag), look: r.look, level: r.level, xp: Number(r.xp),
+  raidBest: r.best_wave !== null && r.best_wave !== undefined ? { wave: r.best_wave, ms: r.best_ms ?? 0, runs: r.raid_runs ?? 0, wins: r.raid_wins ?? 0 } : null,
+});
 
 export async function accountIdByEmail(db: Db, email: string): Promise<string | null> {
   const [r] = await db<{ account_id: string }[]>`select account_id from account_logins where method = 'email' and subject = ${email}`;
@@ -85,13 +93,15 @@ export async function deleteSession(db: Db, sessionId: string): Promise<void> {
 
 export async function listCharacters(db: Db, accountId: string): Promise<CharacterView[]> {
   const rows = await db<CharacterRow[]>`
-    select id, slot, name, tag, look, level, xp from players where account_id = ${accountId} order by slot`;
+    select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins
+    from players p left join raid_bests b on b.player_id = p.id where p.account_id = ${accountId} order by p.slot`;
   return rows.map(toCharacter);
 }
 
 export async function characterOf(db: Db, accountId: string, playerId: string): Promise<CharacterView | null> {
   const [r] = await db<CharacterRow[]>`
-    select id, slot, name, tag, look, level, xp from players where id = ${playerId} and account_id = ${accountId}`;
+    select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins
+    from players p left join raid_bests b on b.player_id = p.id where p.id = ${playerId} and p.account_id = ${accountId}`;
   return r ? toCharacter(r) : null;
 }
 

@@ -84,7 +84,7 @@ export async function checkAccount(method: string, roomName: string, options: Re
   if (!name || !a.rooms.includes(name)) return;
   const who = await a.identify(typeof options.token === 'string' ? options.token : undefined);
   if (!who) return;
-  if (!who.account) throw new ServerError(ACCOUNT_ERROR.needsAccount, 'battle royale needs an account, sign in first');
+  if (!who.account) throw new ServerError(ACCOUNT_ERROR.needsAccount, 'this mode needs an account, sign in first');
   if (a.partyHasGuest(who.playerId)) throw new ServerError(ACCOUNT_ERROR.partyHasGuest, 'your party has a guest; guests play deathmatch only');
 }
 

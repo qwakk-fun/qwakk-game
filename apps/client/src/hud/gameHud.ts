@@ -106,8 +106,10 @@ export class GameHud {
   }
 
   /** Battle royale hides the deathmatch round bar (it has its own). */
-  setMode(mode: 'br' | 'dm'): void {
+  setMode(mode: 'br' | 'dm' | 'raid'): void {
     this.root.classList.toggle('br', mode === 'br');
+    // Hunt Season has its own top bar (hud/raid/raidHud.ts).
+    this.root.classList.toggle('raid', mode === 'raid');
   }
 
   /** Taking zone damage: a short orange tint. */

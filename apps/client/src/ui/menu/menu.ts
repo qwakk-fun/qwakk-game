@@ -71,6 +71,8 @@ const JOIN_ERRORS: Record<number, string> = {
   [ACCOUNT_ERROR.roomNeedsAccount]: 'needs_account',
   [ACCOUNT_ERROR.partyHasGuest]: 'party_has_guest',
   [ACCOUNT_ERROR.roomPartyHasGuest]: 'party_has_guest',
+  /** RaidRoom RAID_ERROR.full: the hunt started, or no seats for the party. */
+  4414: 'raid_full',
 };
 
 /** One numbered step of the join flow. */
@@ -130,6 +132,7 @@ export class Menu {
       changed: () => {
         this.rooms.setPartySize(this.party.size);
         this.playStep.team.setPartySize(this.party.size);
+        this.playStep.setPartySize(this.party.size);
         this.applyLock();
       },
       follow: (g, leader) => this.follow(g, leader),
@@ -259,6 +262,11 @@ export class Menu {
       this.entry.boot();
     } else {
       this.enterMain(this.signedIn);
+    }
+    // After a hunt: the duck's new XP and level (granted by the game server), and "Play again".
+    if (exit?.summary?.mode === 'raid' && this.signedIn) {
+      void this.entry.session.refresh().then(() => this.activeDuck.set(this.duck), () => {});
+      if (exit.summary.again) setTimeout(() => void this.play('raid'), 50);
     }
     // After paint: warm the game bundle (it shares the Three.js chunk with the 3D ducks).
     const later = (): void => this.hooks.prefetch?.();
@@ -430,7 +438,7 @@ export class Menu {
   /** The leader went into a room: members in the menu follow (in a match the server does not send it anyway). */
   private follow(g: PartyGo, leader: string): void {
     if (this.root.hidden || this.busy || this.root.dataset.screen !== 'main') return;
-    if (g.mode === 'br' && !this.signedIn) {
+    if ((g.mode === 'br' || g.mode === 'raid') && !this.signedIn) {
       this.playStep.error(COPY.errors.needs_account!);
       return;
     }
@@ -446,8 +454,8 @@ export class Menu {
       this.playStep.error(COPY.errors.party_lead!);
       return;
     }
-    // Guests play deathmatch only: battle royale asks to sign in (the server refuses it too).
-    if (mode === 'br' && !this.signedIn) {
+    // Guests play deathmatch only: battle royale and Hunt Season ask to sign in (the server refuses it too).
+    if ((mode === 'br' || mode === 'raid') && !this.signedIn) {
       this.signIn();
       return;
     }
@@ -455,7 +463,7 @@ export class Menu {
       this.entry.openDucks({ refetch: false });
       return;
     }
-    if (mode === 'br' && this.party.view?.members.some((m) => m.guest)) {
+    if ((mode === 'br' || mode === 'raid') && this.party.view?.members.some((m) => m.guest)) {
       this.playStep.error(COPY.errors.party_has_guest!);
       return;
     }
@@ -475,6 +483,8 @@ export class Menu {
         target = pick ? { roomId: pick.roomId } : { create: true, team };
       }
     }
+    // Hunt Season: a party leader opens a fresh hunt for the party (the members follow); alone, Quick Play joins an open lobby.
+    if (mode === 'raid' && !target.roomId && this.party.size > 1) target = { create: true };
     this.lastMode = mode;
     this.setBusy(true);
     this.result.hide();

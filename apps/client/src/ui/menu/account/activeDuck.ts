@@ -8,33 +8,38 @@ import { characterCopy, characterOfLook } from '../characters.ts';
 import { COPY } from '../copy.ts';
 import { asset, h } from '../dom.ts';
 import { icon } from '../icons.ts';
+import { duckLevel, xpBar } from '../xpBar.ts';
 
 export class ActiveDuck {
   readonly el: HTMLElement;
   private readonly img: HTMLImageElement;
   private readonly name: HTMLElement;
   private readonly meta: HTMLElement;
+  private readonly xp: HTMLElement;
 
   constructor(onSwitch: () => void) {
     this.img = h('img', { src: asset('ui/duck-rifle.webp'), alt: '', width: 96, height: 96, decoding: 'async' });
     this.name = h('span', { class: 'qm-active-name' });
     this.meta = h('span', { class: 'qm-active-meta' });
+    this.xp = h('span', { class: 'qm-active-xp' });
     const sw = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-active-switch' }, icon('swap'), COPY.ducks.switch);
     sw.addEventListener('click', onSwitch);
-    this.el = h('div', { class: 'qm-active' }, h('span', { class: 'qm-char-portrait qm-active-portrait', 'aria-hidden': 'true' }, this.img), h('span', { class: 'qm-active-text' }, this.name, this.meta), sw);
+    this.el = h('div', { class: 'qm-active' }, h('span', { class: 'qm-char-portrait qm-active-portrait', 'aria-hidden': 'true' }, this.img), h('span', { class: 'qm-active-text' }, this.name, this.meta, this.xp), sw);
   }
 
   set(duck: CharacterView | null): void {
     if (!duck) {
       this.name.textContent = COPY.ducks.pickFirst;
       this.meta.textContent = '';
+      this.xp.replaceChildren();
       return;
     }
     const look = characterOfLook(duck.look);
     this.el.style.setProperty('--qm-char-accent', look.accent);
     this.img.src = asset(look.portrait);
     this.name.replaceChildren(duck.name, h('span', { class: 'qm-active-tag' }, `#${duck.tag}`));
-    this.meta.textContent = `${characterCopy(look.id).name} · ${COPY.ducks.level(duck.level)}`;
+    this.meta.textContent = `${characterCopy(look.id).name} · ${COPY.ducks.level(duckLevel(duck))}`;
+    this.xp.replaceChildren(xpBar(duck));
   }
 }
 

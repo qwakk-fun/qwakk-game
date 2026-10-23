@@ -11,7 +11,7 @@ import type { Overview, Setting, SettingsData, SettingValue } from '../types.ts'
 import { button, card, confirmDialog, errorText, toast, type Page } from '../ui.ts';
 
 const S = COPY.settings;
-const GROUPS = ['dm', 'dmBot', 'br', 'brBot', 'weapons'] as const;
+const GROUPS = ['dm', 'dmBot', 'br', 'brBot', 'raid', 'weapons'] as const;
 
 function fmt(v: SettingValue, unit?: string): string {
   if (typeof v === 'boolean') return v ? S.on : S.off;

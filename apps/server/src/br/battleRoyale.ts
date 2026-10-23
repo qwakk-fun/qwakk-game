@@ -352,7 +352,7 @@ export class BattleRoyale extends Arena {
   lock(): void {
     if (this.phase !== 'warmup') return;
     this.phase = 'playing';
-    this.secret = randomSecret();
+    this.rollSecret();
     this.teams.expire(this.tick, true);
     if (this.o.bots) {
       // Bots fill every empty seat: the humans' teams first, then whole bot teams.

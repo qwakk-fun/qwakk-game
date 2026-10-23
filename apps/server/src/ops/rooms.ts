@@ -7,7 +7,7 @@
 
 export interface RoomInfo {
   roomId: string;
-  kind: 'dm' | 'br';
+  kind: 'dm' | 'br' | 'raid';
   label: string;
   /** Free for all (deathmatch), Solo, Duo or Squad. */
   mode: string;

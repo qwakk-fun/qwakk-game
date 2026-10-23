@@ -24,7 +24,7 @@ import { buildWorld, MapMismatchError } from './world/worldHandle.ts';
 export type { ExitReason, ExitSummary } from './game.ts';
 
 export interface StartGameOptions {
-  mode: 'br' | 'dm';
+  mode: 'br' | 'dm' | 'raid';
   /** A room from the lobby list (battle royale or deathmatch), or a new battle royale room; neither is Quick Play. */
   roomId?: string;
   create?: boolean;
@@ -50,7 +50,7 @@ const reconnect = document.getElementById('reconnect') as HTMLButtonElement;
 
 let ctxPromise: Promise<RenderContext> | null = null;
 let exitCallback: ExitCallback | null = null;
-let current: { game: Game; session: Session; mode: 'br' | 'dm'; ended: boolean } | null = null;
+let current: { game: Game; session: Session; mode: 'br' | 'dm' | 'raid'; ended: boolean } | null = null;
 let leaveButton: HTMLButtonElement | null = null;
 /** The last pointer that touched the pause card: a finger starts touch play, a mouse locks the pointer. */
 let overlayPointer = '';
@@ -180,7 +180,7 @@ async function joinAndPlay(opts: StartGameOptions): Promise<{ roomId: string }> 
   const ctx = await renderer();
   await initPhysics();
   ctx.scene = freshScene();
-  setOverlay(config.devtools ? `Joining ${config.server} ...` : opts.mode === 'br' ? translate('Finding a match...') : translate('Joining the island...'));
+  setOverlay(config.devtools ? `Joining ${config.server} ...` : opts.mode === 'dm' ? translate('Joining the island...') : translate('Finding a match...'));
   let session: Session;
   try {
     session = await Session.join(config.server, { mode: opts.mode, roomId: opts.roomId, create: opts.create, team: opts.team, name: opts.name, token: opts.token, character: opts.character }, { latencyMs: config.latencyMs, jitterMs: config.jitterMs, loss: config.loss }, config.spectate);
@@ -243,6 +243,8 @@ async function joinAndPlay(opts: StartGameOptions): Promise<{ roomId: string }> 
     // The server took this player out, or closed the room (the menu says which).
     if (code === CLOSE_CODE.removed) return finish('removed');
     if (code === CLOSE_CODE.roomClosed && !game.br?.resultOpen) return finish('closed');
+    // Hunt Season: the room closes a while after the run; back to the menu with the run's numbers.
+    if (game.raid && session.room.state.phase === MatchPhase.Ended) return finish('ended', game.raid.summary());
     if (session.room.state.phase === MatchPhase.Ended || game.br?.resultOpen) {
       // The results card stays up; its button returns to the menu.
       entry.ended = true;

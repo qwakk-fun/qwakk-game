@@ -9,6 +9,8 @@
     "./lobby": "./src/lobby.ts",
     "./characters": "./src/characters.ts",
     "./accounts": "./src/accounts.ts",
+    "./raid": "./src/raid/index.ts",
+    "./progress": "./src/raid/progress.ts",
     "./maps/*": "./src/maps/*"
   },
   "scripts": {

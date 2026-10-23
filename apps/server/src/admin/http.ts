@@ -144,7 +144,12 @@ export function sameOrigin(req: IncomingMessage, production: boolean): boolean {
 
 export function createAdminHandler(deps: AdminDeps | null): AdminHandler {
   if (!deps) {
-    const off: AdminHandler = (_req, res) => notFound(res);
+    // Off: only the /admin paths are a plain 404; everything else (the client files) goes on.
+    const off: AdminHandler = (req, res, next) => {
+      const path = new URL((req as { originalUrl?: string }).originalUrl ?? req.url ?? '/', 'http://local').pathname;
+      if (next && path !== '/admin' && !path.startsWith('/admin/')) next();
+      else notFound(res);
+    };
     return off;
   }
   const { config, store } = deps;

@@ -12,6 +12,7 @@ import { t as translate } from './i18n/game.ts';
  */
 import * as THREE from 'three/webgpu';
 import { Act, actionOf, aimBlend, Button, COMBAT, exLauncher, exNades, exRockets, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
+import { KillWeapon } from '@qwakk/shared/net';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
 import { TpsCamera } from './camera/tpsCamera.ts';
@@ -22,6 +23,7 @@ import { DmClient } from './game/dmClient.ts';
 import type { BuffDuck } from './game/dmBuffsView.ts';
 import { ExplosivesClient } from './game/explosivesClient.ts';
 import { BrClient } from './game/brClient.ts';
+import { hunterName, RaidClient, type RaidSummary } from './game/raidClient.ts';
 import { CombatFeedback } from './game/combatFeedback.ts';
 import { FrameTimer, MotionProbe } from './game/metrics.ts';
 import { NameTags, type TagDuck } from './game/nameTags.ts';
@@ -46,14 +48,18 @@ const LAG_PRESETS = [0, 60, 120, 150, 250];
 export type ExitReason = 'ended' | 'left' | 'disconnected' | 'removed' | 'closed';
 
 export interface ExitSummary {
-  mode: 'br' | 'dm';
+  mode: 'br' | 'dm' | 'raid';
   placement?: number;
   players?: number;
   kills?: number;
+  /** Hunt Season: waves cleared, XP gained, and "Play again" (the menu starts another hunt). */
+  waves?: number;
+  xp?: number;
+  again?: boolean;
 }
 
 export interface GameOptions {
-  mode: 'br' | 'dm';
+  mode: 'br' | 'dm' | 'raid';
   settings: { sensitivity: number; adsSensitivity?: number; touchSensitivity?: number; fov: number; volume: number };
   /** The player chose to leave (results screen or the pause card). */
   exit(reason: ExitReason, summary: ExitSummary): void;
@@ -85,6 +91,8 @@ export class Game {
   private readonly combat: CombatFeedback;
   readonly br: BrClient | null;
   readonly dm: DmClient | null;
+  /** Hunt Season (null in the other modes). */
+  readonly raid: RaidClient | null;
   /** Deathmatch grenades, rockets and blasts (null in the battle royale). */
   readonly explosives: ExplosivesClient | null;
   /** Faint names over nearby ducks and the team panel. */
@@ -100,6 +108,8 @@ export class Game {
   private readonly localMotion = new MotionProbe();
   private readonly myPos = new THREE.Vector3();
   private lastSprint = false;
+  /** Dev autopilot: when it last picked a Hunt Season card. */
+  private raidOfferAt = 0;
   /** Look speed multiplier while aiming down sights (settings). */
   private readonly adsSensitivity: number;
   private hudClock = 0;
@@ -158,6 +168,7 @@ export class Game {
     this.lagIndex = Math.max(0, LAG_PRESETS.indexOf(config.latencyMs));
 
     const isBr = session.room.state.mode === GameMode.BattleRoyale;
+    const isRaid = session.room.state.mode === GameMode.Raid;
     this.ghud.setMode(isBr ? 'br' : 'dm');
     this.br = isBr
       ? new BrClient({
@@ -174,12 +185,18 @@ export class Game {
         })
       : null;
 
-    this.dm = isBr ? null : new DmClient(session, this.sound, this.ghud, scene, sim);
+    this.dm = isBr || isRaid ? null : new DmClient(session, this.sound, this.ghud, scene, sim);
+    this.raid = isRaid
+      ? new RaidClient({ session, sim, scene, camera: ctx.camera, cam: this.cam, sound: this.sound, ghud: this.ghud, fx: this.fx, touch: hasTouch(), exit: (summary: RaidSummary) => opts.exit('ended', summary) })
+      : null;
 
     this.combat = new CombatFeedback(session, sim, this.fx, this.sound, this.ghud, this.cam, {
       localAvatar: this.localAvatar,
       remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
       myPosition: () => this.myPos,
+      ...(this.raid
+        ? { otherTargets: () => this.raid?.targets() ?? [], hunterOf: (w: number) => (w > KillWeapon.HunterBase && w <= KillWeapon.HunterBase + 5 ? hunterName(w - KillWeapon.HunterBase) : null) }
+        : {}),
     });
     this.explosives = isBr
       ? null
@@ -233,6 +250,14 @@ export class Game {
         boom: (id, kind, at) => this.explosives?.boom(id, kind, at),
         dmRocket: (rockets) => this.explosives?.rocketPicked(rockets),
         localExplosive: (kind, state, buttons) => this.explosives?.localExplosive(kind, state, buttons),
+        raidOffer: (cards, deadline) => this.raid?.offered(cards, deadline),
+        raidSelf: (data) => this.raid?.selfNumbers(data),
+        raidKill: (kind, killerPid, head, at) => this.raid?.hunterKilled(kind, killerPid, head, at),
+        raidEvent: (ev, a, b) => this.raid?.event(ev, a, b),
+        raidEnd: (data) => {
+          this.chat.close(false);
+          this.raid?.ended(data);
+        },
         shotHint: (weapon, angle, loud) => {
           this.br?.shotHint(weapon, angle, loud, this.myPos);
           this.explosives?.hint(weapon, angle, loud);
@@ -340,6 +365,7 @@ export class Game {
     this.ctx.renderer.domElement.removeEventListener('mousedown', this.onSpectatorClick);
     this.br?.dispose();
     this.dm?.dispose();
+    this.raid?.dispose();
     this.explosives?.dispose();
     this.tags.dispose();
     this.teamPanel.dispose();
@@ -367,6 +393,15 @@ export class Game {
         if (p) ducks.push({ id, x: p.x, y: p.y, z: p.z });
       }
       s = ap.fight(me.state as never, this.controls, ducks);
+    } else if (DEVTOOLS && ap && config.autopilot === 'raid' && me && this.raid) {
+      s = ap.raid(me.state as never, this.controls, this.raid.autopilotView());
+      // Cards: the autopilot takes the first one after a moment (the e2e checks the pick went through).
+      if (this.raid.autopilotView().offer === 0) this.raidOfferAt = 0;
+      else if (this.raidOfferAt === 0) this.raidOfferAt = performance.now();
+      else if (performance.now() - this.raidOfferAt > 1200) {
+        this.raidOfferAt = performance.now() + 60_000;
+        this.raid.pickCard(0);
+      }
     } else if (DEVTOOLS && ap && config.autopilot === 'br' && me && this.br) {
       s = ap.br(me.state as never, this.controls, this.br.autopilotView(), config.apTarget);
     } else if (DEVTOOLS && ap && config.autopilot === '1') {
@@ -446,6 +481,8 @@ export class Game {
         this.cam.setAirborne(mode === Mode.Freefall || mode === Mode.Glide);
         this.cam.setAim(mode === Mode.Ground && mine.armed ? aimBlend(st as never) : 0, st.weapon);
         this.cam.update(dt, x, y, z, this.crouchBlend, this.controls.yaw, this.controls.pitch, this.lastSprint);
+      } else if (this.raid?.placeCamera(dt)) {
+        // Out in a Hunt Season wave: following a friend.
       } else {
         const t = this.combat.diedAt > 0 ? (performance.now() - this.combat.diedAt) / 1000 : 0;
         const killer = this.combat.killerId ? (this.remotes.get(this.combat.killerId)?.avatar.object.position ?? null) : null;
@@ -502,6 +539,10 @@ export class Game {
     this.dm?.frame(now);
     if (this.dm) this.dm.buffs(dt, this.buffDucks(), this.ctx.camera);
     this.explosives?.frame(dt, now);
+    if (this.raid) {
+      this.raid.frame(dt, this.myPos);
+      if (this.explosives && !this.explosives.decoyModel && this.raid.decoyModel) this.explosives.decoyModel = this.raid.decoyModel;
+    }
     this.tags.update(this.ctx.camera, this.dm?.replay.active ? [] : tags, this.myPos);
     this.br?.frame(dt, this.myPos);
     const replaying = this.dm?.replay.active ? this.dm.replay.draw(now, this.ctx.camera, [[session.sessionId, this.localAvatar], ...[...this.remotes].map(([id, r]): [string, Avatar] => [id, r.avatar])], dt) : false;
@@ -565,7 +606,7 @@ export class Game {
     if (me && mine) {
       const s = me.state;
       const w = weaponStats(s.weapon);
-      g.health(s.hp, this.dm?.maxHp(mine) ?? COMBAT.maxHp);
+      g.health(s.hp, this.raid ? this.raid.maxHp : (this.dm?.maxHp(mine) ?? COMBAT.maxHp));
       const armed = mine.armed === 1;
       const mag = s.weapon === 0 ? s.mag0 : s.mag1;
       const res = s.weapon === 0 ? s.res0 : s.res1;
@@ -581,6 +622,16 @@ export class Game {
     this.updateTouch();
     if (this.br) {
       this.br.hud(dt, this.showBoard);
+      return;
+    }
+    if (this.raid) {
+      this.raid.hudFrame();
+      g.message(null);
+      // The raid has its own knocked note; the scoreboard (Tab) lists the ducks.
+      g.knocked(false);
+      const rows: ScoreRow[] = [];
+      for (const [id, p] of st.players) rows.push({ name: p.name, kills: p.kills, deaths: p.deaths, bot: p.bot, me: id === this.session.sessionId });
+      g.scoreboard(this.showBoard ? rows : null);
       return;
     }
     let leader = '';
@@ -632,10 +683,10 @@ export class Game {
     f.rocketOut = s ? exLauncher(s) === 1 : false;
     if (this.br) Object.assign(f, this.br.touchState());
     else {
-      f.promptKey = '';
+      f.promptKey = this.raid?.touchPrompt() ?? '';
       f.bandages = 0;
       f.medkits = 0;
-      f.modal = this.session.room.state.phase === MatchPhase.Intermission || (this.dm?.replay.active ?? false);
+      f.modal = this.session.room.state.phase === MatchPhase.Intermission || (this.dm?.replay.active ?? false) || (this.raid?.modal ?? false);
       f.mapOpen = false;
       f.canBag = false;
       f.spectating = false;
@@ -708,6 +759,7 @@ export class Game {
       camera: this.cam,
       tags: this.tags,
       explosives: this.explosives,
+      raid: this.raid,
     };
   }
 }

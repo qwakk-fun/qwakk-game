@@ -12,7 +12,7 @@
  * round.
  */
 import { DM, DmPower, freshDmStats, compareDmResults, weaponStats, WeaponId, type DmStats, type DmReward, type DmResult, COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, Button, type InputFrame, type SimWorld, type Vec3 } from '@qwakk/shared';
-import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from './arena.ts';
+import { Arena, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from './arena.ts';
 import { BOT_NAMES, BotBrain } from './bots.ts';
 import { DmReplayHistory } from './dmReplay.ts';
 import { DmPowerups } from './dmPowerups.ts';
@@ -449,7 +449,7 @@ export class Deathmatch extends Arena {
   private freshRound(): void {
     if (this.o.rules) Object.assign(this.o, this.o.rules());
     this.phase = 'playing';
-    this.secret = randomSecret();
+    this.rollSecret();
     this.winner = '';
     this.ticksLeft = this.o.roundSeconds * TICK_RATE;
     this.usedSpawns.clear();

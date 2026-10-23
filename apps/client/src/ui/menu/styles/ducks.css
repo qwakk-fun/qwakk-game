@@ -448,3 +448,43 @@
     width: min(100%, 260px);
   }
 }
+
+/* A duck's level progress (xpBar.ts): Hunt Season XP. */
+.qm-xp {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px 8px;
+  width: 100%;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--qm-text-3);
+}
+.qm-xp-bar {
+  position: relative;
+  height: 6px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--qm-text-3) 25%, transparent);
+  overflow: hidden;
+}
+.qm-xp-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: 4px;
+  background: var(--qm-yellow);
+}
+.qm-xp-text {
+  font: 600 11px var(--qm-mono);
+  white-space: nowrap;
+}
+.qm-xp-best {
+  grid-column: 1 / -1;
+  color: var(--qm-text-2);
+}
+.qd-plate .qm-xp {
+  max-width: 180px;
+  margin-inline: auto;
+}
+.qm-active-xp .qm-xp {
+  max-width: 240px;
+}

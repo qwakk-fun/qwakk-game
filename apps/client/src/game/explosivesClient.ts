@@ -177,8 +177,25 @@ export class ExplosivesClient {
     return g;
   }
 
+  /** Hunt Season: a decoy thrower's wooden decoy (the art's decoy.glb when loaded, else a small painted duck shape). */
+  decoyModel: THREE.Object3D | null = null;
+
+  private decoyMesh(): THREE.Object3D {
+    if (this.decoyModel) return this.decoyModel.clone();
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(this.grenadeGeo, toonMaterial(0x8a5a32));
+    body.scale.set(1.3, 0.9, 2);
+    const head = new THREE.Mesh(this.grenadeGeo, toonMaterial(0x2f6b3a));
+    head.scale.setScalar(0.7);
+    head.position.set(0, 0.08, -0.14);
+    const bill = new THREE.Mesh(this.bandGeo, toonMaterial(BRAND.yellow));
+    bill.position.set(0, 0.07, -0.22);
+    g.add(body, head, bill);
+    return g;
+  }
+
   private add(id: number, kind: number, ownerPid: number, flight: Flight, predicted: boolean): Shown {
-    const mesh = kind === ExplosiveKind.Grenade ? this.grenadeMesh() : this.rocketMesh();
+    const mesh = kind === ExplosiveKind.Grenade ? this.grenadeMesh() : kind === ExplosiveKind.Decoy ? this.decoyMesh() : this.rocketMesh();
     mesh.position.set(flight.x, flight.y, flight.z);
     this.group.add(mesh);
     const s: Shown = { id, kind, ownerPid, flight, px: flight.x, py: flight.y, pz: flight.z, acc: 0, mesh, born: performance.now(), predicted, trailAt: 0, whooshed: false };
@@ -231,6 +248,10 @@ export class ExplosivesClient {
     f.rest = ownerPid === 0 && vel[0] === 0 && vel[1] === 0 && vel[2] === 0 ? 1 : 0;
     const s = this.add(id, kind, ownerPid, f, false);
     this.shown.set(id, s);
+    if (kind === ExplosiveKind.Decoy) {
+      this.sound.duckCall(this.v.set(f.x, f.y, f.z));
+      return;
+    }
     if (ownerPid === 0 || mine) return;
     // Someone we can see threw or fired: their throw sound, or the launch with a flash.
     const ownerId = this.session.idOfPid(ownerPid);
@@ -258,6 +279,14 @@ export class ExplosivesClient {
     }
     const rocket = kind === ExplosiveKind.Rocket;
     this.v.set(at[0], at[1], at[2]);
+    if (kind === ExplosiveKind.Decoy) {
+      // A decoy pops: a toony puff of dust and stars and a wooden bonk, no fireball.
+      this.effects.toonPop(this.v, 1.6);
+      this.sound.decoyPop(this.v);
+      const dd = this.v.distanceTo(this.views.myPosition());
+      if (dd < 8) this.cam.shake(0.08 * (1 - dd / 8));
+      return;
+    }
     this.fx.explode(this.v, rocket);
     this.w.set(0, 1, 0);
     this.effects.feathersBurst(this.v, this.w, rocket ? 8 : 12, 1.6);
@@ -317,7 +346,7 @@ export class ExplosivesClient {
         continue;
       }
       const f = s.flight;
-      if (s.kind === ExplosiveKind.Grenade) {
+      if (s.kind === ExplosiveKind.Grenade || s.kind === ExplosiveKind.Decoy) {
         s.acc += dt;
         while (s.acc >= DT) {
           s.acc -= DT;

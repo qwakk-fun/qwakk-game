@@ -50,6 +50,10 @@ export function brMaxRooms(): number {
   return settings.num('br.maxRooms');
 }
 
+export function raidMaxRooms(): number {
+  return settings.num('raid.maxRooms');
+}
+
 export function brStartRules(): { minHumans: number; countdownSeconds: number } {
   return { minHumans: settings.num('br.minHumans'), countdownSeconds: settings.num('br.countdownSeconds') };
 }

@@ -586,6 +586,11 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     });
   }
 
+  /** A shot effect from something that is not a seat (a Hunt Season hunter: pid 0, its own id). */
+  protected queueShotFx(shooterId: string, weapon: number, sx: number, sz: number, outcome: number, from: { x: number; y: number; z: number }, to: { x: number; y: number; z: number }): void {
+    this.shotFx.push({ pid: 0, shooterId, weapon, sx, sz, data: [0, weapon, outcome, cm(from.x), cm(from.y), cm(from.z), cm(to.x), cm(to.y), cm(to.z)] });
+  }
+
   /** Can this viewer see that seat (it receives its pose)? Spectators without a seat see all. */
   protected viewerSees(viewerId: string, targetId: string): boolean {
     if (!this.cullHidden()) return true;
@@ -670,7 +675,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   private createdAt = Date.now();
 
   /** Mode, phase and clock for the admin dashboard. */
-  protected roomStatus(): { kind: 'dm' | 'br'; mode: string; phase: string; secondsLeft: number } {
+  protected roomStatus(): { kind: 'dm' | 'br' | 'raid'; mode: string; phase: string; secondsLeft: number } {
     return { kind: 'dm', mode: '', phase: '', secondsLeft: 0 };
   }
 

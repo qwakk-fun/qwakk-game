@@ -54,7 +54,7 @@ export const config = {
    * `autopilot=1` runs in circles, `autopilot=fight` hunts and shoots the nearest visible duck,
    * `autopilot=br` jumps, lands and loots in a battle royale.
    */
-  autopilot: (devtools ? (params.get('autopilot') ?? '') : '') as '' | '1' | 'fight' | 'br',
+  autopilot: (devtools ? (params.get('autopilot') ?? '') : '') as '' | '1' | 'fight' | 'br' | 'raid',
   /** Autopilot drop target `aptarget=x,z` (dev tools only): the battle royale autopilot glides there. */
   apTarget: ((): { x: number; z: number } | null => {
     const v = devtools ? params.get('aptarget') : null;
@@ -62,7 +62,7 @@ export const config = {
     return v && Number.isFinite(x) && Number.isFinite(z) ? { x: x as number, z: z as number } : null;
   })(),
   /** Game mode for a direct start without the menu (dev tools): `?mode=br` or `?mode=dm`. */
-  mode: (params.get('mode') === 'br' ? 'br' : 'dm') as 'br' | 'dm',
+  mode: (params.get('mode') === 'br' ? 'br' : params.get('mode') === 'raid' ? 'raid' : 'dm') as 'br' | 'dm' | 'raid',
   /** Graphics quality: `?quality=low` (shorter draw distances). The menu setting wins when it starts the game. */
   quality: (params.get('quality') === 'low' ? 'low' : 'high') as 'low' | 'high',
   /** Watch the match without playing (dev tools only, the server must allow spectators). */

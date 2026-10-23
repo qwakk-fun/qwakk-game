@@ -1,0 +1,667 @@
+{
+ "anims_glb_bytes": 283396,
+ "attach": {
+  "dog": {
+   "Poof": {
+    "node": "FxPoof",
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "quaternion": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   },
+   "Stars": {
+    "node": "FxStars",
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "quaternion": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   }
+  },
+  "hunter": {
+   "Decoy": {
+    "node": "LeftHandProp",
+    "position": [
+     0.0,
+     0.0,
+     -0.055
+    ],
+    "quaternion": [
+     0.5,
+     0.5,
+     0.5,
+     0.5
+    ]
+   },
+   "Poof": {
+    "node": "FxPoof",
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "quaternion": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   },
+   "Stars": {
+    "node": "FxStars",
+    "position": [
+     0.0,
+     0.0,
+     0.0
+    ],
+    "quaternion": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ]
+   }
+  }
+ },
+ "clips": {
+  "Aim": {
+   "animates": [],
+   "frames": 60,
+   "ik_reach_error_m": 0.0,
+   "layer": "upper",
+   "loop": true,
+   "seconds": 2.0
+  },
+  "Aim_Down": {
+   "animates": [],
+   "frames": 60,
+   "ik_reach_error_m": 0.0,
+   "layer": "upper",
+   "loop": true,
+   "seconds": 2.0
+  },
+  "Aim_Up": {
+   "animates": [],
+   "frames": 60,
+   "ik_reach_error_m": 0.0136,
+   "layer": "upper",
+   "loop": true,
+   "seconds": 2.0
+  },
+  "Defeat": {
+   "animates": [
+    "FxPoof",
+    "FxStars",
+    "Hat"
+   ],
+   "frames": 60,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 2.0
+  },
+  "Defeat_Dizzy": {
+   "animates": [
+    "FxStars",
+    "Hat"
+   ],
+   "frames": 36,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 1.2
+  },
+  "Fire": {
+   "animates": [],
+   "frames": 9,
+   "ik_reach_error_m": 0.0,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 0.3
+  },
+  "Hit": {
+   "animates": [],
+   "frames": 12,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.4
+  },
+  "Idle": {
+   "animates": [],
+   "frames": 72,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 2.4
+  },
+  "Reload": {
+   "animates": [],
+   "frames": 54,
+   "ik_reach_error_m": 0.0,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 1.8
+  },
+  "Run": {
+   "animates": [],
+   "frames": 18,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 0.6
+  },
+  "Taunt": {
+   "animates": [],
+   "frames": 54,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 1.8
+  },
+  "Throw": {
+   "animates": [
+    "LeftHandProp"
+   ],
+   "frames": 36,
+   "ik_reach_error_m": 0.073,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 1.2
+  },
+  "Walk": {
+   "animates": [],
+   "frames": 24,
+   "ik_reach_error_m": 0.0007,
+   "layer": "full",
+   "loop": true,
+   "seconds": 0.8
+  },
+  "Whistle": {
+   "animates": [
+    "Whistle"
+   ],
+   "frames": 48,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 1.6
+  }
+ },
+ "dog": {
+  "clips": {
+   "Bite": {
+    "animates": [],
+    "frames": 18,
+    "ik_reach_error_m": 0.065,
+    "layer": "full",
+    "loop": false,
+    "seconds": 0.6
+   },
+   "Defeat": {
+    "animates": [
+     "FxPoof",
+     "FxStars"
+    ],
+    "frames": 45,
+    "ik_reach_error_m": 0.0,
+    "layer": "full",
+    "loop": false,
+    "seconds": 1.5
+   },
+   "Defeat_Dizzy": {
+    "animates": [
+     "FxStars"
+    ],
+    "frames": 36,
+    "ik_reach_error_m": 0.0,
+    "layer": "full",
+    "loop": true,
+    "seconds": 1.2
+   },
+   "Hit": {
+    "animates": [],
+    "frames": 11,
+    "ik_reach_error_m": 0.0002,
+    "layer": "full",
+    "loop": false,
+    "seconds": 0.367
+   },
+   "Idle": {
+    "animates": [],
+    "frames": 60,
+    "ik_reach_error_m": 0.0,
+    "layer": "full",
+    "loop": true,
+    "seconds": 2.0
+   },
+   "Run": {
+    "animates": [],
+    "frames": 12,
+    "ik_reach_error_m": 0.0481,
+    "layer": "full",
+    "loop": true,
+    "seconds": 0.4
+   }
+  },
+  "glb_bytes": 257468,
+  "manifest": {
+   "clips": {
+    "Bite": {
+     "events": {
+      "bite": 0.32
+     },
+     "loop": false,
+     "seconds": 0.6
+    },
+    "Defeat": {
+     "events": {
+      "ground": 0.55,
+      "stars": 0.85
+     },
+     "loop": false,
+     "seconds": 1.5
+    },
+    "Defeat_Dizzy": {
+     "loop": true,
+     "seconds": 1.2
+    },
+    "Hit": {
+     "loop": false,
+     "seconds": 0.367
+    },
+    "Idle": {
+     "loop": true,
+     "seconds": 2.0
+    },
+    "Run": {
+     "authoredSpeed": 4.5,
+     "loop": true,
+     "seconds": 0.4
+    }
+   },
+   "file": "dog.glb",
+   "glbBytes": 257468,
+   "height": 1.016,
+   "hitbox": {
+    "run": {
+     "bodyR": 0.198,
+     "bodyY": 0.59,
+     "bodyZ0": -0.342,
+     "bodyZ1": 0.241,
+     "headR": 0.16,
+     "headY": 0.847,
+     "headZ": 0.48
+    },
+    "stand": {
+     "bodyR": 0.195,
+     "bodyY": 0.633,
+     "bodyZ0": -0.35,
+     "bodyZ1": 0.243,
+     "headR": 0.16,
+     "headY": 0.9,
+     "headZ": 0.48
+    }
+   },
+   "length": 1.367,
+   "triangles": [
+    1884,
+    1164,
+    574
+   ]
+  },
+  "triangles": [
+   1884,
+   1164,
+   574
+  ]
+ },
+ "hunters": {
+  "boss": {
+   "glb_bytes": 304740,
+   "hat_top_m": 2.522,
+   "head_top_node_m": 2.445,
+   "height_m": 2.522,
+   "hitbox": {
+    "aim": {
+     "bodyHi": 1.578,
+     "bodyLo": 0.355,
+     "bodyR": 0.355,
+     "bodyX": -0.004,
+     "bodyZ": 0.017,
+     "headR": 0.23,
+     "headX": -0.044,
+     "headY": 1.902,
+     "headZ": 0.058
+    },
+    "run": {
+     "bodyHi": 1.456,
+     "bodyLo": 0.361,
+     "bodyR": 0.361,
+     "bodyX": 0.02,
+     "bodyZ": 0.049,
+     "headR": 0.23,
+     "headX": 0.052,
+     "headY": 1.794,
+     "headZ": 0.133
+    },
+    "stand": {
+     "bodyHi": 1.603,
+     "bodyLo": 0.355,
+     "bodyR": 0.355,
+     "bodyX": -0.0,
+     "bodyZ": 0.011,
+     "headR": 0.23,
+     "headX": 0.004,
+     "headY": 1.924,
+     "headZ": 0.012
+    }
+   },
+   "muzzle_aim_m": [
+    -0.105,
+    1.703,
+    1.345
+   ],
+   "muzzle_socket": [
+    0.0,
+    0.835,
+    0.068
+   ],
+   "scale": 1.24,
+   "skull_top_m": 2.16,
+   "stand_bounds_m": {
+    "depth": 1.595,
+    "width": 0.97
+   },
+   "triangles": [
+    3978,
+    2666,
+    1420
+   ],
+   "vertices": [
+    2178,
+    1496,
+    836
+   ]
+  },
+  "decoy": {
+   "glb_bytes": 337748,
+   "hat_top_m": 1.802,
+   "head_top_node_m": 1.972,
+   "height_m": 1.802,
+   "hitbox": {
+    "aim": {
+     "bodyHi": 1.29,
+     "bodyLo": 0.232,
+     "bodyR": 0.232,
+     "bodyX": -0.002,
+     "bodyZ": 0.007,
+     "headR": 0.185,
+     "headX": -0.036,
+     "headY": 1.533,
+     "headZ": 0.047
+    },
+    "run": {
+     "bodyHi": 1.192,
+     "bodyLo": 0.236,
+     "bodyR": 0.236,
+     "bodyX": 0.019,
+     "bodyZ": 0.03,
+     "headR": 0.185,
+     "headX": 0.042,
+     "headY": 1.446,
+     "headZ": 0.107
+    },
+    "stand": {
+     "bodyHi": 1.31,
+     "bodyLo": 0.231,
+     "bodyR": 0.231,
+     "bodyX": 0.0,
+     "bodyZ": 0.002,
+     "headR": 0.185,
+     "headX": 0.003,
+     "headY": 1.552,
+     "headZ": 0.01
+    }
+   },
+   "muzzle_aim_m": [
+    -0.085,
+    1.367,
+    0.78
+   ],
+   "muzzle_socket": [
+    0.0,
+    0.53,
+    0.062
+   ],
+   "scale": 1.0,
+   "skull_top_m": 1.742,
+   "stand_bounds_m": {
+    "depth": 0.898,
+    "width": 0.78
+   },
+   "triangles": [
+    3964,
+    2694,
+    1486
+   ],
+   "vertices": [
+    2177,
+    1518,
+    877
+   ]
+  },
+  "rifleman": {
+   "glb_bytes": 284656,
+   "hat_top_m": 1.801,
+   "head_top_node_m": 1.972,
+   "height_m": 1.801,
+   "hitbox": {
+    "aim": {
+     "bodyHi": 1.293,
+     "bodyLo": 0.233,
+     "bodyR": 0.233,
+     "bodyX": -0.002,
+     "bodyZ": 0.007,
+     "headR": 0.185,
+     "headX": -0.036,
+     "headY": 1.533,
+     "headZ": 0.047
+    },
+    "run": {
+     "bodyHi": 1.196,
+     "bodyLo": 0.238,
+     "bodyR": 0.238,
+     "bodyX": 0.021,
+     "bodyZ": 0.037,
+     "headR": 0.185,
+     "headX": 0.042,
+     "headY": 1.446,
+     "headZ": 0.107
+    },
+    "stand": {
+     "bodyHi": 1.312,
+     "bodyLo": 0.233,
+     "bodyR": 0.233,
+     "bodyX": 0.0,
+     "bodyZ": 0.002,
+     "headR": 0.185,
+     "headX": 0.003,
+     "headY": 1.552,
+     "headZ": 0.01
+    }
+   },
+   "muzzle_aim_m": [
+    -0.085,
+    1.371,
+    1.025
+   ],
+   "muzzle_socket": [
+    0.0,
+    0.775,
+    0.066
+   ],
+   "scale": 1.0,
+   "skull_top_m": 1.742,
+   "stand_bounds_m": {
+    "depth": 1.082,
+    "width": 0.753
+   },
+   "triangles": [
+    3536,
+    2220,
+    1150
+   ],
+   "vertices": [
+    1940,
+    1250,
+    684
+   ]
+  },
+  "trapper": {
+   "glb_bytes": 326732,
+   "hat_top_m": 1.812,
+   "head_top_node_m": 1.972,
+   "height_m": 1.812,
+   "hitbox": {
+    "aim": {
+     "bodyHi": 1.293,
+     "bodyLo": 0.252,
+     "bodyR": 0.252,
+     "bodyX": -0.002,
+     "bodyZ": 0.008,
+     "headR": 0.185,
+     "headX": -0.036,
+     "headY": 1.533,
+     "headZ": 0.047
+    },
+    "run": {
+     "bodyHi": 1.196,
+     "bodyLo": 0.256,
+     "bodyR": 0.256,
+     "bodyX": 0.017,
+     "bodyZ": 0.029,
+     "headR": 0.185,
+     "headX": 0.042,
+     "headY": 1.446,
+     "headZ": 0.107
+    },
+    "stand": {
+     "bodyHi": 1.313,
+     "bodyLo": 0.251,
+     "bodyR": 0.251,
+     "bodyX": 0.0,
+     "bodyZ": 0.004,
+     "headR": 0.185,
+     "headX": 0.003,
+     "headY": 1.552,
+     "headZ": 0.01
+    }
+   },
+   "muzzle_aim_m": [
+    -0.085,
+    1.381,
+    0.93
+   ],
+   "muzzle_socket": [
+    0.0,
+    0.68,
+    0.076
+   ],
+   "scale": 1.0,
+   "skull_top_m": 1.742,
+   "stand_bounds_m": {
+    "depth": 1.146,
+    "width": 0.769
+   },
+   "triangles": [
+    3960,
+    2652,
+    1378
+   ],
+   "vertices": [
+    2166,
+    1488,
+    816
+   ]
+  }
+ },
+ "props": {
+  "decoy": {
+   "file": "decoy.glb",
+   "manifest": {
+    "file": "decoy.glb",
+    "forward": "+Z",
+    "glbBytes": 32368,
+    "length": 0.38,
+    "lodUntil": [
+     15.0,
+     80.0
+    ],
+    "nodes": {
+     "lods": [
+      "LOD0",
+      "LOD1"
+     ],
+     "root": "Decoy"
+    },
+    "origin": "the decoy's middle (spin it about here when thrown)",
+    "triangles": [
+     672,
+     284
+    ]
+   }
+  },
+  "fx": {
+   "file": "hunter_fx.glb",
+   "manifest": {
+    "file": "hunter_fx.glb",
+    "glbBytes": 24908,
+    "nodes": [
+     "Stars",
+     "Poof"
+    ],
+    "note": "add Stars under the FxStars joint and Poof under FxPoof (attach poses below); the clips scale and spin those joints, and their node scale is 0 otherwise",
+    "triangles": [
+     200,
+     432
+    ]
+   }
+  },
+  "trap": {
+   "file": "trap.glb",
+   "manifest": {
+    "file": "trap.glb",
+    "glbBytes": 46820,
+    "nodes": {
+     "root": "Trap",
+     "states": [
+      "Open",
+      "Sprung"
+     ]
+    },
+    "note": "show Open, swap to Sprung when it catches a duck",
+    "origin": "the trap's center on the ground",
+    "radius": 0.66,
+    "sprungHeight": 2.15,
+    "triangles": [
+     564,
+     696
+    ]
+   }
+  }
+ }
+}

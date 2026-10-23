@@ -171,6 +171,8 @@ export const MatchPhase = {
 export const GameMode = {
   Deathmatch: 0,
   BattleRoyale: 1,
+  /** Hunt Season, the co-op PvE mode (raid/). */
+  Raid: 2,
 } as const;
 
 /** The safe circle. Clients interpolate the radius from the server clock. */
@@ -237,6 +239,64 @@ export const DmRoundRow = schema({
 }, 'DmRoundRow');
 export type DmRoundRow = SchemaType<typeof DmRoundRow>;
 
+/**
+ * Hunt Season: the run as everyone in it sees it (stage, wave, tower, boss).
+ * Public to the room (every duck in a run is on the same side).
+ */
+export const RaidState = schema(
+  {
+    /** RaidStage: lobby, break, wave, won, lost. */
+    stage: t.uint8(),
+    /** The wave being fought, or the one coming after a break (1 to waves); 0 in the lobby. */
+    wave: t.uint8(),
+    waves: t.uint8(),
+    /** Server time (ms since room start) the lobby countdown or the break ends; 0 when nothing counts down. */
+    ends: t.uint32(),
+    /** Server time the current wave started (the HUD's wave timer). */
+    waveAt: t.uint32(),
+    towerHp: t.uint16(),
+    towerMax: t.uint16(),
+    /** Hunters still to beat this wave (alive and still to come). */
+    left: t.uint16(),
+    /** The Big Hunter's health bar (0 and 0 while none is out). */
+    bossHp: t.uint16(),
+    bossMax: t.uint16(),
+    /** Ducks in the run, and hunters bagged by the whole team. */
+    ducks: t.uint8(),
+    kills: t.uint16(),
+  },
+  'RaidState',
+);
+export type RaidState = SchemaType<typeof RaidState>;
+
+/**
+ * One hunter or dog (raid/hunters.ts). Sent to everyone in the room, every
+ * tick, regardless of line of sight: hunters are AI enemies of a co-op mode,
+ * not opponents, so seeing them gives no human an edge over another (the
+ * CLAUDE.md Hunt Season rule). Quantized like a duck's pose.
+ */
+export const Hunter = schema(
+  {
+    /** HunterKind. */
+    kind: t.uint8(),
+    x: t.quantized({ min: -512, max: 512 }),
+    y: t.quantized({ min: -64, max: 192 }),
+    z: t.quantized({ min: -512, max: 512 }),
+    yaw: t.angle(),
+    pitch: t.quantized({ min: -1.6, max: 1.6, bits: 8 }),
+    /** HunterAct: what it does (animation, the aim laser, the boss wind-up). */
+    act: t.uint8(),
+    /** Health left, 0 to 255 of its full health (the small bar over it). */
+    hp: t.uint8(),
+  },
+  'Hunter',
+);
+export type Hunter = SchemaType<typeof Hunter>;
+
+/** A trapper's trap on the ground: armed (1) once it can catch, sprung (2) with a duck in it. */
+export const RaidTrap = schema({ x: t.float32(), y: t.float32(), z: t.float32(), state: t.uint8() }, 'RaidTrap');
+export type RaidTrap = SchemaType<typeof RaidTrap>;
+
 export const IslandState = schema(
   {
     /** GameMode: deathmatch or battle royale. */
@@ -284,6 +344,12 @@ export const IslandState = schema(
     teams: t.uint8(),
     /** Teammates for the HUD, keyed by seat id: each client gets only its own team's entries. */
     mates: t.map(TeamMate).view(),
+    // Hunt Season.
+    raid: RaidState,
+    hunters: t.map(Hunter),
+    traps: t.map(RaidTrap),
+    /** Ammo and heal drops (kind RaidDrop), public like the deathmatch boosts. */
+    raidDrops: t.map(DmPickup),
   },
   'IslandState',
 );
@@ -317,6 +383,8 @@ export const KillWeapon = {
   /** Deathmatch explosives (also the weapon of their Msg.ShotHint). */
   Grenade: 6,
   Rocket: 7,
+  /** Hunt Season: a hunter did it; the hunter's kind is added (HunterBase + HunterKind). */
+  HunterBase: 10,
 } as const;
 
 /** Server to client messages. Arrays keep them small on the wire. */
@@ -390,6 +458,46 @@ export const Msg = {
   Boom: 'boom',
   /** To the collector only: the rocket launcher with this many rockets. */
   DmRocket: 'dm-rocket',
+  /**
+   * Hunt Season, to one duck: its upgrade cards [deadlineServerMs, id, value, id, value, id, value]
+   * (values are the server's numbers, for the card text). An empty array closes the cards.
+   */
+  RaidOffer: 'raid-offer',
+  /** Client to server: the card it picks (0, 1 or 2). The server checks it against the offer. */
+  RaidPick: 'raid-pick',
+  /** To one duck: its own run state [maxHp, damagePct, armorPct, regenPerS, revivePct, headPct, lifesteal, kills, xpSoFar, ...upgradeIdsTaken]. */
+  RaidSelf: 'raid-self',
+  /** To everyone: [hunterKind, killerPid, head(0/1), x, y, z (cm)]: a hunter bagged. */
+  RaidKill: 'raid-kill',
+  /** To everyone: [RaidEvent, a, b]: wave start or clear, boss out, the whistle, the tower hit, a duck caught. */
+  RaidEvent: 'raid-ev',
+  /**
+   * To one duck at the run end: [reason (RaidEndReason), wavesCleared, kills, bossKills, revives, xpGained,
+   * xpBefore, xpAfter, levelBefore, levelAfter, runMs, bestWave, bestMs, newBest(0/1), granted (0: the first, unsaved answer; 1: stored; 2: could not be saved)].
+   */
+  RaidEnd: 'raid-end',
+} as const;
+
+/** `Msg.RaidEvent` kinds. */
+export const RaidEvent = {
+  /** [_, wave, isBoss]. */
+  WaveStart: 1,
+  /** [_, wave, 0]. */
+  WaveClear: 2,
+  /** [_, x, z] (m): the Big Hunter whistles for help. */
+  Whistle: 3,
+  /** [_, towerHp, 0]: hunters at the tower (throttled). */
+  TowerHit: 4,
+  /** [_, duckPid, 0]: a duck stepped in a trap. */
+  Trapped: 5,
+  /** [_, 0, 0]: the tower repair kit was used. */
+  Repaired: 6,
+} as const;
+
+/** Hunt Season drops (`raidDrops` kind). */
+export const RaidDrop = {
+  Ammo: 1,
+  Heal: 2,
 } as const;
 
 /** `Msg.DmHero` events. */

@@ -22,6 +22,7 @@ import {
   KNOCK,
   pickBotCharacter,
   isHero,
+  type HitTarget,
   type InputFrame,
   type PlayerSim,
   type ShotResult,
@@ -179,6 +180,17 @@ export abstract class Arena {
     return raw;
   }
 
+  /**
+   * Targets besides the ducks a shot can hit (Hunt Season hunters and traps),
+   * as the shooter saw them at `viewTime` (lag compensated). Default: none.
+   */
+  protected extraTargets(_shooter: Seat, _viewTime: number): HitTarget[] {
+    return [];
+  }
+
+  /** A validated shot hit one of the extra targets (not a duck). Default: nothing. */
+  protected hitOther(_shooter: Seat, _r: ShotResult, _weapon: number): void {}
+
   /** May this duck be knocked instead of killed right now? Only the battle royale team modes say yes. */
   protected canKnock(_victim: Seat): boolean {
     return false;
@@ -197,6 +209,11 @@ export abstract class Arena {
   private anyProtected(): boolean {
     for (const s of this.seats.values()) if (s.protect > 0) return true;
     return false;
+  }
+
+  /** A fresh per-round spread secret, or the fixed one the options gave (tests: shots land the same every run). */
+  protected rollSecret(): void {
+    this.secret = this.ao.secret ?? randomSecret();
   }
 
   alliesById(a: string, b: string): boolean {
@@ -253,10 +270,16 @@ export abstract class Arena {
     // No friendly fire: shots pass through teammates; and through spawn-protected ducks, which take no
     // damage (the client predicts the same for both, so tracers and hit markers match).
     if (seat.team > 0 || this.anyProtected()) targets = targets.filter((t) => !this.alliesById(seat.id, t.id) && !this.isProtected(t.id));
+    const others = this.extraTargets(seat, viewTime);
+    if (others.length > 0) targets = targets.concat(others);
     const r = resolveShot(this.sim, seat.sim, seat.id, seat.side, shot, spreadSeed(this.secret, seat.pid), targets);
     this.onShot(seat);
     this.ev.shot(seat, shot.weapon, r);
     if (r.outcome !== ShotOutcome.Body && r.outcome !== ShotOutcome.Head) return;
+    if (others.length > 0 && !this.seats.has(r.targetId)) {
+      if (seat.protect <= 0 && this.damageOn()) this.hitOther(seat, r, shot.weapon);
+      return;
+    }
     const victim = this.seats.get(r.targetId);
     if (!victim || !victim.sim.alive || victim.protect > 0 || seat.protect > 0 || !this.damageOn() || this.allies(seat, victim)) return;
     const head = r.outcome === ShotOutcome.Head;

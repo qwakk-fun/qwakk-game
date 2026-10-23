@@ -1,7 +1,8 @@
 /**
  * Step 3 of the join flow: the battle royale mode (Solo, Duo, Squad), Quick
- * Play (battle royale) and Deathmatch, the status line while a match loads or
- * an error, and on phones the note to turn the phone sideways.
+ * Play (battle royale), Deathmatch and Hunt Season (co-op, signed-in ducks
+ * only), the status line while a match loads or an error, and on phones the
+ * note to turn the phone sideways.
  */
 import { COPY } from './copy.ts';
 import { h } from './dom.ts';
@@ -19,6 +20,10 @@ export class PlayStep {
   private readonly brSub: HTMLElement;
   private readonly brGo: HTMLElement;
   private guest = false;
+  private readonly raidTitle: HTMLElement;
+  private readonly raidSub: HTMLElement;
+  private readonly raidGo: HTMLElement;
+  private partySize = 1;
 
   constructor(touchOnly: boolean, onPlay: (mode: GameMode) => void) {
     this.brTitle = h('span', { class: 'qm-btn-title' }, COPY.playBr);
@@ -31,7 +36,11 @@ export class PlayStep {
       h('span', { class: 'qm-btn-icon', 'aria-hidden': 'true' }, icon('target')),
       h('span', { class: 'qm-btn-text' }, h('span', { class: 'qm-btn-title' }, COPY.playDm), h('span', { class: 'qm-btn-sub' }, COPY.playDmSub)),
     );
-    for (const b of [br, dm]) {
+    this.raidTitle = h('span', { class: 'qm-btn-title' }, COPY.raid.title);
+    this.raidSub = h('span', { class: 'qm-btn-sub' }, COPY.raid.sub);
+    this.raidGo = h('span', { class: 'qm-btn-icon', 'aria-hidden': 'true' }, icon('tower'));
+    const raid = h('button', { type: 'button', class: 'qm-btn qm-btn-secondary qm-btn-raid', 'data-mode': 'raid' }, this.raidGo, h('span', { class: 'qm-btn-text' }, this.raidTitle, this.raidSub));
+    for (const b of [br, dm, raid]) {
       b.addEventListener('click', () => onPlay(b.dataset.mode as GameMode));
       this.buttons.push(b);
     }
@@ -41,7 +50,7 @@ export class PlayStep {
       'div',
       { class: 'qm-play' },
       h('div', { class: 'qm-play-mode' }, h('span', { class: 'qm-play-mode-label' }, COPY.steps.playSub), this.team.el),
-      h('div', { class: 'qm-play-buttons' }, br, dm),
+      h('div', { class: 'qm-play-buttons' }, br, dm, raid),
       this.leaderNote,
       this.status,
       touchOnly ? h('p', { class: 'qm-mobile', role: 'note' }, icon('phone'), h('span', {}, COPY.touch.menuNote)) : null,
@@ -65,6 +74,22 @@ export class PlayStep {
     this.brSub.textContent = on ? COPY.gate.brNote : COPY.playBrSub;
     this.brGo.replaceChildren(icon(on ? 'lock' : 'arrow'));
     this.team.setBusy(on);
+    // Hunt Season, like battle royale: "Sign in to play Hunt Season" for a guest.
+    const raid = this.buttons[2]!;
+    raid.classList.toggle('is-locked', on);
+    this.raidGo.replaceChildren(icon(on ? 'lock' : 'tower'));
+    this.renderRaid();
+  }
+
+  /** The party's size: a party leader starts a fresh hunt with everyone. */
+  setPartySize(n: number): void {
+    this.partySize = Math.max(1, n);
+    this.renderRaid();
+  }
+
+  private renderRaid(): void {
+    this.raidTitle.textContent = this.guest ? COPY.raid.locked : COPY.raid.title;
+    this.raidSub.textContent = this.guest ? COPY.raid.lockedNote : this.partySize > 1 ? COPY.raid.party(this.partySize) : COPY.raid.sub;
   }
 
   /** Busy (a match is loading) or a party member waiting for the leader. */

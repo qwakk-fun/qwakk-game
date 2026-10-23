@@ -9,7 +9,11 @@
  *      WebSocket, the first state patch (map id, ducks seated, bots filled), leave
  *   5. a battle royale Quick Play (joinOrCreate), first state patch, leave.
  *      SMOKE_BR=0 skips it (it opens a waiting room, which counts toward the
- *      per-IP room creation limit and closes again when the smoke test leaves)
+ *      per-IP room creation limit and closes again when the smoke test leaves).
+ *      A guest session (no SMOKE_SESSION, or a guest token) must instead be
+ *      refused by battle royale and Hunt Season: those modes need an account.
+ *      With the game session of a signed-in duck (`qwakk.account` in the
+ *      browser) as SMOKE_SESSION, the battle royale join runs as before.
  * It proves TLS, the proxy, the WebSocket upgrade, the static rooms and the
  * meta layer are wired. Each join is a real player for about a second.
  *
@@ -23,7 +27,7 @@
  * is read from the environment only; never write it to a file.
  */
 import { Client, type Room } from '@colyseus/sdk';
-import { BR, MATCH, ROOM } from '@qwakk/shared';
+import { BR, MATCH, RAID, ROOM } from '@qwakk/shared';
 import { DM_ROOMS, LOBBY_ROOM } from '@qwakk/shared/lobby';
 
 const endpoint = (process.argv[2] ?? 'ws://localhost:2567').replace(/\/+$/, '');
@@ -122,10 +126,24 @@ try {
 
   // 5. Battle royale Quick Play.
   if (process.env.SMOKE_BR !== '0') {
-    const br = await within(client.joinOrCreate(BR.roomName, { name: 'smoketest', token }), 'battle royale join');
-    await firstPatch(br);
-    console.log(`joined battle royale ${br.roomId}: map ${stateOf(br)?.mapId ?? '?'} after ${ms()}`);
-    await br.leave(true);
+    try {
+      const br = await within(client.joinOrCreate(BR.roomName, { name: 'smoketest', token }), 'battle royale join');
+      await firstPatch(br);
+      console.log(`joined battle royale ${br.roomId}: map ${stateOf(br)?.mapId ?? '?'} after ${ms()}`);
+      await br.leave(true);
+      if (!process.env.SMOKE_SESSION) fail('a guest was let into battle royale');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (!/account/i.test(msg)) throw err;
+      console.log(`battle royale refuses the guest ("${msg}") after ${ms()}`);
+      // Hunt Season needs an account too.
+      const raid = await client.joinOrCreate(RAID.roomName, { name: 'smoketest', token }).then(
+        async (r) => { await r.leave(true); return 'joined'; },
+        (e: unknown) => (e instanceof Error ? e.message : String(e)),
+      );
+      if (!/account/i.test(raid)) fail(`Hunt Season did not refuse the guest: ${raid}`);
+      console.log(`Hunt Season refuses the guest after ${ms()}`);
+    }
   }
 
   console.log(`OK ${endpoint}`);

@@ -17,6 +17,7 @@ import { Callbacks, Client, Predict, type InputHandle, type Reconciler, type Roo
 import {
   BR,
   INTEREST,
+  RAID,
   lastExplosive,
   NET,
   PLAYER_SIM_FIELDS,
@@ -84,6 +85,25 @@ export interface SessionHandlers {
   dmRocket?(rockets: number): void;
   /** The local sim threw a grenade or launched a rocket (live step only). `state` is the post-step state. */
   localExplosive?(kind: number, state: PlayerSim, buttons: number): void;
+  /** Hunt Season: our upgrade cards ([id, value] pairs, empty: closed) and when they close (server ms). */
+  raidOffer?(cards: [number, number][], deadlineMs: number): void;
+  /** Hunt Season: our own run numbers (Msg.RaidSelf). */
+  raidSelf?(data: number[]): void;
+  /** Hunt Season: a hunter bagged (kind, by pid 0: nobody), at (m). */
+  raidKill?(kind: number, killerPid: number, head: boolean, at: [number, number, number]): void;
+  /** Hunt Season: RaidEvent and its two numbers. */
+  raidEvent?(event: number, a: number, b: number): void;
+  /** Hunt Season: the run is over for us (Msg.RaidEnd fields). */
+  raidEnd?(data: number[]): void;
+}
+
+/** A hunter as drawn (interpolated like a near duck), reused object. */
+export interface HunterPose {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
 }
 
 export interface RemotePose {
@@ -142,15 +162,15 @@ export class Session {
    * with the most players, or opens one). Deathmatch Quick Play joins the open
    * room with the most humans; deathmatch rooms are never created by a client.
    */
-  static async join(endpoint: string, opts: { mode: 'br' | 'dm'; roomId?: string; create?: boolean; team?: number; name?: string; token?: string; character?: number }, net: NetSimSettings, spectate = false): Promise<Session> {
+  static async join(endpoint: string, opts: { mode: 'br' | 'dm' | 'raid'; roomId?: string; create?: boolean; team?: number; name?: string; token?: string; character?: number }, net: NetSimSettings, spectate = false): Promise<Session> {
     const client = new Client(endpoint);
-    const roomName = opts.mode === 'br' ? BR.roomName : ROOM.name;
+    const roomName = opts.mode === 'br' ? BR.roomName : opts.mode === 'raid' ? RAID.roomName : ROOM.name;
     // `team`: the battle royale team size a new room gets (the server ignores it when joining).
     // `character`: the picked duck (looks only; the server keeps catalog ids and nothing else).
     const joinOpts = { name: opts.name ?? '', token: opts.token, spectate, ...(opts.mode === 'br' && opts.team ? { team: opts.team } : {}), ...(opts.character !== undefined ? { character: opts.character } : {}) };
     const room = opts.roomId
       ? await client.joinById<IslandState>(opts.roomId, joinOpts, IslandState)
-      : opts.mode === 'br' && opts.create
+      : (opts.mode === 'br' || opts.mode === 'raid') && opts.create
         ? await client.create<IslandState>(roomName, joinOpts, IslandState)
         : opts.mode === 'dm'
           ? await client.join<IslandState>(roomName, joinOpts, IslandState)
@@ -192,6 +212,8 @@ export class Session {
     const ang = (delay: number, tick: number) => ({ mode: 'lerp' as const, delay, smoothMs: smooth, tickInterval: tick, angle: true });
     const near = 1000 / NET.patchRateHz;
     this.predict.attachAll('poses', { x: lin(NEAR_DELAY, near), y: lin(NEAR_DELAY, near), z: lin(NEAR_DELAY, near), crouch: lin(NEAR_DELAY, near), yaw: ang(NEAR_DELAY, near), pitch: ang(NEAR_DELAY, near) });
+    // Hunt Season hunters: drawn on the near timeline, so a shot's rewind (the server's hunter history) matches.
+    this.predict.attachAll('hunters', { x: lin(NEAR_DELAY, near), y: lin(NEAR_DELAY, near), z: lin(NEAR_DELAY, near), yaw: ang(NEAR_DELAY, near), pitch: ang(NEAR_DELAY, near) });
 
     const ping = () => this.room.ping((ms) => (this.pingMs = ms));
     ping();
@@ -254,6 +276,15 @@ export class Session {
     this.room.onMessage(Msg.Proj, (d: number[]) => handlers.projectile?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)], [m(d[6] ?? 0), m(d[7] ?? 0), m(d[8] ?? 0)]));
     this.room.onMessage(Msg.Boom, (d: number[]) => handlers.boom?.(d[0] ?? 0, d[1] ?? 0, [m(d[2] ?? 0), m(d[3] ?? 0), m(d[4] ?? 0)]));
     this.room.onMessage(Msg.DmRocket, (n: number) => handlers.dmRocket?.(typeof n === 'number' ? n : 0));
+    this.room.onMessage(Msg.RaidOffer, (d: number[]) => {
+      const cards: [number, number][] = [];
+      for (let i = 1; i + 1 < d.length; i += 2) cards.push([d[i] ?? 0, d[i + 1] ?? 0]);
+      handlers.raidOffer?.(cards, d[0] ?? 0);
+    });
+    this.room.onMessage(Msg.RaidSelf, (d: number[]) => handlers.raidSelf?.(Array.isArray(d) ? d : []));
+    this.room.onMessage(Msg.RaidKill, (d: number[]) => handlers.raidKill?.(d[0] ?? 0, d[1] ?? 0, d[2] === 1, [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)]));
+    this.room.onMessage(Msg.RaidEvent, (d: number[]) => handlers.raidEvent?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0));
+    this.room.onMessage(Msg.RaidEnd, (d: number[]) => handlers.raidEnd?.(Array.isArray(d) ? d : []));
   }
 
   sendChat(text: string): void {
@@ -416,6 +447,26 @@ export class Session {
     b.z = o.z;
     b.t = now;
     return o;
+  }
+
+  private readonly hunterOut: HunterPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
+
+  /** A Hunt Season hunter as drawn now (interpolated 100 ms behind like near ducks), or null. Reused object. */
+  hunterPose(id: string): HunterPose | null {
+    const h = this.room.state.hunters.get(id);
+    if (!h) return null;
+    const o = this.hunterOut;
+    o.x = this.predict.value(h, 'x');
+    o.y = this.predict.value(h, 'y');
+    o.z = this.predict.value(h, 'z');
+    o.yaw = this.predict.value(h, 'yaw');
+    o.pitch = this.predict.value(h, 'pitch');
+    return o;
+  }
+
+  /** Hunt Season: pick upgrade card `index` (the server checks it against our offer). */
+  raidPick(index: number): void {
+    this.room.send(Msg.RaidPick, index);
   }
 
   /** Our team (0: none). */

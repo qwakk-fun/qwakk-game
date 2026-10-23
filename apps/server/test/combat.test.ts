@@ -131,6 +131,12 @@ describe('server hit validation', () => {
     expect(log.hits.length).toBe(0);
   });
 
+  it('keeps a fixed spread secret through the round a first join starts (tests land the same every run)', () => {
+    const dm = new Deathmatch(flatWorld(), { ...DEFAULT_DM, bots: false, secret: 7 }, recorder().ev);
+    dm.addHuman('a', 'A');
+    expect((dm as unknown as { secret: number }).secret).toBe(7);
+  });
+
   it('a 10 ms client cannot claim a 230 ms old view (rewind bounded by the server-measured round trip)', () => {
     // Aim at where the target was 230 ms ago and claim exactly that view time.
     expect(rewindScenario(230, 230, 10).hits.length).toBe(0);

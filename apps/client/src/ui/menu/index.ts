@@ -30,9 +30,9 @@ export function directStart(devtools: boolean, search = location.search): StartO
   if (p.has('menu')) return null;
   const mode = p.get('mode');
   const tool = p.has('autopilot') || (p.get('spectate') ?? '0') !== '0';
-  if (mode !== 'br' && mode !== 'dm' && !tool) return null;
+  if (mode !== 'br' && mode !== 'dm' && mode !== 'raid' && !tool) return null;
   const character = gameId(characterById(p.get('character'))?.id ?? loadCharacter());
-  return { mode: mode === 'br' ? 'br' : 'dm', roomId: p.get('room') ?? undefined, name: p.get('name') ?? undefined, character, settings: toGameSettings(loadSettings()) };
+  return { mode: mode === 'br' ? 'br' : mode === 'raid' ? 'raid' : 'dm', roomId: p.get('room') ?? undefined, name: p.get('name') ?? undefined, character, settings: toGameSettings(loadSettings()) };
 }
 
 /**

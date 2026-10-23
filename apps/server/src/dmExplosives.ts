@@ -93,11 +93,17 @@ export interface ExplosiveEvents {
   blastDamaged?(victim: Seat, damage: number, x: number, z: number): void;
 }
 
-/** What the deathmatch lends the explosives. */
+/** What the deathmatch (or Hunt Season) lends the explosives. */
 export interface ExplosiveHost {
   readonly seats: Map<string, Seat>;
   /** Apply explosive damage through the mode's rules (armor, kills, points). */
   explosionDamage(attacker: Seat | null, victim: Seat, amount: number, weapon: number, x: number, z: number): void;
+  /**
+   * Hunt Season: targets besides the ducks a rocket can hit on its way (hunters, current
+   * positions), and a blast's damage to them (`directId`: the one a rocket hit). Absent in the deathmatch.
+   */
+  rocketTargets?(): HitTarget[];
+  blastOthers?(attacker: Seat | null, x: number, y: number, z: number, r: BlastRules, kind: number, directId: string | null): void;
 }
 
 const f32 = Math.fround;
@@ -115,6 +121,8 @@ export class DmExplosives {
   private readonly host: ExplosiveHost;
   /** Set by the room (messages); the deathmatch works without it (tests, the benchmark). */
   events: ExplosiveEvents = {};
+  /** The timed launcher pickup (deathmatch). Hunt Season turns it off and places one on boss waves (placeRocket). */
+  timedPickups = true;
 
   constructor(sim: SimWorld, host: ExplosiveHost) {
     this.sim = sim;
@@ -164,7 +172,8 @@ export class DmExplosives {
       if (s === seat || !s.sim.alive || s.sim.mode !== Mode.Ground || s.protect > 0 || (seat.team > 0 && s.team === seat.team)) continue;
       out.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, crouch: s.sim.crouch });
     }
-    return out;
+    const others = this.host.rocketTargets?.();
+    return others ? out.concat(others) : out;
   }
 
   /** One tick: flights, fuses and blasts, then the launcher pickup. Only while a round runs. */
@@ -203,9 +212,23 @@ export class DmExplosives {
         direct = s;
       }
     }
-    if (direct || hit) {
+    // Hunt Season: hunters along the way (current positions).
+    let directOther: string | null = null;
+    const others = this.host.rocketTargets?.();
+    if (others) {
+      for (const o of others) {
+        if (Math.abs(o.x - f.x) > move + 2.5 || Math.abs(o.z - f.z) > move + 2.5) continue;
+        const h = rayHitbox(f.x, f.y, f.z, dx, dy, dz, o, t + EXPLOSIVE.rocket.radius);
+        if (h && h.t <= t + EXPLOSIVE.rocket.radius && h.t < t) {
+          t = h.t;
+          direct = null;
+          directOther = o.id;
+        }
+      }
+    }
+    if (direct || hit || directOther) {
       const back = Math.max(0, t - ROCKET_BACKOFF);
-      this.explode(live, f.x + dx * back, f.y + dy * back, f.z + dz * back, direct);
+      this.explode(live, f.x + dx * back, f.y + dy * back, f.z + dz * back, direct, directOther);
       return;
     }
     f.x += f.vx * DT;
@@ -220,7 +243,7 @@ export class DmExplosives {
    * and knockback; teammates of the thrower take neither; the thrower takes
    * the self share. `direct`: the duck a rocket hit (full splash plus the bonus).
    */
-  private explode(live: LiveFlight, x: number, y: number, z: number, direct: Seat | null): void {
+  private explode(live: LiveFlight, x: number, y: number, z: number, direct: Seat | null, directOther: string | null = null): void {
     this.flights.delete(live.id);
     const kind = live.flight.kind;
     this.events.boom?.({ id: live.id, kind, x, y, z });
@@ -243,6 +266,7 @@ export class DmExplosives {
       const dmg = Math.round(amount);
       if (dmg > 0) this.host.explosionDamage(attacker, seat, dmg, weapon, x, z);
     }
+    this.host.blastOthers?.(attacker, x, y, z, r, kind, directOther);
   }
 
   /** Add the blast's push to the duck's sim velocity (see the file comment for why it lives in the sim). */
@@ -277,7 +301,7 @@ export class DmExplosives {
       this.rocket = null;
       this.schedule(tick);
     }
-    if (!this.rocket && tick >= this.nextRocketAt) {
+    if (this.timedPickups && !this.rocket && tick >= this.nextRocketAt) {
       if (rocketPickupRules().rockets > 0) this.spawnPickup(tick);
       else this.schedule(tick);
     }
@@ -299,6 +323,11 @@ export class DmExplosives {
     this.rocket = null;
     this.schedule(tick);
     this.events.rocketPicked?.(best, rockets);
+  }
+
+  /** Put the launcher pickup here now (Hunt Season boss waves), for `seconds`. */
+  placeRocket(x: number, y: number, z: number, tick: number, seconds: number): void {
+    this.rocket = { id: `r${++this.serial}`, x, y, z, expires: tick + Math.round(seconds * TICK_RATE) };
   }
 
   private reaches(s: Seat, p: RocketPickup): boolean {

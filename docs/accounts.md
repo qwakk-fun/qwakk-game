@@ -1,6 +1,6 @@
 # Accounts
 
-Persistent accounts with a Metin2 style way in: sign in by email (or play as a guest), pick a duck on the character select, then the main menu as that duck. Guests play Deathmatch only; Battle Royale (and later modes) need an account. Phase 1 of a bigger plan: phase 2 adds XP and levels, daily quests, login streaks, cosmetic unlocks and a QoreX wallet sign-in. Levels only ever unlock cosmetics: no gameplay stat lives on a duck.
+Persistent accounts with a Metin2 style way in: sign in by email (or play as a guest), pick a duck on the character select, then the main menu as that duck. Guests play Deathmatch only; Battle Royale and Hunt Season need an account. Phase 1 of a bigger plan: phase 2 adds XP and levels, daily quests, login streaks, cosmetic unlocks and a QoreX wallet sign-in. Levels only ever unlock cosmetics: no gameplay stat lives on a duck.
 
 Code: server `apps/server/src/meta/accounts/` (codes, tokens, mail, store, service, routes), migration `apps/server/db/migrations/003_accounts.sql`; menu `apps/client/src/ui/menu/account/`; shared constants and API types `packages/shared/src/accounts.ts` (`@qwakk/shared/accounts`). Privacy rows: `docs/privacy-notes.md`.
 
@@ -17,9 +17,9 @@ Code: server `apps/server/src/meta/accounts/` (codes, tokens, mail, store, servi
 
 The migration only adds tables and nullable or defaulted columns, so existing guests, matches and admin data are untouched (tested on a database that already holds guests, settings and bans).
 
-### Phase 2 (planned, not built)
+### Phase 2
 
-- XP and level: already on `players` (`xp`, `level`, level 1 for now). The server adds XP after a match in `recordMatch` (the only writer of match data), level is derived from XP and unlocks cosmetics only.
+- XP and level (built with Hunt Season, `docs/hunt-season.md`): Hunt Season is the mode that gives XP. The game server grants it at the end of a run through `recordRaid` (`apps/server/src/meta/raid.ts`, migration `004_raid.sql`: `raid_runs`, `raid_run_players`, `raid_bests`), once per run, and sets `players.level` from the shared curve (`@qwakk/shared/progress`: level n needs 100 * n^1.5 XP, cap 50). Never from a client message, never from an HTTP route. The account API sends `xp`, `level` and `raidBest` with every duck; the character select and the Play tab show the level, an XP bar and the best wave. Levels are cosmetic progress only (they unlock nothing yet, and never gameplay power).
 - Cosmetic unlocks: a new `account_unlocks (account_id, item_id, unlocked_at, source)` table (per account, so every duck can wear them), plus `players.cosmetics` (what a duck wears) checked against it.
 - Daily quests: `account_quests (account_id, day, quest_id, progress, done_at)`, progress written by the game server from match results, never by an HTTP route.
 - Login streaks: `accounts.streak_days`, `accounts.streak_last_day` (a date), updated at sign-in or at the first match of a day.
@@ -37,7 +37,7 @@ The account session token lives in `localStorage` (`qwakk.account`), like the gu
 
 - Account session `a1.<payload>.<sig>` (30 days, renewed on `GET /api/account` when half used) names an `account_sessions` row; logout and deletion delete rows, so a signature alone signs nobody in.
 - Picking a duck trades it for the usual 24-hour game session (`POST /api/account/play`), now with `k: 'a'` and the duck's look. Rooms keep calling `verifySession(token)`; the identity carries `account` and `look`. The room seats an account duck in its stored look, never the `character` join option.
-- Battle royale refuses guests twice: the matchmaking guard (`checkAccount`, codes 534 and 535 as HTTP statuses) and `BrRoom.checkAdmission` (4412 and 4413). A party with a guest cannot go into a battle royale (the party registry knows who is a guest from the verified session); the party view marks guests.
+- Battle royale and Hunt Season refuse guests twice: the matchmaking guard (`checkAccount`, codes 534 and 535 as HTTP statuses) and `BrRoom.checkAdmission` / `RaidRoom.checkAdmission` (4412 and 4413). A party with a guest cannot go into a battle royale (the party registry knows who is a guest from the verified session); the party view marks guests.
 - Deleted ducks and claimed guests: their older game sessions are refused at once (`accounts/revoked.ts`, memory, 25 hours).
 - Dev only: a join without a token (tools, benchmarks, direct-start tests) gets a random dev identity that counts as signed in. In production a join without a valid token is refused as before.
 

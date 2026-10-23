@@ -127,7 +127,7 @@ export class PartyRoom extends Room {
     if (!leader || leader.sessionId !== client.sessionId) return;
     if (!msg || typeof msg !== 'object') return;
     const { mode, roomId } = msg as Partial<PartyGo>;
-    if ((mode !== 'br' && mode !== 'dm') || typeof roomId !== 'string' || !ROOM_ID_RE.test(roomId)) return;
+    if ((mode !== 'br' && mode !== 'dm' && mode !== 'raid') || typeof roomId !== 'string' || !ROOM_ID_RE.test(roomId)) return;
     if (!parties.isPlaying(leader.playerId, roomId)) return;
     const go: PartyGo = { mode, roomId };
     for (const m of this.members.slice(1)) {

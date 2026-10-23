@@ -15,6 +15,7 @@ import { asset, h } from '../dom.ts';
 import type { HeroModule } from '../heroSlot.ts';
 import { icon } from '../icons.ts';
 import { errorText } from '../nameStep.ts';
+import { duckLevel, xpBar } from '../xpBar.ts';
 import { claimGuest, deleteDuck } from './accountApi.ts';
 import { CreateDuck } from './createDuck.ts';
 import { openDialog } from './dialog.ts';
@@ -195,7 +196,8 @@ export class DuckSelect {
         'span',
         { class: 'qd-plate' },
         h('span', { class: 'qd-name' }, duck.name, h('span', { class: 'qd-tag' }, `#${duck.tag}`)),
-        h('span', { class: 'qd-meta' }, characterCopy(look.id).name, h('span', { class: 'qd-dot', 'aria-hidden': 'true' }, '·'), h('span', { class: 'qd-level' }, D.level(duck.level))),
+        h('span', { class: 'qd-meta' }, characterCopy(look.id).name, h('span', { class: 'qd-dot', 'aria-hidden': 'true' }, '·'), h('span', { class: 'qd-level' }, D.level(duckLevel(duck)))),
+        xpBar(duck),
       ),
       h('span', { class: 'qd-check', 'aria-hidden': 'true' }, icon('check')),
     );
