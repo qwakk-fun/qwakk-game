@@ -7,8 +7,10 @@
  *   GET  /api/leaderboard   ?season=&sort=&mode=  top 100, cached 30 s
  *   GET  /api/me            ?season=&mode=  with Authorization: Bearer <session>
  *   GET  /api/status        menu banner, maintenance and the live rules (public)
+ *   /api/auth/*, /api/account/*  accounts (accounts/http.ts)
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { ACCOUNT_PATHS, accountRoute } from './accounts/http.ts';
 import { clientIp } from './ip.ts';
 import type { ApiResult, MetaService } from './service.ts';
 
@@ -101,8 +103,12 @@ export function createMetaHandler(meta: MetaService) {
           return meta.me(req.headers.authorization, url.searchParams, ip);
         case 'GET /api/status':
           return meta.status(ip);
-        default:
-          return { status: path === '/health' || ['/api/session', '/api/leaderboard', '/api/me', '/api/status'].includes(path) ? 405 : 404, body: { error: 'not_found' } };
+        default: {
+          const r = await accountRoute(meta.accounts, route, url.searchParams, req.headers.authorization, ip, () => readJson(req));
+          if (r) return r;
+          const known = path === '/health' || ['/api/session', '/api/leaderboard', '/api/me', '/api/status', ...ACCOUNT_PATHS].includes(path);
+          return { status: known ? 405 : 404, body: { error: 'not_found' } };
+        }
       }
     };
     handle().then(

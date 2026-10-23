@@ -18,6 +18,8 @@ RUN npm ci --workspace @qwakk/client --workspace @qwakk/shared --no-audit --no-f
 
 COPY packages/shared packages/shared
 COPY apps/client apps/client
+# The legal pages (/terms, /privacy, /cookies) are rendered from these at build time.
+COPY docs/legal docs/legal
 
 # Baked into the bundle at build time. CapRover passes app env vars as build
 # args, so these are set in the qwakk-game-web app settings.

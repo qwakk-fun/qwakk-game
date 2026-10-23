@@ -26,7 +26,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 async function main(): Promise<void> {
   const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], { cwd: root, stdio: 'ignore', env: { ...process.env, PORT: String(SERVER_PORT) } });
-  const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
+  const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
   try {
     await sleep(2500);
     const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome', headless: true });

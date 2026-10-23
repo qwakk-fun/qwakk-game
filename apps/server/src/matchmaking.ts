@@ -18,7 +18,11 @@
  *     room) and cap the rooms open per room type (BR.maxRooms);
  *   - parties (party/PartyRoom.ts): created under their own per-IP limit,
  *     joined by code only (`joinById`, rate-limited per IP so codes cannot be
- *     guessed quickly), never by `join` or Quick Play.
+ *     guessed quickly), never by `join` or Quick Play;
+ *   - account-only rooms (battle royale): a guest session, or a player whose
+ *     party has a guest, is refused before any room opens (the room's onAuth
+ *     checks the same again for every join).
+
  *
  * The IP comes from the AuthContext, whose X-Real-IP the meta layer rewrites
  * on every request (guardJoinIps), so it is our own answer, not the client's.
@@ -26,6 +30,7 @@
 import { ServerError } from '@colyseus/core';
 import { isCharacterId, TEAM_SIZES } from '@qwakk/shared';
 import { isPartyCode, LOBBY_ERROR } from '@qwakk/shared/lobby';
+import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
 
 /** The part of `matchMaker.controller` we wrap (A: Colyseus' AuthContext). */
 export interface MatchmakingController<A extends { ip?: string | undefined }> {
@@ -54,16 +59,48 @@ export interface GuardOptions {
    * mode switched off; the admin settings): throws a ServerError to refuse.
    */
   beforeCreate?(roomName: string, options: Record<string, unknown>): void;
+  /** Does this room name take `{ spectate: true }` joins (QWAKK_SPECTATORS, tests)? Default: none does. */
+  spectators?(roomName: string): boolean;
+  /** Rooms only signed-in players may join or open (battle royale), and how to tell. */
+  accountOnly?: {
+    rooms: string[];
+    /** The verified identity behind a session token (meta verifySession), or null. */
+    identify(token: string | undefined): Promise<{ playerId: string; account: boolean } | null>;
+    /** Has this player's party a guest in it (party registry)? */
+    partyHasGuest(playerId: string): boolean;
+    /** The room name of an open room by id (joinById), or undefined. */
+    roomNameOf(roomId: string): string | undefined;
+  };
 }
 
-/** The join options rooms read; anything else is dropped. */
-export function cleanClientOptions(roomName: string, lobbyName: string, raw: unknown): Record<string, unknown> {
+/**
+ * Refuse a guest (or a party with a guest) a room of an account-only kind.
+ * An invalid or missing token passes here: the room's onAuth refuses it.
+ */
+export async function checkAccount(method: string, roomName: string, options: Record<string, unknown>, o: Pick<GuardOptions, 'accountOnly'>): Promise<void> {
+  const a = o.accountOnly;
+  if (!a || options.spectate === true) return;
+  const name = method === 'joinById' ? a.roomNameOf(roomName) : roomName;
+  if (!name || !a.rooms.includes(name)) return;
+  const who = await a.identify(typeof options.token === 'string' ? options.token : undefined);
+  if (!who) return;
+  if (!who.account) throw new ServerError(ACCOUNT_ERROR.needsAccount, 'battle royale needs an account, sign in first');
+  if (a.partyHasGuest(who.playerId)) throw new ServerError(ACCOUNT_ERROR.partyHasGuest, 'your party has a guest; guests play deathmatch only');
+}
+
+/**
+ * The join options rooms read; anything else is dropped. `spectate` is kept
+ * only for a room that really takes spectators (`spectators`, tests and
+ * tools): everywhere else it would skip the maintenance, account and team
+ * checks of a join that then takes a normal seat.
+ */
+export function cleanClientOptions(roomName: string, lobbyName: string, raw: unknown, spectators = false): Record<string, unknown> {
   if (roomName === lobbyName || !raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   const o = raw as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   if (typeof o.name === 'string') out.name = o.name.slice(0, 32);
   if (typeof o.token === 'string') out.token = o.token.slice(0, 1024);
-  if (o.spectate === true) out.spectate = true;
+  if (o.spectate === true && spectators) out.spectate = true;
   // Battle royale team size at creation (solo, duo, squad); other rooms ignore it.
   if (typeof o.team === 'number' && (TEAM_SIZES as readonly number[]).includes(o.team)) out.team = o.team;
   // The picked duck (looks only): a catalog id or nothing (the room falls back to the classic duck).
@@ -110,7 +147,11 @@ export function installMatchmakingGuard<A extends { ip?: string | undefined }>(c
   controller.invokeMethod = async (method: string, roomName: string, clientOptions?: unknown, authOptions?: A) => {
     // Reconnection carries its own token and nothing a room reads at creation.
     if (method === 'reconnect') return inner(method, roomName, clientOptions, authOptions);
-    const options = cleanClientOptions(roomName, lobbyName, clientOptions);
+    // joinById names a room id: a spectate flag is only honoured for known rooms that take spectators.
+    const name = method === 'joinById' ? (o.accountOnly?.roomNameOf(roomName) ?? '') : roomName;
+    const options = cleanClientOptions(roomName, lobbyName, clientOptions, o.spectators?.(name) === true);
+    // Before the creation limits, so a refused guest does not use up its IP's room budget.
+    await checkAccount(method, roomName, options, o);
     await checkCreate(method, roomName, o.ipOf(authOptions), o, options);
     return inner(matchmakingMethod(method, roomName, o), roomName, options, authOptions);
   };

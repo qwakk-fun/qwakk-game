@@ -27,7 +27,11 @@ interface Member {
   playerId: string;
   name: string;
   tag: string;
+  /** Not signed in (Deathmatch only): shown to the party, checked by the battle royale guard. */
+  guest: boolean;
 }
+
+type PartyAuth = { playerId: string; name: string; tag: string; account: boolean };
 
 /** Codes of the parties open in this process (a new code never repeats one). */
 const openCodes = new Set<string>();
@@ -70,22 +74,23 @@ export class PartyRoom extends Room {
     this.onMessage(PartyMsg.Go, (client, msg: unknown) => this.go(client, msg));
   }
 
-  override async onAuth(_client: Client, options: { token?: unknown } = {}, _context?: AuthContext): Promise<{ playerId: string; name: string; tag: string }> {
+  override async onAuth(_client: Client, options: { token?: unknown } = {}, _context?: AuthContext): Promise<PartyAuth> {
     const token = typeof options.token === 'string' ? options.token : undefined;
     const who = await verifySession(token);
     if (!who) throw new ServerError(4401, 'invalid session');
-    return who;
+    return { playerId: who.playerId, name: who.name, tag: who.tag, account: who.account };
   }
 
-  override onJoin(client: Client, _options: unknown, auth?: { playerId: string; name: string; tag: string }): void {
+  override onJoin(client: Client, _options: unknown, auth?: PartyAuth): void {
     if (!auth) {
       client.leave(4401, 'invalid session');
       return;
     }
     // The same player again (another tab): the newer one stays.
     this.drop(auth.playerId, 'joined from another tab', false);
-    this.members.push({ sessionId: client.sessionId, playerId: auth.playerId, name: auth.name, tag: auth.tag });
+    this.members.push({ sessionId: client.sessionId, playerId: auth.playerId, name: auth.name, tag: auth.tag, guest: !auth.account });
     parties.attach(auth.playerId, this.handle);
+    parties.setGuest(auth.playerId, !auth.account);
     this.sendViews();
   }
 
@@ -135,7 +140,7 @@ export class PartyRoom extends Room {
     for (const client of this.clients) {
       const view: PartyView = {
         code: this.roomId,
-        members: this.members.map((m, i) => ({ name: m.name, tag: m.tag, leader: i === 0, busy: parties.isPlaying(m.playerId), you: m.sessionId === client.sessionId })),
+        members: this.members.map((m, i) => ({ name: m.name, tag: m.tag, leader: i === 0, busy: parties.isPlaying(m.playerId), you: m.sessionId === client.sessionId, guest: m.guest })),
       };
       client.send(PartyMsg.View, view);
     }

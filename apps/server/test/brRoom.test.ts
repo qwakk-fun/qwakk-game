@@ -2,7 +2,11 @@
  * The battle royale room over real WebSockets (in-process server, meta mocked):
  * - the match is recorded when the last human leaves before the end, with the
  *   place the human had when it left;
- * - one identity cannot take two seats in the same room.
+ * - one identity cannot take two seats in the same room;
+ * - a guest session is refused (battle royale needs an account) and an
+ *   account character wears its stored look, whatever the join option says;
+ * - `spectate: true` in a room without spectators skips nothing: a guest is
+ *   still refused, and so is anyone during maintenance.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Server } from '@colyseus/core';
@@ -14,9 +18,10 @@ import { IslandState, MatchPhase } from '@qwakk/shared/net';
 const recorded: unknown[] = [];
 vi.mock('../src/meta/index.ts', () => ({
   verifySession: async (token: string | undefined) => {
-    if (token === 'tok-a') return { playerId: '00000000-0000-4000-8000-00000000000a', name: 'Alpha', tag: '1111' };
-    if (token === 'tok-b') return { playerId: '00000000-0000-4000-8000-00000000000b', name: 'Bravo', tag: '2222' };
-    return token ? null : { playerId: 'dev-guest', name: 'Guest', tag: '0000' };
+    if (token === 'tok-a') return { playerId: '00000000-0000-4000-8000-00000000000a', name: 'Alpha', tag: '1111', account: true, look: 1 };
+    if (token === 'tok-b') return { playerId: '00000000-0000-4000-8000-00000000000b', name: 'Bravo', tag: '2222', account: true };
+    if (token === 'guest-c') return { playerId: '00000000-0000-4000-8000-00000000000c', name: 'Charlie', tag: '3333', account: false };
+    return token ? null : { playerId: 'dev-guest', name: 'Guest', tag: '0000', account: true };
   },
   allowJoin: () => true,
   joinIp: () => '127.0.0.1',
@@ -25,6 +30,9 @@ vi.mock('../src/meta/index.ts', () => ({
 
 const { BrRoom } = await import('../src/BrRoom.ts');
 const { JOIN_ERROR } = await import('../src/gameRoom.ts');
+const { ACCOUNT_ERROR } = await import('@qwakk/shared/accounts');
+const { LOBBY_ERROR } = await import('@qwakk/shared/lobby');
+const { settings } = await import('../src/settings/index.ts');
 
 const PORT = 2591;
 let server: Server;
@@ -83,5 +91,48 @@ describe('battle royale room', () => {
     }
     expect(code).toBe(JOIN_ERROR.alreadyInMatch);
     await first.leave(true);
+  }, 30_000);
+
+  it('refuses a guest session: battle royale needs an account', async () => {
+    let code = 0;
+    try {
+      const r = await new Client(`ws://localhost:${PORT}`).joinOrCreate(BR.roomName, { token: 'guest-c' }, IslandState);
+      await r.leave(true);
+    } catch (err) {
+      code = (err as { code?: number }).code ?? -1;
+    }
+    expect(code).toBe(ACCOUNT_ERROR.roomNeedsAccount);
+  }, 30_000);
+
+  it('seats an account character in its stored look, not the join option', async () => {
+    const room = await new Client(`ws://localhost:${PORT}`).joinOrCreate(BR.roomName, { token: 'tok-a', character: 0 }, IslandState);
+    await waitUntil(() => [...room.state.players.values()].some((p) => !p.bot), 10_000);
+    const me = [...room.state.players.values()].find((p) => !p.bot && p.name === 'Alpha');
+    expect(me?.character).toBe(1);
+    await room.leave(true);
+  }, 30_000);
+
+  const codeOf = async (options: Record<string, unknown>): Promise<number> => {
+    try {
+      const r = await new Client(`ws://localhost:${PORT}`).joinOrCreate(BR.roomName, options, IslandState);
+      await r.leave(true);
+      return 0;
+    } catch (err) {
+      return (err as { code?: number }).code ?? -1;
+    }
+  };
+
+  it('a spectate flag does not let a guest in (this room takes no spectators)', async () => {
+    expect(await codeOf({ token: 'guest-c', spectate: true })).toBe(ACCOUNT_ERROR.roomNeedsAccount);
+  }, 30_000);
+
+  it('a spectate flag does not get past maintenance', async () => {
+    settings.set('ops.maintenance', true);
+    try {
+      expect(await codeOf({ token: 'tok-a', spectate: true })).toBe(LOBBY_ERROR.maintenance);
+      expect(await codeOf({ token: 'guest-c', spectate: true })).toBe(LOBBY_ERROR.maintenance);
+    } finally {
+      settings.reset('ops.maintenance');
+    }
   }, 30_000);
 });

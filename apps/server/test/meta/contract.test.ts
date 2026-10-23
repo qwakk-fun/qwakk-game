@@ -34,7 +34,7 @@ describe.skipIf(!reachable)('meta contract end to end (PostgreSQL)', () => {
     const res = await fetch(`${base}/api/session`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Mandarin' }) });
     const s = (await res.json()) as { token: string; playerId: string; tag: string };
     const who = await verifySession(s.token);
-    expect(who).toEqual({ playerId: s.playerId, name: 'Mandarin', tag: s.tag });
+    expect(who).toEqual({ playerId: s.playerId, name: 'Mandarin', tag: s.tag, account: false });
     expect(await verifySession('s1.forged.sig')).toBeNull();
 
     const pending = recordMatch({

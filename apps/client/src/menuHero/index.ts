@@ -21,6 +21,9 @@ import * as THREE from 'three/webgpu';
 import { AIM, settled, stepSpring, type Spring } from './aim.ts';
 import { HeroDuck } from './heroDuck.ts';
 
+/** The character select's ducks (roster.ts), in the same chunk as the menu duck. */
+export { mountRoster } from './roster.ts';
+
 export interface HeroHandle {
   /** Draw only while the Play tab (and so the duck) is shown. */
   setActive(on: boolean): void;

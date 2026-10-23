@@ -13,6 +13,7 @@ import {
   actionOf,
   Button,
   characterFromOption,
+  isCharacterId,
   createSimWorld,
   hasWeapon,
   emptyInput,
@@ -83,6 +84,10 @@ export interface JoinAuth {
   tag: string;
   /** True when the identity came from a session token (its name wins over the join options). */
   signed: boolean;
+  /** Signed in (an account character, or a dev identity without a token): battle royale needs it. */
+  account: boolean;
+  /** An account character's stored look: it wins over the `character` join option. */
+  look?: number;
   /** The address it joined from: memory only (admin IP blocks), never stored or sent. */
   ip?: string;
 }
@@ -191,14 +196,17 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   override async onAuth(client: Client, options: JoinOptions = {}, context?: AuthContext): Promise<JoinAuth> {
     const ip = joinIp(context as never);
     if (isIpBlocked(ip) || !allowJoin(ip)) throw new Error('too many joins, try again in a moment');
+    // A spectator only where this room takes spectators (tests and tools); anywhere else the flag
+    // means nothing, so it never skips the maintenance, account or team checks of a normal seat.
+    const spectate = options.spectate === true && this.allowSpectators;
     // Maintenance: no new players; the ones already in play on (reconnects do not pass here).
-    if (maintenanceOn() && options.spectate !== true) throw new ServerError(LOBBY_ERROR.maintenance, 'the server is under maintenance');
+    if (maintenanceOn() && !spectate) throw new ServerError(LOBBY_ERROR.maintenance, 'the server is under maintenance');
     const token = typeof options.token === 'string' ? options.token : undefined;
     const who = await verifySession(token);
     if (!who) throw new Error('invalid session');
     const signed = token !== undefined && token !== '';
-    const auth: JoinAuth = { playerId: who.playerId, name: who.name, tag: who.tag, signed, ip };
-    if (options.spectate !== true) this.checkAdmission(auth);
+    const auth: JoinAuth = { playerId: who.playerId, name: who.name, tag: who.tag, signed, account: who.account, ...(who.look !== undefined ? { look: who.look } : {}), ip };
+    if (!spectate) this.checkAdmission(auth);
     // One seat per identity: a second tab with the same session is refused.
     if (signed) {
       const held = this.seatedIds.get(who.playerId);
@@ -331,7 +339,9 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     // A signed-in name wins over the one in the join options.
     const name = auth?.signed ? cleanName(auth.name, `Duck ${this.joinCount}`) : cleanName(options.name, auth?.name ?? `Duck ${this.joinCount}`);
     // The pick is looks only and checked against the catalog (anything else is the classic duck).
-    const seat = this.addHuman(client, name, auth, characterFromOption(options.character));
+    // An account character wears its stored look (from the verified session), not the join option.
+    const look = auth?.look !== undefined && isCharacterId(auth.look) ? auth.look : characterFromOption(options.character);
+    const seat = this.addHuman(client, name, auth, look);
     if (!seat) {
       client.leave(4000, 'match already started');
       return;

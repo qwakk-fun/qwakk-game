@@ -9,7 +9,7 @@
  * when it is in the catalog and shows it to everyone (looks only: every duck
  * has the same hitboxes, weapons and moves).
  */
-import { characterIdOf } from '@qwakk/shared/characters';
+import { characterIdOf, characterKey } from '@qwakk/shared/characters';
 import { COPY } from './copy.ts';
 
 export type CharacterId = keyof typeof COPY.characters.list;
@@ -38,6 +38,11 @@ export function characterById(id: string | null | undefined): Character | undefi
 /** The numeric id the game and the server use (the `character` join option). */
 export function gameId(id: CharacterId): number {
   return characterIdOf(id);
+}
+
+/** The menu entry for a shared catalog id (an account duck's stored look); unknown ids are the classic duck. */
+export function characterOfLook(look: number): Character {
+  return characterById(characterKey(look)) ?? CHARACTERS[0]!;
 }
 
 /** The display name and line from copy.ts. */

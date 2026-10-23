@@ -8,6 +8,7 @@
     "./net": "./src/net/schema.ts",
     "./lobby": "./src/lobby.ts",
     "./characters": "./src/characters.ts",
+    "./accounts": "./src/accounts.ts",
     "./maps/*": "./src/maps/*"
   },
   "scripts": {

@@ -34,7 +34,7 @@ export function meta(): MetaService {
   return instance;
 }
 
-export async function verifySession(token: string | undefined): Promise<{ playerId: string; name: string; tag: string } | null> {
+export async function verifySession(token: string | undefined): Promise<import('./service.ts').Identity | null> {
   return meta().verifySession(token);
 }
 

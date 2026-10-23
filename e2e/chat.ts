@@ -28,7 +28,7 @@ function ready(proc: ChildProcess, needle: string): Promise<void> {
   });
 }
 const server = start(['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, { PORT: String(serverPort), QWAKK_BOTS: '0', QWAKK_BR_COUNTDOWN: '3', QWAKK_BR_MIN_HUMANS: '2' });
-const web = start([`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(webPort), '--strictPort'], `${root}/apps/client`);
+const web = start([`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(webPort), '--strictPort'], `${root}/apps/client`);
 const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] });
 const errors: string[] = [];
 async function join(page: Page, name: string): Promise<void> {

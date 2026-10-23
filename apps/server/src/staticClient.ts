@@ -12,6 +12,8 @@
  *     and the migrations are simply not in the table);
  *   - index.html for `/` (the client has no path routes, only query
  *     parameters, so there is no catch-all: anything else unknown is a 404);
+ *   - the legal pages: `/terms`, `/privacy` and `/cookies` are the built
+ *     `terms.html`, `privacy.html` and `cookies.html` (apps/client/build/legalPages.ts);
  *   - `/game` and `/game/...` redirect to the same path at the root, for links
  *     made for the qwakk.fun/game hosting;
  *   - never the reserved server routes (/api, /health, /matchmake,
@@ -52,6 +54,9 @@ const TYPES: Record<string, string> = {
   '.txt': 'text/plain; charset=utf-8',
   '.webmanifest': 'application/manifest+json',
 };
+
+/** Clean paths of built pages. */
+const PAGES: Record<string, string> = { '/': '/index.html', '/terms': '/terms.html', '/privacy': '/privacy.html', '/cookies': '/cookies.html' };
 
 /** Paths owned by the server itself; the client handler never answers them. */
 const RESERVED = ['/api', '/health', '/matchmake', '/__healthcheck', '/admin'];
@@ -148,7 +153,7 @@ export function createClientHandler(dir: string): (req: IncomingMessage, res: Se
     }
     // Dot segments (/.env, /.git/config, /../x) are never a client file.
     const dotted = path.split('/').some((seg) => seg.startsWith('.'));
-    const entry = dotted ? undefined : files.get(path === '/' ? '/index.html' : path);
+    const entry = dotted ? undefined : files.get(PAGES[path] ?? path);
     if (!entry) {
       res.statusCode = 404;
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');

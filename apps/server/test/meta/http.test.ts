@@ -38,7 +38,7 @@ describe('meta HTTP without a database (dev)', () => {
     expect(r.status).toBe(200);
     const s = (await r.json()) as { token: string; deviceToken: string; playerId: string; name: string; tag: string };
     expect(s.tag).toMatch(/^\d{4}$/);
-    expect(meta.verifySession(s.token)).toEqual({ playerId: s.playerId, name: 'Mallard', tag: s.tag });
+    expect(meta.verifySession(s.token)).toEqual({ playerId: s.playerId, name: 'Mallard', tag: s.tag, account: false });
     const again = (await (await post(base, { name: 'Mallard', deviceToken: s.deviceToken })).json()) as { playerId: string; tag: string };
     expect(again).toMatchObject({ playerId: s.playerId, tag: s.tag });
     const renamed = (await (await post(base, { name: 'Teal', deviceToken: s.deviceToken })).json()) as { playerId: string };

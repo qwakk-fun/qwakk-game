@@ -24,6 +24,7 @@ import { loadSainteCanard, type ServerMap } from './maps.ts';
 import { recordMatch } from './meta/index.ts';
 import { parties } from './party/registry.ts';
 import type { TeamGroup } from './br/teams.ts';
+import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
 import { roomLabel, TEAM_ERROR, teamSizeOf, type RoomListing, type RoomStage } from '@qwakk/shared/lobby';
 import { brStartRules, brZoneRules } from './settings/index.ts';
 
@@ -197,8 +198,14 @@ export class BrRoom extends GameRoom<BattleRoyale> {
     return { playerId, partyId: p.id, followers: p.members.filter((m) => m !== playerId && !parties.isPlaying(m)) };
   }
 
-  /** A party bigger than this room's teams, or no team with room for it: refused with a code the menu explains. */
+  /**
+   * Guests play Deathmatch only: a guest session, or anyone whose party has a
+   * guest (the leader cannot take one along), is refused. Then a party bigger
+   * than this room's teams, or no team with room for it. Codes the menu explains.
+   */
   protected override checkAdmission(auth: JoinAuth): void {
+    if (!auth.account) throw new ServerError(ACCOUNT_ERROR.roomNeedsAccount, 'battle royale needs an account');
+    if (parties.partyHasGuest(auth.playerId)) throw new ServerError(ACCOUNT_ERROR.roomPartyHasGuest, 'your party has a guest; guests play deathmatch only');
     if (this.match.phase !== 'warmup') return; // the join is refused in onJoin as before
     const g = this.groupOf(auth);
     const t = this.match.admit(g);

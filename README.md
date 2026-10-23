@@ -223,6 +223,7 @@ npm run e2e:lobby -- DIR # lobby rooms: room list, join from the list, countdown
 npm run e2e:mobile -- DIR # touch controls on an emulated phone (landscape, multi-touch), screenshots to DIR (port 2567)
 npm run perf:mobile -- DIR # phone frame time under emulation, CPU throttled 4x (THROTTLE=6 for more)
 npm run e2e:party -- DIR # parties: menu party, deathmatch allies, Duo battle royale team, knock and revive (always on port 2567)
+npm run e2e:accounts -- DIR # accounts: guest locks, email sign-up with the dev mail sink, two ducks, battle royale, log out and in, phone shots
 npm run test:net     # pause and stall recovery against the real server
 npm run test:br      # headless 16-bot battle royale (server workspace)
 npm run bench        # deathmatch benchmark: 32 clients, or 1 client and 31 server bots, in one and in all three catalog rooms, opened with QWAKK_DM_ROOMS=3 (npm run bench -- 4 64 for client counts in one room)
@@ -234,13 +235,18 @@ npm run perf:map -- DIR # the map alone in the dev map viewer
 npm run map:sync     # copy the map workstream's export into packages/shared/src/maps
 ```
 
-The two e2e scripts use ports 2567 and 5173 by default. While `npm run dev` holds them, run them on others: `E2E_SERVER_PORT=2589 E2E_WEB_PORT=5189 npm run e2e`.
+The e2e scripts use ports 2567 and 5173 by default. The menu-driven ones (`br-lobby`, `party-duo`, `mobile-touch`, `accounts`) also need the local PostgreSQL (`npm run db:up`): battle royale needs an account, so they sign up through the dev mail sink on a throwaway database. While `npm run dev` holds the ports, build a test bundle that calls another port and point the scripts at it:
 
-Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 32), `QWAKK_DM_MAP` (deathmatch map id for one run, `greybox` works too; default `MATCH.mapId`), `QWAKK_DM_SPAWN_RADIUS` (deathmatch spawns only within this many meters of the arena center, the e2e uses it), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder), `QWAKK_CLIENT_DIR` (serve the built client from this folder on the server's port; the image sets it), `QWAKK_BR_MAX_ROOMS` (battle royale rooms open at once, default `BR.maxRooms`), `QWAKK_TEST_HOOKS=1` (tests only, refused in production: a client may hurt its own battle royale duck, so the party e2e can knock one and revive it).
+```sh
+cd apps/client && VITE_DEVTOOLS=1 VITE_SERVER_PORT=2577 npx vite build --outDir /tmp/dist-test-2577 --emptyOutDir && cd ../..
+E2E_SERVER_PORT=2577 E2E_WEB_PORT=5174 E2E_DIST=/tmp/dist-test-2577 npm run e2e
+```
+
+Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 32), `QWAKK_DM_MAP` (deathmatch map id for one run, `greybox` works too; default `MATCH.mapId`), `QWAKK_DM_SPAWN_RADIUS` (deathmatch spawns only within this many meters of the arena center, the e2e uses it), `QWAKK_DM_HERO=0` (no caped hero; the party e2e checks health), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder), `QWAKK_CLIENT_DIR` (serve the built client from this folder on the server's port; the image sets it), `QWAKK_BR_MAX_ROOMS` (battle royale rooms open at once, default `BR.maxRooms`), `QWAKK_TEST_HOOKS=1` (tests only, refused in production: a client may hurt its own battle royale duck, so the party e2e can knock one and revive it).
 
 ## Meta: identity, leaderboard, menu
 
-The menu is the first screen at `/game/`. Guests pick a nickname, the server gives them a `#1234` tag and a signed identity, and finished matches feed a per-season leaderboard. The leaderboard is in-game stats only (no prizes, no tokens) and only the game server writes it. Data handling for the privacy page: `docs/privacy-notes.md`.
+The menu is the first screen. Players sign in by email (a 6-digit code, no passwords) and pick one of up to four ducks on a character select, or play as a guest: a nickname, a server-given `#1234` tag and a signed identity, Deathmatch only. Battle royale needs an account. Accounts, their data model, routes and the QoreX plug-in point: `docs/accounts.md`. Finished matches feed a per-season leaderboard, per duck. The leaderboard is in-game stats only (no prizes, no tokens) and only the game server writes it. Data handling for the privacy page: `docs/privacy-notes.md`.
 
 ### Code
 
@@ -253,7 +259,7 @@ The menu is the first screen at `/game/`. Guests pick a nickname, the server giv
 
 | Function | Behavior |
 | --- | --- |
-| `verifySession(token)` | `{ playerId, name, tag }` for a valid session token, else `null`. No token: a random guest in dev, `null` when `NODE_ENV=production` |
+| `verifySession(token)` | `{ playerId, name, tag, account, look? }` for a valid session token, else `null` (also for a banned, deleted or claimed one). `account`: an account duck (battle royale needs it), `look` its stored character. No token: a random dev identity (counted as signed in) in dev, `null` when `NODE_ENV=production` |
 | `allowJoin(ip)` | Per-IP join limit: a burst of 10, then one join every 4 s (IPv6 counted per /64). Loopback is exempt outside production, for the benchmark and e2e |
 | `allowCreateRoom(ip)` | Per-IP limit on new game rooms (`create`, or a Quick Play that has to open one): a burst of 3, then one a minute. Checked by the matchmaking guard (`apps/server/src/matchmaking.ts`), which also caps open battle royale rooms at `BR.maxRooms` (1 at launch, `QWAKK_BR_MAX_ROOMS` overrides; while that room plays, new players wait for the next one) and drops every join option except `name`, `token`, `spectate`, `team` (a valid team size) and `character` (a catalog id). Loopback exempt outside production |
 | `allowLobby(ip)` | Per-IP limit on lobby (room list) connections: a burst of 20, then one every 3 s. Loopback exempt outside production |
@@ -274,7 +280,9 @@ The client side calls the game module's `startGame({ mode, token, name, characte
 | `GET /api/me?season=&mode=` | With `Authorization: Bearer <session>`: your identity, rank (by score) and stats |
 | `GET /api/status` | The menu's news line and live rules: `{ banner, maintenance, maintenanceMessage, rules }` (`ServerStatus` in `packages/shared/src/lobby.ts`). In memory, public, read limit as the leaderboard |
 
-Errors are JSON `{ error }`: `name_format`, `name_blocked`, `name_reserved`, `name_full`, `turnstile_failed`, `banned` (a banned player's device token), `rate_limited` (with `Retry-After`; also an IP block), `unauthorized`, `unavailable` (no database), `origin_not_allowed`, `bad_request`.
+Account routes (`/api/auth/*`, `/api/account/*`): see `docs/accounts.md`. Legal pages on the same origin: `/terms`, `/privacy`, `/cookies` (static, built from `docs/legal/` by `apps/client/build/legalPages.ts`).
+
+Errors are JSON `{ error }`: `claimed` (a guest whose duck moved into an account), `name_format`, `name_blocked`, `name_reserved`, `name_full`, `turnstile_failed`, `banned` (a banned player's device token), `rate_limited` (with `Retry-After`; also an IP block), `unauthorized`, `unavailable` (no database), `origin_not_allowed`, `bad_request`.
 
 ### Score
 
@@ -288,14 +296,16 @@ Server:
 | --- | --- |
 | `DATABASE_URL` | PostgreSQL URL. Unset: no leaderboard, matches not recorded, sessions still work |
 | `SESSION_SECRET` | HMAC key for session and device tokens, 32 characters or more. Required in production (the server refuses to start without it); a dev default is used otherwise. Rotating it resets every guest identity |
-| `TURNSTILE_SECRET` | Cloudflare Turnstile secret. Unset: new guests are not challenged |
+| `TURNSTILE_SECRET` | Cloudflare Turnstile secret. Unset: new guests and code requests are not challenged |
+| `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `MAIL_FROM` | Sign-in code email (Hostinger: `smtp.hostinger.com`, 465, `noreply@qwakk.fun`). Unset: the dev mail sink prints codes to the console outside production; in production sending a code answers 503 |
+| `QWAKK_TEST_HOOKS` | `1` in tests only (refused in production): the dev mail sink's last code per address at `GET /api/test/mail?email=` |
 | `TRUST_PROXY` | Number of reverse proxies in front (CapRover: `1`). Only then is `X-Forwarded-For` read, from the right |
 | `ALLOWED_ORIGINS` | Comma-separated browser origins, for example `https://play.qwakk.fun` (the one-container hosting serves the page from the game server's own origin). Applies to `/api`, Colyseus matchmaking CORS and WebSocket upgrades. Unset: all three are same-origin only in production (a client served from another host cannot join; the server logs a loud warning at startup) and open in dev |
 | `ADMIN_PASSWORD_HASH`, `ADMIN_TOTP_SECRET` | The admin panel's secrets (`npm run admin:setup`). Both set and valid: the panel is on at `/admin`; otherwise every `/admin` path is a 404 |
 | `QWAKK_ADMIN_DIR` | The built admin UI (default `apps/admin/dist`; the image sets `/srv/admin`) |
 | `QWAKK_COMMIT` | Commit shown on the admin dashboard (the image takes CapRover's `CAPROVER_GIT_COMMIT_SHA`) |
 
-Client (build time, `apps/client/src/net/endpoint.ts`): `VITE_GAME_SERVER` (game server; default: the page's own origin in public builds, the page host on port 2567 in dev and test builds), `VITE_API_BASE` (API origin; default: the game server's origin over HTTP(S)), `VITE_TURNSTILE_SITEKEY` (shows the Turnstile check for new guests; unset: no widget and no request to Cloudflare).
+Client (build time, `apps/client/src/net/endpoint.ts`): `VITE_GAME_SERVER` (game server; default: the page's own origin in public builds, the page host on port 2567 in dev and test builds, or `VITE_SERVER_PORT`), `VITE_API_BASE` (API origin; default: the game server's origin over HTTP(S)), `VITE_TURNSTILE_SITEKEY` (shows the Turnstile check for new guests; unset: no widget and no request to Cloudflare).
 
 ### Database setup
 
@@ -306,11 +316,11 @@ docker compose down               # keeps the data volume
 
 To use an existing development database instead, supply `DATABASE_URL` to `npm run dev`; the launcher then skips Docker startup.
 
-Migrations run at server start (one transaction under an advisory lock, recorded in `schema_migrations`). Never edit an applied migration; add `002_*.sql`. Tables: `seasons` (season 1 starts when the first migration runs), `players`, `matches`, `match_players`, and the view `leaderboard_stats`. A new season: insert a row in `seasons` with a later `starts_at` and set the old one's `ends_at`.
+Migrations run at server start (one transaction under an advisory lock, recorded in `schema_migrations`). Never edit an applied migration; add the next `NNN_*.sql`. Tables: `seasons` (season 1 starts when the first migration runs), `players`, `matches`, `match_players`, and the view `leaderboard_stats`; the admin tables (`002_admin.sql`); accounts, their logins, sessions, codes and news consents (`003_accounts.sql`). A new season: insert a row in `seasons` with a later `starts_at` and set the old one's `ends_at`.
 
 ### Tests
 
-`npm test` runs the meta unit tests (names and word filter, tokens and tampering, rate limits, IPs, score, settings, menu entry) and the PostgreSQL tests (migration runner, `recordMatch`, the session to leaderboard flow). The PostgreSQL tests use a throwaway database on `localhost:5439` (`TEST_DATABASE_URL` overrides) and are skipped with a message when it is not reachable.
+`npm test` runs the meta unit tests (names and word filter, tokens and tampering, rate limits, IPs, score, settings, menu entry, account codes and tokens) and the PostgreSQL tests (migration runner, `recordMatch`, the session to leaderboard flow, accounts: codes, limits, sign-up, sessions, ducks, claim, deletion, migration 003 on old data). The PostgreSQL tests use a throwaway database on `localhost:5439` (`TEST_DATABASE_URL` overrides) and are skipped with a message when it is not reachable.
 
 Menu in headless Chrome (needs the local PostgreSQL; uses ports 2591 and 5181):
 

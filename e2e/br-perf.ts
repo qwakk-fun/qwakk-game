@@ -27,7 +27,7 @@ const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning',
   stdio: 'ignore',
   env: { ...process.env, PORT: '2567', QWAKK_BR_COUNTDOWN: '4', QWAKK_BR_MIN_HUMANS: '1', QWAKK_BR_SEED: '7', QWAKK_ZONE_SCALE: '0.5' },
 });
-const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', '5173', '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
+const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', '5173', '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
 try {
   await sleep(4000);
   const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] });

@@ -1,6 +1,8 @@
 /**
  * Guest player rows: name changes keep the player id, and each name gets a
- * #tag that no one else with the same name (case-insensitive) holds.
+ * #tag that no one else with the same name (case-insensitive) holds. A row
+ * that moved into an account (a claimed guest, accounts/store.ts) is never
+ * touched here again: the guest path answers `claimed`.
  */
 import { createHmac } from 'node:crypto';
 import type { Sql } from 'postgres';
@@ -8,7 +10,7 @@ import { randomTag } from './token.ts';
 
 const TAG_TRIES = 24;
 
-export type UpsertResult = { ok: true; tag: string } | { ok: false; reason: 'name_full' };
+export type UpsertResult = { ok: true; tag: string } | { ok: false; reason: 'name_full' | 'claimed' };
 
 function isNameTagClash(err: unknown): boolean {
   const e = err as { code?: string; constraint_name?: string };
@@ -21,15 +23,20 @@ function isNameTagClash(err: unknown): boolean {
  * draws random tags until one is free.
  */
 export async function upsertPlayer(sql: Sql, playerId: string, name: string): Promise<UpsertResult> {
-  const [current] = await sql<{ name: string; tag: number }[]>`select name, tag from players where id = ${playerId}`;
+  const [current] = await sql<{ name: string; tag: number; account_id: string | null }[]>`select name, tag, account_id from players where id = ${playerId}`;
+  if (current?.account_id) return { ok: false, reason: 'claimed' };
   const tries: number[] = [];
   if (current) tries.push(current.tag);
   while (tries.length < TAG_TRIES) tries.push(randomTag());
   for (const tag of tries) {
     try {
-      await sql`
+      const rows = await sql`
         insert into players (id, name, tag) values (${playerId}, ${name}, ${tag})
-        on conflict (id) do update set name = excluded.name, tag = excluded.tag, last_seen = now()`;
+        on conflict (id) do update set name = excluded.name, tag = excluded.tag, last_seen = now()
+        where players.account_id is null
+        returning id`;
+      // No row back: it moved into an account between the read and the write.
+      if (rows.length === 0) return { ok: false, reason: 'claimed' };
       return { ok: true, tag: String(tag) };
     } catch (err) {
       if (!isNameTagClash(err)) throw err;

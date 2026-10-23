@@ -1,18 +1,30 @@
 # Game privacy notes
 
-What the Qwakk game (`qwakk.fun/game`) stores about players, where, and for how long. This is the input for the privacy page; the proposed wording is at the end. The landing and app privacy pages are not changed by this repo.
+What the Qwakk game (`play.qwakk.fun`) stores about players, where, and for how long. This is the input for the game's own privacy page (`docs/legal/privacy.md`, served at `/privacy`); an older proposed wording is at the end. The landing and app privacy pages are not changed by this repo. Accounts are described in `docs/accounts.md`.
 
 ## What we store
 
 | Data | Where | Why | How long |
 | --- | --- | --- | --- |
-| Nickname and `#1234` tag | Game database (`players`) and the player's browser | Shown in matches and on the leaderboard | Until the player row is deleted (see Retention) |
+| Nickname and `#1234` tag (a guest, or an account's duck) | Game database (`players`) and the player's browser | Shown in matches and on the leaderboard | Until the player row is deleted (see Retention), or the duck or its account is deleted |
 | Player id (random UUID) | Game database, inside the device token | Ties match stats to the same guest | Same as the nickname |
 | Device token | The player's browser only (`localStorage` key `qwakk.identity`), signed by the server | Lets the same browser keep its name, tag and stats without an account | Until the player clears site data |
 | Session token | The player's browser (`qwakk.identity`) | Proves the identity to the game server for 24 hours | 24 hours, then refreshed |
 | Match stats per player: placement, kills, deaths, damage, time survived, points, match mode, map, start and end time | Game database (`matches`, `match_players`) | Leaderboard and the player's own stats | Kept for past seasons (see Retention) |
 | First and last seen time | Game database (`players.created_at`, `last_seen`) | Clean-up of inactive guests | Same as the nickname |
 | Settings (mouse sensitivity, field of view, volume) | The player's browser only (`qwakk.settings`, `qwakk.sensitivity`) | Comfort | Until the player clears site data |
+| Account: id (random UUID), created and last sign-in time | Game database (`accounts`) | Keeps a player's ducks across devices | Until the player deletes the account |
+| Email address (normalised: trimmed, lower case) | Game database (`account_logins`, method `email`) | Sign-in codes, account notices, and news only with the opt-in | Until the player deletes the account (deletion removes it at once) |
+| Sign-in codes (6 digits) | Game database (`login_codes`): only an HMAC of the code with a random salt, the address, the purpose (sign-in or account deletion), tries and expiry | Proves the email is the player's | At most 10 minutes; deleted when used, after 5 wrong tries, or on the next code request. One active code per address. The plain code is only in the email |
+| Account sessions: id, account, created, last used, expiry | Game database (`account_sessions`); the signed token in the player's browser (`localStorage` key `qwakk.account`, with the ducks' last game session) | Keeps the player signed in on that device | 30 days, renewed while the player plays; deleted on log out and with the account. No IP address, user agent or device name |
+| Consent records: the accepted legal version (`2026-10-23`) and time, the 16+ statement time | Game database (`accounts.legal_version`, `legal_accepted_at`, `age_confirmed_at`) | Shows which terms apply and that the age rule was confirmed | Until the account is deleted |
+| News email opt-in: yes or no, when, and which wording was shown (`MARKETING_TEXT_VERSION`) | Game database (`accounts.marketing_opt_in`, `marketing_updated_at`; every choice appended to `marketing_consents`, never overwritten) | Send news only to players who asked, and prove it | Until the account is deleted (the log goes with it; retention after deletion is an open legal question, see `docs/legal/README.md`) |
+| Ducks (characters): up to 4 per account, each a `players` row with the account, slot, look (character catalog id), level and XP | Game database (`players.account_id`, `slot`, `look`, `level`, `xp`) | The player's ducks and their (cosmetic) progress | Until the duck or the account is deleted |
+| The duck picked last | Game database (`accounts.last_character_id`) and the browser (`qwakk.account`) | Highlights it on the character select | Until the account is deleted |
+| "Play as guest" chosen | The player's browser only (`qwakk.entry`) | The sign-in screen does not come back on every visit | Until the player clears site data or signs in |
+| The storage notice was closed (its version) | The player's browser only (`qwakk.storage-notice`) | The notice shows once per version | Until the player clears site data |
+| Room chat messages (with the duck's name and tag) | Relayed by the game server in memory only, to the players in the room | Room chat | Never stored: gone when the message is delivered (players' browsers keep the last lines while the page is open) |
+| Revoked game sessions (player ids of deleted ducks, claimed guests) | Game server memory only | A deleted duck's 24-hour game session stops working at once | At most 25 hours, gone on every restart |
 | IP address | Game server memory only | Rate limits on joins, guest creation and leaderboard reads | Not written to disk or the database. An entry is dropped once its limit has refilled (seconds to minutes) and on every server restart |
 | Party membership (who is in which party, its leader) | Game server memory only | Lets friends land in the same match on one team | Not written to disk or the database. Gone when the player leaves the party or closes the page, and on every server restart |
 | Bans: player id, reason, start and end, which admin session set it | Game database (`bans`) | Keeps a guest who broke the rules out of matches and new sessions | While the ban lasts. Ended bans stay as rows until deleted (proposal: delete them after 12 months, see Retention) |
@@ -23,7 +35,7 @@ What the Qwakk game (`qwakk.fun/game`) stores about players, where, and for how 
 
 In Duo and Squad matches the stored placement is the team's place (the same for every member) and points use the number of teams; no new data is stored for it.
 
-Not stored: email, real names, passwords, wallet addresses, payment data, device fingerprints, chat (there is no chat). The game sets no cookies for players. The admin panel (`/admin`, the owner only) sets one strictly necessary session cookie for the logged-in admin; its password hash and TOTP secret live in the server environment, not the database.
+Not stored: real names, passwords, wallet addresses (QoreX sign-in later stores a public qor1 address, see `docs/accounts.md`), payment data, device fingerprints, IP addresses or user agents with accounts or sessions, chat messages (room chat is relayed in memory only). The game sets no cookies for players. The admin panel (`/admin`, the owner only) sets one strictly necessary session cookie for the logged-in admin; its password hash and TOTP secret live in the server environment, not the database.
 
 Notes:
 
@@ -31,9 +43,18 @@ Notes:
 - The game server's normal logs may contain IP addresses in error messages from the hosting proxy (CapRover nginx). Those follow the host's log rotation, not this table. Check the CapRover log retention before launch.
 - Nicknames pass a word filter (slurs, insults, impersonation of staff or the brand). It is a filter, not moderation.
 
+Accounts:
+
+- Deleting a duck (type its name) or the whole account (a code by email, then type DELETE) deletes the `players` rows, the account, its logins, sessions, codes and consent log. Their match rows stay in the match history with no link and no name: `match_players.player_id` is set null by the foreign key and `match_players.name` is replaced with `deleted`, so they leave the leaderboard. `leaderboard_hidden` rows for them are deleted. A ban row on a deleted duck's id stays (a bare random id with no link to an email). A short "your account is deleted" email goes to the address once.
+- While a duck of an account is banned, the account cannot delete that duck or itself (the deletion request is answered "suspended, email hello@qwakk.fun"), so the ban record and the duck stay until the ban ends; the player can still ask for deletion by email. This needs a line in the privacy policy (legitimate interest in enforcing a ban) and a lawyer's look, see `docs/legal/README.md` (Ban and deletion).
+- A guest who signs up keeps its duck: the guest's `players` row gets the account and a slot (stats stay), and its device token no longer makes guest sessions.
+- Emails and codes are never logged in production (SMTP errors are logged by code only). In dev and tests without SMTP, a local mail sink prints the code with a masked address (`a***@example.com`) to the server console and keeps the last mail per address in memory for the e2e (`QWAKK_TEST_HOOKS=1`, refused in production).
+
 ## Third parties
 
 - **Cloudflare Turnstile** (only when `VITE_TURNSTILE_SITEKEY` is set at build time): when a NEW guest is created, the menu loads Cloudflare's Turnstile script and the server checks the result with Cloudflare, sending the challenge token and the player's IP address (`remoteip`). Cloudflare processes this data under its own privacy policy. Returning players (with a device token) do not trigger it.
+- **Email (Hostinger SMTP)**: sign-in and deletion codes go out from `noreply@qwakk.fun` through Hostinger's SMTP server (`SMTP_HOST`), which processes the recipient address and the message. No tracking pixels or tracked links.
+- **Cloudflare Turnstile** also guards "send code" when it is configured (the same token check as for new guests).
 - **Fonts**: Geist and Geist Mono are bundled with the game (self-hosted), so loading the menu makes no request to Google or any font service.
 - No analytics, no ad trackers.
 

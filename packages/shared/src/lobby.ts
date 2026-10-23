@@ -121,6 +121,8 @@ export interface PartyMemberView {
   busy: boolean;
   /** This is you. */
   you: boolean;
+  /** Not signed in: a guest plays Deathmatch only, so a party with one cannot go into a battle royale. */
+  guest?: boolean;
 }
 
 export interface PartyView {

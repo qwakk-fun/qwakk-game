@@ -29,6 +29,8 @@ export class PartyRegistry {
   private readonly byPlayer = new Map<string, PartyHandle>();
   /** Game rooms each player holds a seat in (a second tab may be in another room). */
   private readonly playing = new Map<string, Set<string>>();
+  /** Party members who are guests (not signed in), from their verified sessions. */
+  private readonly guests = new Set<string>();
 
   /** `playerId` joined `party`; a membership in another party ends. */
   attach(playerId: string, party: PartyHandle): void {
@@ -39,7 +41,24 @@ export class PartyRegistry {
 
   /** `playerId` left `party` (a later membership elsewhere is kept). */
   detach(playerId: string, party: PartyHandle): void {
-    if (this.byPlayer.get(playerId) === party) this.byPlayer.delete(playerId);
+    if (this.byPlayer.get(playerId) !== party) return;
+    this.byPlayer.delete(playerId);
+    this.guests.delete(playerId);
+  }
+
+  /** Mark a member as a guest or signed in (the party room does it at join, from verifySession). */
+  setGuest(playerId: string, guest: boolean): void {
+    if (guest) this.guests.add(playerId);
+    else this.guests.delete(playerId);
+  }
+
+  isGuest(playerId: string): boolean {
+    return this.guests.has(playerId);
+  }
+
+  /** Does this player's party have a guest in it (the player itself included)? */
+  partyHasGuest(playerId: string | null | undefined): boolean {
+    return this.partyOf(playerId)?.members.some((m) => this.guests.has(m)) ?? false;
   }
 
   partyOf(playerId: string | null | undefined): PartyInfo | null {
@@ -76,6 +95,7 @@ export class PartyRegistry {
   clear(): void {
     this.byPlayer.clear();
     this.playing.clear();
+    this.guests.clear();
   }
 }
 

@@ -1,5 +1,5 @@
 /**
- * The menu's tabs (Play, Leaderboard, Settings, How to play): a tab list with
+ * The menu's tabs (Play, Leaderboard, Settings, How to play, Account): a tab list with
  * icons and the panels it shows. Arrow keys, Home and End move between tabs.
  * On phones held upright the CSS docks the list at the bottom like an app bar.
  */
@@ -7,9 +7,9 @@ import { COPY } from './copy.ts';
 import { h } from './dom.ts';
 import { icon, type IconName } from './icons.ts';
 
-export type Tab = 'play' | 'leaderboard' | 'settings' | 'howto';
+export type Tab = 'play' | 'leaderboard' | 'settings' | 'howto' | 'account';
 
-const ICON: Record<Tab, IconName> = { play: 'play', leaderboard: 'trophy', settings: 'sliders', howto: 'help' };
+const ICON: Record<Tab, IconName> = { play: 'play', leaderboard: 'trophy', settings: 'sliders', howto: 'help', account: 'user' };
 
 export class Tabs {
   readonly bar: HTMLElement;

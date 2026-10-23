@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { seedBrowser } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? '/private/tmp/qwakk-localization';
@@ -22,7 +23,9 @@ const browser = await chromium.launch({ channel: 'chrome', headless: true, args:
 try {
   await start(['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, 'server listening', { PORT: '2590', QWAKK_BOTS: '0' });
   await start([`${root}/node_modules/vite/bin/vite.js`, '--port', '5192', '--strictPort'], `${root}/apps/client`, '5192', { VITE_GAME_SERVER: 'ws://localhost:2590' });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, locale: 'tr-TR' });
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'tr-TR' });
+  await seedBrowser(ctx, { guest: true }); // the guest menu (name and look steps)
+  const page = await ctx.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto('http://localhost:5192/game/?menu=1&hud=0');

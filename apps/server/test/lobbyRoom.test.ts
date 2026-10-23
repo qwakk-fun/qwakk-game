@@ -21,8 +21,9 @@ import { IslandState, MatchPhase, Msg, type ChatMessage } from '@qwakk/shared/ne
 let createAllowed = true;
 vi.mock('../src/meta/index.ts', () => ({
   verifySession: async (token: string | undefined) => {
-    const m = /^tok-(\d+)$/.exec(token ?? '');
-    return m ? { playerId: `00000000-0000-4000-8000-0000000000${m[1]!.padStart(2, '0')}`, name: `Duck${m[1]}`, tag: `${1000 + Number(m[1])}` } : null;
+    // tok-N: an account character; guest-N: a guest (battle royale refuses it).
+    const m = /^(tok|guest)-(\d+)$/.exec(token ?? '');
+    return m ? { playerId: `00000000-0000-4000-8000-0000000000${m[2]!.padStart(2, '0')}`, name: `Duck${m[2]}`, tag: `${1000 + Number(m[2])}`, account: m[1] === 'tok' } : null;
   },
   allowJoin: () => true,
   allowLobby: () => true,

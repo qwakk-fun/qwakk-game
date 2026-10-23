@@ -119,14 +119,24 @@ Apps > Create a New App: `qwakk-game`, "Has Persistent Data" off.
   NODE_OPTIONS=--max-old-space-size=768
   TURNSTILE_SECRET=<step 2b, or leave unset>
   VITE_TURNSTILE_SITEKEY=<step 2b, or leave unset>
+  SMTP_HOST=smtp.hostinger.com
+  SMTP_PORT=465
+  SMTP_USER=noreply@qwakk.fun
+  SMTP_PASS=<step 2d, the mailbox password>
+  MAIL_FROM=Qwakk <noreply@qwakk.fun>
   ```
 
   | Variable | Required | When | Notes |
   | --- | --- | --- | --- |
-  | `SESSION_SECRET` | yes | runtime | The image sets `NODE_ENV=production`, so the server refuses to start without it or with fewer than 32 characters. Rotating it resets every guest identity |
+  | `SESSION_SECRET` | yes | runtime | The image sets `NODE_ENV=production`, so the server refuses to start without it or with fewer than 32 characters. Rotating it resets every guest identity and signs every account out (accounts and ducks stay: players sign in again by email). It also keys the sign-in code hashes |
   | `TRUST_PROXY` | yes, `1` | runtime | CapRover's nginx is one proxy. Without it every player has the proxy's IP and the per-IP limits throttle everyone together. Use `2` only if Cloudflare proxying (orange cloud) is ever turned on for `play` |
   | `ALLOWED_ORIGINS` | yes | runtime | `https://play.qwakk.fun`. Applies to `/api`, matchmaking CORS and WebSocket upgrades. Unset also works (same origin only), but the explicit value documents it and silences the startup warning |
-  | `DATABASE_URL` | for the leaderboard | runtime | Migrations run at start. Unset: no leaderboard, play still works |
+  | `DATABASE_URL` | for the leaderboard and accounts | runtime | Migrations run at start (`003_accounts.sql` adds the account tables; additive, safe on the live guests). Unset: no leaderboard and no accounts (only guests, so no battle royale), play still works |
+  | `SMTP_HOST` | for accounts | runtime | `smtp.hostinger.com`. Unset in production: sign-in by email answers 503 (startup warning), so nobody can sign in and battle royale is unreachable |
+  | `SMTP_PORT` | no | runtime | `465` (implicit TLS, the default). `587` uses STARTTLS (required) |
+  | `SMTP_USER` | for accounts | runtime | `noreply@qwakk.fun` |
+  | `SMTP_PASS` | for accounts | runtime | Secret: the mailbox password, set by the owner in CapRover only. Never logged |
+  | `MAIL_FROM` | no | runtime | Default `Qwakk <noreply@qwakk.fun>`. Must be the SMTP user's address (Hostinger refuses other senders) |
   | `NODE_OPTIONS` | recommended | runtime | Keeps the V8 heap under the 1 GiB limit |
   | `TURNSTILE_SECRET` | recommended before wide sharing | runtime | Set together with `VITE_TURNSTILE_SITEKEY`, or neither. A secret without a site key makes every new guest fail with 403 `turnstile_failed` |
   | `VITE_TURNSTILE_SITEKEY` | with the secret | build | Public value. CapRover passes app env vars to the Docker build as build args; a change needs Save, then Force Build |
@@ -136,11 +146,11 @@ Apps > Create a New App: `qwakk-game`, "Has Persistent Data" off.
   | `ADMIN_TOTP_SECRET` | for the admin panel | runtime | Secret. The authenticator app's base32 secret, from `npm run admin:setup` |
   | `PORT` | no | runtime | Default 2567, must match the Container HTTP Port |
 
-  Do not set: `VITE_GAME_SERVER` and `VITE_API_BASE` (leave them empty so the client uses its own origin), `QWAKK_NAV_CACHE`, `QWAKK_CLIENT_DIR` and `NODE_ENV` (the image sets them), and the test switches `QWAKK_MAX_CLIENTS` (a value below 32 caps every deathmatch room), `QWAKK_DM_ROOMS`, `QWAKK_BOTS`, `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_COUNTDOWN`, `QWAKK_BR_MIN_HUMANS`, `QWAKK_BR_SEED`, `QWAKK_ZONE_SCALE`, `QWAKK_DM_MAP`, `QWAKK_DM_SPAWN_RADIUS`, `COLYSEUS_LATENCY`.
+  Do not set: `VITE_GAME_SERVER` and `VITE_API_BASE` (leave them empty so the client uses its own origin), `QWAKK_NAV_CACHE`, `QWAKK_CLIENT_DIR` and `NODE_ENV` (the image sets them), and the test switches `QWAKK_MAX_CLIENTS` (a value below 32 caps every deathmatch room), `QWAKK_DM_ROOMS`, `QWAKK_BOTS`, `QWAKK_INTEREST`, `QWAKK_SPECTATORS`, `QWAKK_BR_COUNTDOWN`, `QWAKK_BR_MIN_HUMANS`, `QWAKK_BR_SEED`, `QWAKK_ZONE_SCALE`, `QWAKK_DM_MAP`, `QWAKK_DM_SPAWN_RADIUS`, `COLYSEUS_LATENCY`, `QWAKK_TEST_HOOKS` (refused in production anyway).
 
   Do not set `QWAKK_ADMIN_DIR` or `QWAKK_COMMIT` either (the image sets them; the dashboard shows CapRover's commit when the app deploys from the repository).
 
-  Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, `ADMIN_PASSWORD_HASH`, `ADMIN_TOTP_SECRET`, the database password) live only in CapRover, never in the repo, an image or a log. The Dockerfile declares no build arg for them, so Docker ignores them at build time.
+  Secrets (`SESSION_SECRET`, `TURNSTILE_SECRET`, `ADMIN_PASSWORD_HASH`, `ADMIN_TOTP_SECRET`, `SMTP_PASS`, the database password) live only in CapRover, never in the repo, an image or a log. The Dockerfile declares no build arg for them, so Docker ignores them at build time.
 - Service Update Override: paste `deploy/caprover/qwakk-game.service-override.yml` (1.5 CPUs, 1 GiB, 0.5 CPU and 256 MiB reserved, stop-first updates). CapRover reapplies it on every deploy.
 
 ### Deployment
@@ -156,6 +166,10 @@ openssl rand -hex 32    # 64 characters
 ```
 
 Keep it stable. Changing it later resets every guest identity.
+
+### 2d. Sign-in email (Hostinger SMTP) **[OWNER APPROVAL]**
+
+Accounts sign in with a 6-digit code by email from `noreply@qwakk.fun` (`docs/accounts.md`). In hPanel, make sure the `noreply@qwakk.fun` mailbox exists, then set `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` and `MAIL_FROM` on `qwakk-game` (the password only in CapRover). MX, SPF and DMARC exist for qwakk.fun; DKIM is not verified yet: enable it in hPanel (Emails > DNS settings) before wide sharing, or codes may land in spam. After the deploy, sign up once with a real address and check the inbox and the spam folder. The game's legal pages are part of the image: `/terms`, `/privacy` and `/cookies` (built from `docs/legal/`).
 
 ### 2b. Turnstile (optional at first) **[OWNER APPROVAL]**
 

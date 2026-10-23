@@ -73,6 +73,8 @@ export class RuntimeSettings {
       const order = [...this.defs.keys()].filter((k) => k.startsWith('dm.room.'));
       return order.indexOf(d.key) < n;
     }
+    // Switches: 1 / true on, 0 / false off (QWAKK_DM_HERO=0 for tests).
+    if (d.kind === 'bool') return raw === '1' || raw === 'true' ? true : raw === '0' || raw === 'false' ? false : undefined;
     const v = this.validate(d.key, raw);
     return v.ok ? v.value : undefined;
   }

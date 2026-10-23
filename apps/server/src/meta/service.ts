@@ -4,6 +4,9 @@
  * build their own with a custom env and a fake fetch.
  */
 import { randomBytes } from 'node:crypto';
+import { AccountService } from './accounts/service.ts';
+import { createMailer, type Mailer } from './accounts/mail.ts';
+import { isRevoked } from './accounts/revoked.ts';
 import postgres, { type Sql } from 'postgres';
 import { loadConfig, type MetaConfig } from './config.ts';
 import { ipKey, normalizeIp } from './ip.ts';
@@ -24,6 +27,14 @@ export interface Identity {
   playerId: string;
   name: string;
   tag: string;
+  /**
+   * Signed in: an account character (battle royale needs it). False for a
+   * guest. Dev identities without a token (non-production only, for tools,
+   * benchmarks and direct-start tests) count as signed in.
+   */
+  account: boolean;
+  /** An account character's stored look (shared catalog id); the room seats it instead of the join option. */
+  look?: number;
 }
 
 export interface ApiResult {
@@ -38,6 +49,8 @@ export interface MetaServiceOptions {
   migrationsDir?: string;
   /** Retry a failed database start after this many ms (default 30 s). */
   retryMs?: number;
+  /** Replace the mailer (tests); default from the SMTP settings (accounts/mail.ts). */
+  mailer?: Mailer | null;
 }
 
 export type DbState = 'off' | 'starting' | 'up' | 'down';
@@ -69,12 +82,21 @@ export class MetaService {
   private startPromise: Promise<void> | null = null;
   private readonly pending: MatchResult[] = [];
   private readonly cache = new Map<string, { at: number; value: Promise<ApiResult> }>();
+  /** Accounts: email sign-in, ducks, deletion (accounts/service.ts). */
+  readonly accounts: AccountService;
 
   constructor(opts: MetaServiceOptions = {}) {
     this.config = loadConfig(opts.env ?? process.env);
     this.fetchImpl = opts.fetch;
     this.migrationsDir = opts.migrationsDir ?? MIGRATIONS_DIR;
     this.retryMs = opts.retryMs ?? 30_000;
+    this.accounts = new AccountService({
+      config: this.config,
+      db: () => this.db,
+      mailer: opts.mailer !== undefined ? opts.mailer : createMailer(this.config),
+      fetch: this.fetchImpl,
+      loopbackExempt: (ip) => this.loopbackExempt(ip),
+    });
   }
 
   // ---- lifecycle ----------------------------------------------------------
@@ -133,11 +155,14 @@ export class MetaService {
     if (token === undefined || token === '') {
       if (this.config.production) return null;
       const n = String(1000 + (randomBytes(2).readUInt16BE(0) % 9000));
-      return { playerId: `dev-${randomBytes(6).toString('hex')}`, name: `Duck${n}`, tag: n };
+      return { playerId: `dev-${randomBytes(6).toString('hex')}`, name: `Duck${n}`, tag: n, account: true };
     }
     const c = verifySessionToken(this.config.sessionSecret, token);
-    // A banned player id (admin panel) has no valid session, even with an unexpired token.
-    return c && !isBanned(c.playerId) ? { playerId: c.playerId, name: c.name, tag: c.tag } : null;
+    if (!c) return null;
+    // A banned player id (admin panel) has no valid session, even with an unexpired token;
+    // nor has a deleted duck, or a guest whose duck moved into an account (accounts/revoked.ts).
+    if (isBanned(c.playerId) || isRevoked(c.playerId, c.issuedAt, c.account)) return null;
+    return { playerId: c.playerId, name: c.name, tag: c.tag, account: c.account, ...(c.look !== undefined ? { look: c.look } : {}) };
   }
 
   /**
@@ -187,7 +212,7 @@ export class MetaService {
     return this.limits[kind].take(ipKey(ip));
   }
 
-  private loopbackExempt(ip: string): boolean {
+  loopbackExempt(ip: string): boolean {
     return !this.config.production && /^(127\.|::1$)/.test(normalizeIp(ip));
   }
 
@@ -310,7 +335,7 @@ export class MetaService {
     if (!claims) return fail(401, 'unauthorized');
     const q = parseQuery(params);
     if (!q) return fail(400, 'bad_request');
-    const player: Identity = { playerId: claims.playerId, name: claims.name, tag: claims.tag };
+    const player = { playerId: claims.playerId, name: claims.name, tag: claims.tag };
     const db = this.db;
     if (!db) return { status: 200, body: { player, season: null, mode: q.mode, total: 0, standing: null, leaderboard: false } };
     try {

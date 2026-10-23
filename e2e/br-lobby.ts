@@ -4,8 +4,8 @@
  * headless Chrome player and two Node players (npm run build:test first).
  *
  *   1. Node B creates a room. A Node lobby watcher sees it listed: counting down with one human.
- *   2. Chrome A opens the menu, sees the room in the live list and joins it from
- *      there. The waiting room shows the roster and the plane countdown.
+ *   2. Chrome A (signed in: battle royale needs an account) opens the menu, picks
+ *      its duck, sees the room in the live list and joins it from there. The waiting room shows the roster and the plane countdown.
  *   3. Node C picks the room from the lobby list and joins: the countdown gains 15 seconds
  *      (listed as counting down; the waiting room shows the plane timer).
  *   4. When it ends, bots fill the seats (16 ducks) and the match starts; the
@@ -29,6 +29,7 @@ import { chromium, type Page } from 'playwright';
 import { BR, MATCH, ROOM } from '@qwakk/shared';
 import { DM_ROOMS, LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
 import { IslandState, MatchPhase } from '@qwakk/shared/net';
+import { accountSeed, e2eDatabase, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-lobby');
@@ -92,14 +93,17 @@ const hideOverlay = (p: Page): Promise<void> => p.evaluate(() => document.getEle
 
 async function main(): Promise<void> {
   if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
+  const db = await e2eDatabase('lobby');
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
+    DATABASE_URL: db.url,
+    QWAKK_TEST_HOOKS: '1',
     QWAKK_BR_COUNTDOWN: String(COUNTDOWN_S),
     // The human target must not cancel the 15-second extension on arrival.
     QWAKK_BR_MIN_HUMANS: '3',
     QWAKK_BR_SEED: '7',
   });
-  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
   const procs = [server, web];
   const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
   process.on('exit', cleanup);
@@ -126,10 +130,12 @@ async function main(): Promise<void> {
     });
     const menuUrl = `http://localhost:${WEB_PORT}/game/?lang=en&server=${server_}&hud=0`;
     const ctxA = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 } });
+    await seedBrowser(ctxA, accountSeed(await signUpApi(`http://localhost:${SERVER_PORT}`, 'e2e.lobby@example.com', [['LobbyDuck', 0]])));
     const a = await ctxA.newPage();
     a.on('pageerror', (e) => console.error('[A] page error:', e.message));
     a.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error('[A] console:', m.text()));
     await a.goto(menuUrl);
+    await pickDuck(a);
     const row = a.locator(`.qm-room[data-room="${id}"]`);
     await row.waitFor({ timeout: 30000 });
     const rowText = await row.innerText();
@@ -164,6 +170,7 @@ async function main(): Promise<void> {
 
     // Another menu shows the countdown in the list.
     const ctxD = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 800 } });
+    await seedBrowser(ctxD, { guest: true }); // a guest: the deathmatch rooms are open to it
     const d = await ctxD.newPage();
     await d.goto(menuUrl);
     await d.locator(`.qm-room[data-room="${id}"].is-countdown`).waitFor({ timeout: 15000 });
@@ -224,6 +231,8 @@ async function main(): Promise<void> {
   } finally {
     for (const r of rooms) await r.leave(true).catch(() => {});
     cleanup();
+    await sleep(300);
+    await db.drop().catch(() => {});
   }
 }
 

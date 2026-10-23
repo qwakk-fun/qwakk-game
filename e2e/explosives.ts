@@ -23,7 +23,7 @@ import { throwPitch } from '../apps/server/src/dmBotExplosives.ts';
 
 class TestRoom extends IslandRoom {
   override async onAuth(_client: ServerClient, options: { name?: string } = {}): Promise<JoinAuth> {
-    return { playerId: null, name: options.name ?? 'Duck', tag: '1234', signed: false };
+    return { playerId: null, name: options.name ?? 'Duck', tag: '1234', signed: false, account: true };
   }
 }
 
@@ -40,7 +40,7 @@ const roomInfo = await matchMaker.createRoom(ROOM.name, {});
 const room = matchMaker.getLocalRoomById(roomInfo.roomId) as TestRoom;
 const endpoint = `ws://localhost:${(http.address() as AddressInfo).port}`;
 const webPort = Number(process.env.E2E_WEB_PORT ?? 5191);
-const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(webPort), '--strictPort'], { cwd: `${root}/apps/client`, stdio: ['ignore', 'pipe', 'pipe'] });
+const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(webPort), '--strictPort'], { cwd: `${root}/apps/client`, stdio: ['ignore', 'pipe', 'pipe'] });
 const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome', headless: true, args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] });
 const errors: string[] = [];
 

@@ -34,6 +34,8 @@ RUN npm ci --workspace @qwakk/client --workspace @qwakk/shared --no-audit --no-f
 COPY packages/shared packages/shared
 COPY apps/client apps/client
 COPY apps/admin apps/admin
+# The legal pages (/terms, /privacy, /cookies) are rendered from these at build time.
+COPY docs/legal docs/legal
 COPY deploy/server/precompress.ts deploy/server/
 # Optional build-time settings. CapRover passes app env vars as build args, so
 # they are set in the qwakk-game app settings; changing one needs a rebuild.
@@ -52,8 +54,9 @@ ENV VITE_GAME_SERVER=${VITE_GAME_SERVER} \
 RUN npm run build -w @qwakk/client -- --base / \
  && if find apps/client/dist -name '*.map' | grep -q . \
        || grep -rlq 'sourceMappingURL' apps/client/dist \
-       || [ -e apps/client/dist/mapview.html ]; then \
-      echo 'public client build contains source maps or dev pages' >&2; exit 1; \
+       || [ -e apps/client/dist/mapview.html ] \
+       || grep -rlq '/api/test/' apps/client/dist; then \
+      echo 'public client build contains source maps, dev pages or test hooks' >&2; exit 1; \
     fi \
  && node --disable-warning=ExperimentalWarning deploy/server/precompress.ts apps/client/dist
 # The admin UI: its own bundle, served by the server only to a logged-in admin.

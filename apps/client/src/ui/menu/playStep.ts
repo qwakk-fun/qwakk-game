@@ -15,14 +15,16 @@ export class PlayStep {
   private readonly buttons: HTMLButtonElement[] = [];
   private readonly status: HTMLElement;
   private readonly leaderNote: HTMLElement;
+  private readonly brTitle: HTMLElement;
+  private readonly brSub: HTMLElement;
+  private readonly brGo: HTMLElement;
+  private guest = false;
 
   constructor(touchOnly: boolean, onPlay: (mode: GameMode) => void) {
-    const br = h(
-      'button',
-      { type: 'button', class: 'qm-btn qm-btn-play', 'data-mode': 'br' },
-      h('span', { class: 'qm-btn-text' }, h('span', { class: 'qm-btn-title' }, COPY.playBr), h('span', { class: 'qm-btn-sub' }, COPY.playBrSub)),
-      h('span', { class: 'qm-btn-go', 'aria-hidden': 'true' }, icon('arrow')),
-    );
+    this.brTitle = h('span', { class: 'qm-btn-title' }, COPY.playBr);
+    this.brSub = h('span', { class: 'qm-btn-sub' }, COPY.playBrSub);
+    this.brGo = h('span', { class: 'qm-btn-go', 'aria-hidden': 'true' }, icon('arrow'));
+    const br = h('button', { type: 'button', class: 'qm-btn qm-btn-play', 'data-mode': 'br' }, h('span', { class: 'qm-btn-text' }, this.brTitle, this.brSub), this.brGo);
     const dm = h(
       'button',
       { type: 'button', class: 'qm-btn qm-btn-secondary', 'data-mode': 'dm' },
@@ -51,10 +53,24 @@ export class PlayStep {
     return this.buttons[0]!;
   }
 
+  /**
+   * A guest: Quick Play turns into "Sign in to play Battle Royale" (the menu
+   * opens the sign-in screen when it is pressed) and the team modes rest.
+   */
+  setGuest(on: boolean): void {
+    this.guest = on;
+    const br = this.buttons[0]!;
+    br.classList.toggle('is-locked', on);
+    this.brTitle.textContent = on ? COPY.gate.brButton : COPY.playBr;
+    this.brSub.textContent = on ? COPY.gate.brNote : COPY.playBrSub;
+    this.brGo.replaceChildren(icon(on ? 'lock' : 'arrow'));
+    this.team.setBusy(on);
+  }
+
   /** Busy (a match is loading) or a party member waiting for the leader. */
   lock(busy: boolean, followsLeader: boolean): void {
     for (const b of this.buttons) b.disabled = busy || followsLeader;
-    this.team.setBusy(busy || followsLeader);
+    this.team.setBusy(busy || followsLeader || this.guest);
     this.leaderNote.hidden = !followsLeader;
   }
 

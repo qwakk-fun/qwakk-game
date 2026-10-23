@@ -26,6 +26,13 @@ const fail = (msg: string): never => {
   throw new Error(msg);
 };
 
+/** This check drives the guest menu: skip the sign-in screen and the storage notice. */
+const guestMenu = async (ctx: import('playwright').BrowserContext): Promise<void> => void await
+  ctx.addInitScript(() => {
+    localStorage.setItem('qwakk.entry', 'guest');
+    localStorage.setItem('qwakk.storage-notice', '2026-10-23');
+  });
+
 const db = await freshDatabase('shots');
 const meta = new MetaService({ env: { DATABASE_URL: db.url, SESSION_SECRET: 'browser-check-secret-browser-check-1' } });
 let api: ReturnType<typeof createServer> | null = null;
@@ -78,6 +85,7 @@ try {
   const url = `http://127.0.0.1:${WEB_PORT}/game/test/menu/harness.html`;
   const browser = await chromium.launch({ channel: process.env.E2E_BROWSER === 'chromium' ? undefined : 'chrome' });
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+  await guestMenu(ctx);
   const page = await ctx.newPage();
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -153,6 +161,7 @@ try {
 
   // Phone: browsable, Play on (touch controls), with a note.
   const phone = await browser.newContext({ ...devices['iPhone 13'] });
+  await guestMenu(phone);
   const pp = await phone.newPage();
   await pp.goto(url);
   await pp.waitForSelector('.qm-mobile');

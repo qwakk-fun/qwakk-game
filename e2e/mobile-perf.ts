@@ -32,7 +32,7 @@ const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning',
   stdio: 'ignore',
   env: { ...process.env, PORT: String(SERVER_PORT), QWAKK_BR_COUNTDOWN: '4', QWAKK_BR_MIN_HUMANS: '1', QWAKK_BR_SEED: '7', QWAKK_ZONE_SCALE: '0.5' },
 });
-const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
+const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: 'ignore' });
 
 type Row = { n: number; cpu: number[]; cpu95: number[]; frame: number[]; calls: number[]; tris: number[] };
 const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / Math.max(1, a.length);

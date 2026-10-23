@@ -194,7 +194,7 @@ async function main(): Promise<void> {
     QWAKK_BR_SEED: String(SEED),
     QWAKK_ZONE_SCALE: '0.25',
   });
-  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
   const procs = [server, web];
   const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
   process.on('exit', cleanup);

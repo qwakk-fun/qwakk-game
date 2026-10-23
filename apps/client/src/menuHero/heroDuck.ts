@@ -133,6 +133,9 @@ const _w = new THREE.Vector3();
 const _ndc = new THREE.Vector2();
 const _ray = new THREE.Raycaster();
 
+/** The turn that faces the duck straight at the camera (undoes the frame's 38 degrees). */
+export const FACE_CAMERA = -FRAME.turn;
+
 export class HeroDuck {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
@@ -269,13 +272,15 @@ export class HeroDuck {
 
   /**
    * Pose the duck: aim offsets (radians, relative to the authored pose), a
-   * recoil kick (0 to 1) and the bill (seconds into the Quack clip, or < 0).
+   * recoil kick (0 to 1), the bill (seconds into the Quack clip, or < 0) and
+   * an extra turn of the whole duck on its feet (the character select turns
+   * the picked duck toward the viewer).
    */
-  pose(yaw: number, pitch: number, recoil: number, quackT: number): void {
+  pose(yaw: number, pitch: number, recoil: number, quackT: number, spin = 0): void {
     this.all.forEach((b, i) => b.quaternion.copy(this.base[i] as THREE.Quaternion));
     if (this.jaw && this.quackJaw && quackT >= 0) this.jaw.quaternion.fromArray(this.quackJaw.evaluate(Math.min(quackT, this.quackSeconds)) as unknown as number[]).normalize();
     const rootYaw = yaw * AIM.rootYaw;
-    this.turn.rotation.y = FRAME.turn + rootYaw;
+    this.turn.rotation.y = FRAME.turn + rootYaw + spin;
     this.turn.updateMatrixWorld(true);
     // The rest of the yaw and the pitch, shared over the spine (then a little
     // more for the neck and head). Each bone lifts around the axis across its

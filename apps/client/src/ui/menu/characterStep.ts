@@ -17,10 +17,13 @@ export class CharacterStep {
   private readonly onPick: (c: Character) => void;
   private current: CharacterId;
   private disabled = false;
+  private readonly remember: boolean;
 
-  constructor(initial: CharacterId, onPick: (c: Character) => void) {
+  /** `remember`: keep the pick in this browser (the guest's duck); the create-a-duck form does not. */
+  constructor(initial: CharacterId, onPick: (c: Character) => void, remember = true) {
     this.current = initial;
     this.onPick = onPick;
+    this.remember = remember;
     this.el = h('div', { class: 'qm-chars', role: 'radiogroup', 'aria-label': C.label });
     for (const c of CHARACTERS) {
       const text = characterCopy(c.id);
@@ -61,7 +64,7 @@ export class CharacterStep {
     if (this.disabled) return;
     const changed = id !== this.current;
     this.current = id;
-    saveCharacter(id);
+    if (this.remember) saveCharacter(id);
     this.render();
     if (changed) this.onPick(this.selected);
   }

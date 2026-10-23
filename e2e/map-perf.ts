@@ -25,7 +25,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function main(): Promise<void> {
   if (!existsSync(`${root}/apps/client/dist-test/mapview.html`)) throw new Error('Build the test client first: npm run build:test');
   if (out) mkdirSync(out, { recursive: true });
-  const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: ['ignore', 'pipe', 'pipe'] });
+  const web = spawn(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(PORT), '--strictPort'], { cwd: `${root}/apps/client`, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     await new Promise<void>((resolve, reject) => {
       const t = setTimeout(() => reject(new Error('vite preview did not start')), 20000);

@@ -17,6 +17,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, type Room } from '@colyseus/sdk';
 import { chromium, type BrowserContextOptions, type Page } from 'playwright';
+import { seedBrowser } from './lib/accounts.ts';
 import { BR } from '@qwakk/shared';
 import { IslandState } from '@qwakk/shared/net';
 
@@ -76,7 +77,7 @@ async function main(): Promise<void> {
     QWAKK_BR_MIN_HUMANS: '3',
     QWAKK_BR_SEED: '7',
   });
-  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
   const procs = [server, web];
   const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
   process.on('exit', cleanup);
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
     });
     for (const size of SIZES) {
       const ctx = await browser.newContext({ ...size.opts, locale: 'en-US' });
+      await seedBrowser(ctx, { guest: true }); // the guest menu: name, look and Play steps
       const page = await ctx.newPage();
       page.on('pageerror', (e) => problems.push(`[${size.name}] page error: ${e.message}`));
       // 503: the leaderboard without a database (the meta API says it is unavailable; the tab shows that).

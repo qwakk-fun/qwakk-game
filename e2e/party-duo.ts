@@ -15,6 +15,9 @@
  *   message, QWAKK_TEST_HOOKS=1), crawls; B walks up and holds E: A is back
  *   up with KNOCK.reviveHp.
  *
+ * Both players are signed in (a throwaway database; battle royale needs an
+ * account), each with one duck it picks on the character select.
+ *
  * Saves screenshots to OUTDIR. Usage: npm run e2e:party [-- OUTDIR]
  */
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -24,6 +27,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { Button, KNOCK } from '@qwakk/shared';
+import { accountSeed, e2eDatabase, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-party');
@@ -89,16 +93,22 @@ const partyNames = async (p: Page): Promise<string[]> => (await p.locator('.qm-p
 /** A creates a party in the menu, B opens the share link; both see two members. Returns the code. */
 async function formParty(a: Page, b: Page, menuUrl: string): Promise<string> {
   await a.goto(menuUrl);
+  await pickDuck(a);
   await a.locator('.qm-party button', { hasText: 'Create party' }).click();
   const code = await a.locator('.qm-party-codetext').innerText({ timeout: 20000 });
   await b.goto(`${menuUrl}&party=${code}`);
+  // The party link waits on the character select; it joins once B plays as its duck.
+  await pickDuck(b);
   await until('both see two members', async () => [await partyNames(a), await partyNames(b)], ([x, y]) => x?.length === 2 && y?.length === 2, 20000);
   console.log(`party ${code}: ${(await partyNames(a)).join(', ')}`);
   return code;
 }
 
+let players = 0;
 async function newPlayer(browser: import('playwright').Browser, name: string): Promise<{ ctx: BrowserContext; page: Page }> {
   const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 720 } });
+  const n = ++players;
+  await seedBrowser(ctx, accountSeed(await signUpApi(`http://localhost:${SERVER_PORT}`, `e2e.party${n}@example.com`, [[`Party${name}${n}`, n % 2]])));
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.error(`[${name}] page error:`, e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error(`[${name}] console:`, m.text()));
@@ -236,16 +246,20 @@ async function duo(browser: import('playwright').Browser): Promise<void> {
 
 async function main(): Promise<void> {
   if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
+  const db = await e2eDatabase('party');
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
+    DATABASE_URL: db.url,
     QWAKK_BOTS: '0',
     QWAKK_BR_COUNTDOWN: '8',
     QWAKK_BR_MIN_HUMANS: '2',
     QWAKK_BR_SEED: '7',
     QWAKK_DM_SPAWN_RADIUS: '21',
+    // No caped hero: a duck picked as the hero gets more health mid-check (the friendly fire test reads health).
+    QWAKK_DM_HERO: '0',
     QWAKK_TEST_HOOKS: '1',
   });
-  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
   const procs = [server, web];
   const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
   process.on('exit', cleanup);
@@ -263,6 +277,8 @@ async function main(): Promise<void> {
     console.log('PARTY E2E OK');
   } finally {
     cleanup();
+    await sleep(300);
+    await db.drop().catch(() => {});
   }
 }
 

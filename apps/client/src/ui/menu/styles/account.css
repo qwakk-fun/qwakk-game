@@ -1,0 +1,735 @@
+/*
+ * Accounts: the entry screens' frame (sign-in and the character select
+ * replace the tabs and the main panels), the sign-in card, the code boxes,
+ * the check boxes, the modal, the account tab, the guest lock on the Play
+ * tab, the header's who-chip and the storage notice. Character select and
+ * create a duck are in ducks.css.
+ */
+
+/* Screens: the entry screens hide the tab bar and the main area. */
+.qa-entry {
+  position: relative;
+  z-index: 1;
+  flex: 1 0 auto;
+  width: 100%;
+  padding: 8px var(--qm-pad-r) 24px var(--qm-pad-l);
+}
+.qm:not([data-screen='login']):not([data-screen='ducks']) .qa-entry,
+.qm[data-screen='login'] .qm-main,
+.qm[data-screen='ducks'] .qm-main,
+.qm[data-screen='login'] .qm-tabs,
+.qm[data-screen='ducks'] .qm-tabs,
+.qm[data-screen='login'] .qm-who,
+.qm[data-screen='ducks'] .qm-who {
+  display: none;
+}
+.qm[data-screen='login'],
+.qm[data-screen='ducks'] {
+  padding-bottom: 0;
+}
+.qm[data-screen='login'] .qm-top,
+.qm[data-screen='ducks'] .qm-top {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* Sign-in */
+.qa-auth {
+  display: grid;
+  grid-template-columns: minmax(0, 460px) minmax(0, 1fr);
+  align-items: center;
+  gap: clamp(16px, 4vw, 56px);
+  max-width: 1080px;
+  min-height: min(720px, calc(100svh - 150px));
+  margin: 0 auto;
+  animation: qm-rise 0.45s var(--qm-ease) both;
+}
+.qa-auth-card {
+  padding: clamp(20px, 3vw, 32px);
+}
+.qa-auth-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+.qa-auth-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 760;
+  font-size: 19px;
+  letter-spacing: -0.03em;
+}
+.qa-auth-brand img {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  box-shadow:
+    0 0 0 1px var(--qm-line-strong),
+    0 8px 22px -8px rgba(255, 212, 59, 0.45);
+}
+.qa-auth-body {
+  display: grid;
+  gap: 14px;
+}
+.qa-title {
+  font-size: clamp(26px, 3vw, 34px);
+  font-weight: 780;
+  letter-spacing: -0.04em;
+  line-height: 1.08;
+}
+.qa-sub {
+  color: var(--qm-text-2);
+  font-size: 15px;
+  line-height: 1.55;
+}
+.qa-form {
+  display: grid;
+  gap: 10px;
+}
+.qa-label {
+  color: var(--qm-text-2);
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+.qa-wide {
+  width: 100%;
+  min-height: 48px;
+  font-size: 15px;
+}
+.qa-msg {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 20px;
+  color: var(--qm-text-2);
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+.qa-msg:empty {
+  min-height: 0;
+}
+.qa-msg.is-error {
+  color: var(--qm-bad);
+}
+.qa-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--qm-text-3);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.qa-or::before,
+.qa-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--qm-line);
+}
+.qa-qorex:disabled {
+  opacity: 0.55;
+}
+.qa-center {
+  margin-top: -6px;
+  text-align: center;
+}
+.qa-guest-row {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding-top: 4px;
+  text-align: center;
+}
+.qa-guest {
+  min-height: var(--qm-tap);
+  font-size: 15px;
+}
+.qa-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+}
+.qa-links .qm-link {
+  min-height: 36px;
+}
+.qa-links .qm-link:disabled {
+  color: var(--qm-text-3);
+  text-decoration: none;
+}
+.qa-auth-back {
+  margin-right: -8px;
+}
+.qa-auth-art {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 420px;
+}
+.qa-auth-art::before {
+  content: '';
+  position: absolute;
+  inset: 12% 10%;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(255, 212, 59, 0.2), transparent 75%);
+  filter: blur(8px);
+}
+.qa-auth-art img {
+  position: relative;
+  width: min(100%, 520px);
+  height: auto;
+  /* The render's dark backdrop fades into the page, like the stage duck. */
+  mask-image: radial-gradient(closest-side, #000 62%, transparent 100%);
+  filter: drop-shadow(0 30px 40px rgba(0, 0, 0, 0.5));
+  animation: qa-bob 5s ease-in-out infinite;
+}
+@keyframes qa-bob {
+  50% {
+    transform: translateY(-10px) rotate(-1deg);
+  }
+}
+.qa-carry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--qm-accent-line);
+  border-radius: 12px;
+  background: var(--qm-wash);
+  color: var(--qm-text);
+  font-size: 13.5px;
+}
+.qa-carry .qm-icon {
+  color: var(--qm-yellow);
+}
+
+/* The 6 code boxes over one real input. */
+.qa-code {
+  position: relative;
+  width: 100%;
+}
+.qa-code-boxes {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: clamp(6px, 1.6vw, 10px);
+}
+.qa-code-box {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 0.86;
+  max-height: 68px;
+  border: 1px solid var(--qm-line-strong);
+  border-radius: 14px;
+  background: var(--qm-field);
+  color: var(--qm-text);
+  font: 700 clamp(22px, 5vw, 30px) / 1 var(--qm-mono);
+  transition:
+    border-color 0.15s,
+    box-shadow 0.15s,
+    transform 0.15s var(--qm-ease);
+}
+.qa-code-box.is-filled {
+  border-color: var(--qm-accent-line);
+  color: var(--qm-yellow);
+}
+.qa-code-box.is-current {
+  border-color: var(--qm-yellow);
+  box-shadow: 0 0 0 4px rgba(255, 212, 59, 0.12);
+}
+.qa-code-box.is-current:not(.is-filled)::after {
+  content: '';
+  width: 2px;
+  height: 40%;
+  background: var(--qm-yellow);
+  animation: qa-caret 1s steps(1) infinite;
+}
+@keyframes qa-caret {
+  50% {
+    opacity: 0;
+  }
+}
+.qa-code.is-error .qa-code-box {
+  border-color: rgba(255, 122, 122, 0.6);
+  animation: qa-shake 0.32s;
+}
+@keyframes qa-shake {
+  25% {
+    transform: translateX(-3px);
+  }
+  75% {
+    transform: translateX(3px);
+  }
+}
+.qa-code.is-disabled {
+  opacity: 0.6;
+}
+.qa-code-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  caret-color: transparent;
+  font-size: 16px; /* no zoom on iOS */
+  letter-spacing: 1em;
+  opacity: 0.01;
+  outline: none;
+  cursor: text;
+}
+.qa-code-input::selection {
+  background: transparent;
+}
+
+/* Check boxes (consent, news). */
+.qa-check {
+  position: relative;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  padding: 12px;
+  border: 1px solid var(--qm-line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--qm-text);
+  font-size: 14px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+.qa-check:hover {
+  border-color: var(--qm-line-strong);
+}
+.qa-check input {
+  position: absolute;
+  opacity: 0;
+  width: 24px;
+  height: 24px;
+  margin: 0;
+}
+.qa-box {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border: 1.5px solid var(--qm-line-strong);
+  border-radius: 7px;
+  background: var(--qm-field);
+  color: transparent;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+.qa-box .qm-icon {
+  width: 16px;
+  height: 16px;
+  stroke-width: 3;
+}
+.qa-check input:checked + .qa-box {
+  border-color: var(--qm-yellow);
+  background: var(--qm-yellow);
+  color: var(--qm-ink);
+}
+.qa-check input:focus-visible + .qa-box {
+  outline: 2px solid var(--qm-yellow);
+  outline-offset: 2px;
+}
+.qa-check a {
+  color: var(--qm-yellow);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* Modal */
+.qa-dialog {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 9, 11, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: qm-fade 0.2s both;
+}
+.qa-dialog-card {
+  display: grid;
+  gap: 12px;
+  width: min(100%, 460px);
+  max-height: calc(100svh - 32px);
+  overflow: auto;
+  padding: clamp(18px, 3vw, 26px);
+  background: var(--qm-card-solid);
+  animation: qm-rise 0.3s var(--qm-ease) both;
+}
+.qa-dialog-card.is-danger {
+  border-color: rgba(255, 122, 122, 0.28);
+}
+.qa-dialog-title {
+  font-size: 22px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+}
+.qa-dialog-text {
+  color: var(--qm-text-2);
+  line-height: 1.55;
+}
+.qa-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+.qa-delete-code {
+  display: grid;
+  gap: 10px;
+}
+.qm-btn-danger {
+  background: #e85a5a;
+  color: #1a0606;
+  box-shadow: 0 2px 0 #a63434;
+}
+.qm-btn-danger:hover:not(:disabled) {
+  background: #ff7070;
+}
+.qm-btn-danger-ghost {
+  border-color: rgba(255, 122, 122, 0.4);
+  background: rgba(255, 122, 122, 0.06);
+  color: var(--qm-bad);
+}
+.qm-btn-danger-ghost:hover:not(:disabled) {
+  background: rgba(255, 122, 122, 0.12);
+}
+
+/* Account tab */
+.qm-panel-account {
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 12px var(--qm-pad-r) 24px var(--qm-pad-l);
+}
+.qm-account {
+  display: grid;
+  gap: 16px;
+  animation: qm-rise 0.45s var(--qm-ease) both;
+}
+.qm-account-card {
+  display: grid;
+  gap: 14px;
+  padding: clamp(18px, 3vw, 28px);
+}
+.qm-panel-title {
+  font-size: clamp(26px, 3.2vw, 36px);
+  font-weight: 760;
+  letter-spacing: -0.04em;
+  line-height: 1.05;
+}
+.qm-account-rows {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 6px 18px;
+  padding: 12px 0;
+  border-block: 1px solid var(--qm-line);
+}
+.qm-account-rows dt {
+  color: var(--qm-text-3);
+  font-size: 13px;
+  font-weight: 650;
+}
+.qm-account-rows dd {
+  display: grid;
+  gap: 2px;
+}
+.qm-account-email {
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+.qm-switch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  cursor: pointer;
+}
+.qm-switch-text {
+  display: grid;
+  gap: 2px;
+}
+.qm-switch-label {
+  font-weight: 650;
+}
+.qm-switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.qm-switch-track {
+  position: relative;
+  width: 50px;
+  height: 30px;
+  border-radius: 999px;
+  background: var(--qm-raised);
+  box-shadow: inset 0 0 0 1px var(--qm-line-strong);
+  transition: background-color 0.18s;
+}
+.qm-switch-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--qm-text-2);
+  transition:
+    transform 0.2s var(--qm-ease),
+    background-color 0.18s;
+}
+.qm-switch input:checked + .qm-switch-track {
+  background: var(--qm-yellow);
+}
+.qm-switch input:checked + .qm-switch-track .qm-switch-thumb {
+  transform: translateX(20px);
+  background: var(--qm-ink);
+}
+.qm-switch input:focus-visible + .qm-switch-track {
+  outline: 2px solid var(--qm-yellow);
+  outline-offset: 3px;
+}
+.qm-account-legal a {
+  color: var(--qm-yellow);
+}
+.qm-account-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.qm-danger-zone {
+  border-color: rgba(255, 122, 122, 0.2);
+}
+.qm-danger-title {
+  color: var(--qm-bad);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+/* The steps: a hidden first step (the duck card for a guest) leaves no separator. */
+.qm-step[hidden] + .qm-step {
+  border-top: 0;
+}
+
+/* Header chip: Sign in for a guest (wide screens only; the Play tab has the same button). */
+.qm-who {
+  max-width: 200px;
+}
+.qm.is-account .qm-who {
+  display: none;
+}
+@media (max-width: 1359px) {
+  .qm-who {
+    display: none;
+  }
+}
+.qm-who-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.qm-who.is-signin {
+  border-color: var(--qm-accent-line);
+  color: var(--qm-yellow);
+}
+
+/* Play tab: the duck you play as, and the guest's lock. */
+.qm-active {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+.qm-active-portrait {
+  width: 64px;
+  height: 64px;
+}
+.qm-active-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.qm-active-name {
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qm-active-tag {
+  margin-left: 4px;
+  color: var(--qm-text-3);
+  font: 600 14px var(--qm-mono);
+}
+.qm-active-meta {
+  color: var(--qm-text-2);
+  font-size: 13px;
+}
+.qm-gate {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid var(--qm-accent-line);
+  border-radius: 18px;
+  background: linear-gradient(90deg, rgba(255, 212, 59, 0.09), rgba(255, 212, 59, 0.02));
+}
+.qm-gate-text {
+  display: grid;
+  gap: 2px;
+}
+.qm-gate-title {
+  font-weight: 700;
+}
+.qm-btn-play.is-locked {
+  background: linear-gradient(180deg, rgba(255, 212, 59, 0.16), rgba(255, 212, 59, 0.08));
+  color: var(--qm-yellow);
+  box-shadow: inset 0 0 0 1px var(--qm-accent-line);
+}
+.qm-btn-play.is-locked .qm-btn-sub {
+  color: var(--qm-text-2);
+}
+.qm-rooms-join.is-locked .qm-icon {
+  width: 14px;
+  height: 14px;
+}
+.qm-party-chip.is-guest {
+  color: var(--qm-beak);
+}
+
+/* Storage notice: informs, never blocks. */
+.qm-storage {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(calc(100% - 32px), 640px);
+  padding: 12px 12px 12px 16px;
+  border: 1px solid var(--qm-line-strong);
+  border-radius: 16px;
+  background: rgba(27, 28, 33, 0.96);
+  box-shadow: 0 18px 40px -16px rgba(0, 0, 0, 0.8);
+  transform: translateX(-50%);
+  font-size: 13.5px;
+  line-height: 1.45;
+  animation: qm-rise 0.4s var(--qm-ease) both;
+}
+.qm-storage p {
+  flex: 1;
+  color: var(--qm-text-2);
+}
+.qm-storage a {
+  color: var(--qm-yellow);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+@media (max-width: 860px) {
+  .qa-auth {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: center;
+    min-height: 0;
+  }
+  .qa-auth-card {
+    width: min(100%, 480px);
+  }
+  .qa-auth-art {
+    display: none;
+  }
+}
+/* Phones held upright: five tabs in the bottom bar, and the banner above it. */
+@media (max-width: 719px) and (orientation: portrait), (max-width: 479px) {
+  .qm .qm-tabs {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+  .qm-storage {
+    bottom: calc(80px + env(safe-area-inset-bottom));
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .qm[data-screen='login'] .qm-storage,
+  .qm[data-screen='ducks'] .qm-storage {
+    bottom: calc(16px + env(safe-area-inset-bottom));
+  }
+  .qm-who {
+    display: none;
+  }
+  .qa-entry {
+    padding-top: 0;
+  }
+}
+/* Narrow screens: the active duck's Switch button goes under its name. */
+@media (max-width: 479px) {
+  .qm-active {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .qm-active-switch {
+    grid-column: 1 / -1;
+  }
+}
+/* Phones on their side: a compact card next to the duck. */
+@media (max-height: 520px) and (orientation: landscape) {
+  .qa-auth {
+    grid-template-columns: minmax(0, 460px) minmax(0, 1fr);
+    align-items: start;
+    min-height: 0;
+  }
+  .qa-auth-art {
+    display: grid;
+    position: sticky;
+    top: 0;
+    min-height: 0;
+  }
+  .qa-auth-art img {
+    width: min(100%, 280px);
+  }
+  .qa-auth-brand {
+    display: none;
+  }
+  .qa-auth-top:has(.qa-auth-back[hidden]) {
+    display: none;
+  }
+  .qa-auth-body {
+    gap: 10px;
+  }
+  .qa-auth[data-step='email'] .qa-sub,
+  .qa-guest-row .qm-fine {
+    display: none;
+  }
+  .qa-auth-card {
+    padding: 16px 18px;
+  }
+  .qa-auth-top {
+    margin-bottom: 8px;
+  }
+  .qa-title {
+    font-size: 24px;
+  }
+  .qa-code-box {
+    max-height: 54px;
+  }
+  .qm-storage {
+    width: min(calc(100% - 32px), 760px);
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    padding: 8px 8px 8px 14px;
+  }
+}

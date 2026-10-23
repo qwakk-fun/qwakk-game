@@ -5,7 +5,9 @@
  * leaving and a new leader; the leader takes the party into a duo battle
  * royale room (the members follow, land on one team and get each other's HUD
  * entries), a party too big for the room is refused, and in a deathmatch the
- * party members are allies.
+ * party members are allies. Guests: the party shows them as guests, and the
+ * guard refuses a guest, or a leader with a guest in its party, a battle
+ * royale room (deathmatch stays open to them).
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createServer } from 'node:http';
@@ -14,6 +16,7 @@ import { matchMaker, Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Client, type Room } from '@colyseus/sdk';
 import { BR, emptyInput, initPhysics, PARTY, ROOM } from '@qwakk/shared';
+import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
 import { LOBBY_ERROR, LOBBY_ROOM, PartyMsg, TEAM_ERROR, type PartyGo, type PartyView } from '@qwakk/shared/lobby';
 import { IslandState } from '@qwakk/shared/net';
 
@@ -21,8 +24,9 @@ let partyJoins = 0;
 let partyJoinCap = 1000;
 vi.mock('../src/meta/index.ts', () => ({
   verifySession: async (token: string | undefined) => {
-    const m = /^tok-(\d+)$/.exec(token ?? '');
-    return m ? { playerId: `00000000-0000-4000-8000-0000000000${m[1]!.padStart(2, '0')}`, name: `Duck${m[1]}`, tag: `${1000 + Number(m[1])}` } : null;
+    // tok-N: an account character; guest-N: a guest (battle royale refuses it).
+    const m = /^(tok|guest)-(\d+)$/.exec(token ?? '');
+    return m ? { playerId: `00000000-0000-4000-8000-0000000000${m[2]!.padStart(2, '0')}`, name: `Duck${m[2]}`, tag: `${1000 + Number(m[2])}`, account: m[1] === 'tok' } : null;
   },
   allowJoin: () => true,
   allowLobby: () => true,
@@ -62,6 +66,15 @@ beforeAll(async () => {
     allowCreate: () => true,
     ipOf: () => '10.0.0.1',
     party: { roomName: PARTY.roomName, allowCreate: () => true, allowJoin: () => ++partyJoins <= partyJoinCap },
+    accountOnly: {
+      rooms: [BR.roomName],
+      identify: async (token) => {
+        const m = /^(tok|guest)-(\d+)$/.exec(token ?? '');
+        return m ? { playerId: `00000000-0000-4000-8000-0000000000${m[2]!.padStart(2, '0')}`, account: m[1] === 'tok' } : null;
+      },
+      partyHasGuest: (id) => parties.partyHasGuest(id),
+      roomNameOf: (id) => matchMaker.getLocalRoomById(id)?.roomName,
+    },
   });
   await server.listen(0);
   url = `ws://localhost:${(http.address() as AddressInfo).port}`;
@@ -119,7 +132,7 @@ describe('parties', () => {
     expect(code).toMatch(new RegExp(`^[${PARTY.codeAlphabet}]{${PARTY.codeLength}}$`));
     await waitUntil('own view', () => a.view?.members.length === 1);
     expect(a.view?.code).toBe(code);
-    expect(a.view?.members[0]).toEqual({ name: 'Duck1', tag: '1001', leader: true, busy: false, you: true });
+    expect(a.view?.members[0]).toEqual({ name: 'Duck1', tag: '1001', leader: true, busy: false, you: true, guest: false });
 
     const b = await joinParty(code, 2);
     await waitUntil('both see 2', () => a.view?.members.length === 2 && b.view?.members.length === 2);
@@ -241,4 +254,29 @@ describe('parties', () => {
     expect(team(c.sessionId)).toBe(0);
     expect(parties.partyOf('00000000-0000-4000-8000-000000000041')?.members.length).toBe(2);
   });
+
+  it('guests: shown as guests, refused a battle royale alone or in a party, deathmatch stays open', async () => {
+    // A guest on its own: no battle royale room, by create, Quick Play or id.
+    expect(await codeOf(new Client(url).create(BR.roomName, { token: 'guest-41', team: 1 }))).toBe(ACCOUNT_ERROR.needsAccount);
+    expect(await codeOf(new Client(url).joinOrCreate(BR.roomName, { token: 'guest-41' }))).toBe(ACCOUNT_ERROR.needsAccount);
+    // A spectate flag skips nothing in rooms without spectators (the guard drops it).
+    expect(await codeOf(new Client(url).joinOrCreate(BR.roomName, { token: 'guest-41', spectate: true }))).toBe(ACCOUNT_ERROR.needsAccount);
+    const br = await new Client(url).create(BR.roomName, { token: 'tok-42', team: 2 });
+    open.push(br);
+    expect(await codeOf(new Client(url).joinById(br.roomId, { token: 'guest-41' }))).toBe(ACCOUNT_ERROR.needsAccount);
+    await br.leave(true);
+
+    // A signed-in leader with a guest in the party cannot take the party into a battle royale.
+    const lead = await createParty(43);
+    const guest = track(await new Client(url).joinById(lead.room.roomId, { token: 'guest-44' }));
+    await waitUntil('both see the guest', () => lead.view?.members.length === 2 && guest.view?.members.length === 2);
+    expect(lead.view!.members.map((m) => m.guest)).toEqual([false, true]);
+    expect(await codeOf(new Client(url).create(BR.roomName, { token: 'tok-43', team: 2 }))).toBe(ACCOUNT_ERROR.partyHasGuest);
+    // Deathmatch takes the guest.
+    expect(await codeOf(new Client(url).joinOrCreate(ROOM.name, { token: 'guest-44' }))).toBe(0);
+    // Once the guest leaves the party, the leader can go.
+    await guest.room.leave(true);
+    await waitUntil('the guest left', () => lead.view?.members.length === 1);
+    expect(await codeOf(new Client(url).create(BR.roomName, { token: 'tok-43', team: 2 }))).toBe(0);
+  }, 30_000);
 });

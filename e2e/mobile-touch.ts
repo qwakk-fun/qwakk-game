@@ -5,7 +5,9 @@
  * first). Fingers are real touch events (DevTools Input.dispatchTouchEvent),
  * which the page sees as touch pointer events, several at once.
  *
- *   Menu: Play is on for a phone, the menu fits landscape and portrait.
+ *   Menu: signed in (battle royale needs an account; a throwaway database),
+ *   the phone taps Play on the character select; Play is on for a phone, the
+ *   menu fits landscape and portrait.
  *   Deathmatch from the menu, tap to play: the stick moves the duck (the
  *   server's position changes), a drag on the right turns it (the server's
  *   yaw follows), Fire shoots (the server's magazine drops) while the stick
@@ -23,6 +25,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type CDPSession, type Page } from 'playwright';
 import { Mode } from '@qwakk/shared';
+import { accountSeed, e2eDatabase, seedBrowser, signUpApi } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-mobile');
@@ -144,15 +147,18 @@ const HUD_PARTS = ['.tc-btn:not([hidden])', '.ghud-hp', '.ghud-ammo', '.team-pan
 
 async function main(): Promise<void> {
   if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
+  const db = await e2eDatabase('mobile');
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
+    DATABASE_URL: db.url,
+    QWAKK_TEST_HOOKS: '1',
     QWAKK_BOTS: '0',
     QWAKK_DM_SPAWN_RADIUS: '21',
     QWAKK_BR_MIN_HUMANS: '1',
     QWAKK_BR_COUNTDOWN: '4',
     QWAKK_BR_SEED: '7',
   });
-  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
+  const web = run(process.execPath, [`${root}/node_modules/vite/bin/vite.js`, 'preview', '--outDir', process.env.E2E_DIST ?? 'dist-test', '--port', String(WEB_PORT), '--strictPort'], `${root}/apps/client`);
   const procs = [server, web];
   const cleanup = () => procs.forEach((p) => p.exitCode === null && p.kill('SIGINT'));
   process.on('exit', cleanup);
@@ -161,6 +167,7 @@ async function main(): Promise<void> {
     const useChrome = (process.env.E2E_BROWSER ?? 'chrome') === 'chrome';
     const browser = await chromium.launch({ ...(useChrome ? { channel: 'chrome' } : {}), headless: true, args: ['--enable-unsafe-webgpu', '--enable-gpu', '--ignore-gpu-blocklist', '--use-angle=metal'] });
     const ctx = await browser.newContext({ locale: 'en-US', viewport: { width: W, height: H }, deviceScaleFactor: 3, isMobile: true, hasTouch: true });
+    await seedBrowser(ctx, accountSeed(await signUpApi(`http://localhost:${SERVER_PORT}`, 'e2e.phone@example.com', [['TouchDuck', 0]])));
     const page = await ctx.newPage();
     page.on('pageerror', (e) => console.error('[phone] page error:', e.message));
     page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error('[phone] console:', m.text()));
@@ -169,7 +176,8 @@ async function main(): Promise<void> {
 
     // Menu: a phone can play.
     await page.goto(`http://localhost:${WEB_PORT}/game/?lang=en&hud=0&menu=1`);
-    await page.locator('#qm-name').fill('TouchDuck');
+    await page.locator('.qd-play:not([disabled])').tap({ timeout: 30000 });
+    await page.locator('#menu[data-screen="main"]').waitFor();
     await sleep(1500); // the menu's entrance animation
     const coarse = await page.evaluate(() => ({ coarse: matchMedia('(pointer: coarse)').matches, fine: matchMedia('(any-pointer: fine)').matches, touch: navigator.maxTouchPoints }));
     console.log(`phone: ${JSON.stringify(coarse)}`);
@@ -342,6 +350,8 @@ async function main(): Promise<void> {
     await browser.close();
   } finally {
     cleanup();
+    await sleep(300);
+    await db.drop().catch(() => {});
   }
 }
 

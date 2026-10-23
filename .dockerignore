@@ -26,6 +26,8 @@ playwright-report
 art
 e2e
 docs
+# The legal pages are built into the client from these (apps/client/build/legalPages.ts).
+!docs/legal
 scripts
 **/test
 apps/server/bench

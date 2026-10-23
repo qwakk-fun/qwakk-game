@@ -71,12 +71,29 @@ export async function ensureSession(name: string, turnstileHost?: HTMLElement): 
     // A device token from another server secret: start over as a new guest once.
     if (err instanceof ApiError && err.code === 'turnstile_failed' && id.deviceToken && !turnstile && turnstileEnabled() && turnstileHost) {
       s = await createSession(name, undefined, await getTurnstileToken(turnstileHost));
+    } else if (err instanceof ApiError && err.code === 'claimed' && id.deviceToken) {
+      // This guest's duck moved into an account: this browser starts a new guest.
+      forgetGuest();
+      const check = turnstileEnabled() && turnstileHost ? await getTurnstileToken(turnstileHost) : undefined;
+      s = await createSession(name, undefined, check);
     } else {
       throw err;
     }
   }
   store({ deviceToken: s.deviceToken, playerId: s.playerId, name: s.name, tag: s.tag, token: s.token, expiresAt: s.expiresAt });
   return s;
+}
+
+/** The guest on this device that could move into an account (sign-up or "bring guest duck"). */
+export function guestToClaim(): { deviceToken: string; name: string; tag: string } | null {
+  const id = loadIdentity();
+  return id.deviceToken && id.name && id.tag ? { deviceToken: id.deviceToken, name: id.name, tag: id.tag } : null;
+}
+
+/** The guest's duck moved into an account: keep only the typed name for a future guest. */
+export function forgetGuest(): void {
+  const id = loadIdentity();
+  store(id.name ? { name: id.name } : {});
 }
 
 /** Remember a typed name before the server has confirmed it (no tag yet). */

@@ -78,6 +78,10 @@ describe('setting validation', () => {
     t.set('br.maxRooms', 1);
     expect(t.num('br.maxRooms')).toBe(3);
     expect([t.bool('dm.room.istanbul'), t.bool('dm.room.paris'), t.bool('dm.room.hongkong')]).toEqual([true, true, false]);
+    // A switch reads 0 / 1 / false / true (QWAKK_DM_HERO=0 turns the caped hero off for the party e2e).
+    expect(new RuntimeSettings(SETTING_DEFS, { QWAKK_DM_HERO: '0' }).bool('dm.hero')).toBe(false);
+    expect(new RuntimeSettings(SETTING_DEFS, { QWAKK_DM_HERO: 'true' }).bool('dm.hero')).toBe(true);
+    expect(new RuntimeSettings(SETTING_DEFS, { QWAKK_DM_HERO: 'maybe' }).bool('dm.hero')).toBe(true);
   });
 
   it('loads stored rows and skips bad ones', () => {

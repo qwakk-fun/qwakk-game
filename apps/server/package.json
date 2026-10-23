@@ -21,6 +21,7 @@
     "@colyseus/schema": "5.0.40",
     "@colyseus/ws-transport": "0.18.4",
     "@qwakk/shared": "*",
+    "nodemailer": "10.0.16",
     "postgres": "3.4.9",
     "recast-navigation": "0.43.1"
   },

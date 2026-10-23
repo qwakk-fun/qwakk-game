@@ -48,14 +48,16 @@ export interface MeData {
   leaderboard: boolean;
 }
 
-/** An API error: `code` is the server's error string, or 'unreachable'. */
+/** An API error: `code` is the server's error string, or 'unreachable'; `body` is the rest of the error answer. */
 export class ApiError extends Error {
   readonly code: string;
   readonly status: number;
-  constructor(code: string, status: number) {
+  readonly body: Record<string, unknown>;
+  constructor(code: string, status: number, body: Record<string, unknown> = {}) {
     super(code);
     this.code = code;
     this.status = status;
+    this.body = body;
   }
 }
 
@@ -75,7 +77,7 @@ export function gameServer(): string {
   return defaultGameServer();
 }
 
-async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 8000): Promise<T> {
+export async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 8000): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${apiBase()}${path}`, { ...init, signal: AbortSignal.timeout(timeoutMs), credentials: 'omit' });
@@ -90,7 +92,7 @@ async function call<T>(path: string, init: RequestInit = {}, timeoutMs = 8000): 
   }
   if (!res.ok) {
     const code = body && typeof body === 'object' && typeof (body as { error?: unknown }).error === 'string' ? (body as { error: string }).error : 'generic';
-    throw new ApiError(code, res.status);
+    throw new ApiError(code, res.status, body && typeof body === 'object' ? (body as Record<string, unknown>) : {});
   }
   return body as T;
 }

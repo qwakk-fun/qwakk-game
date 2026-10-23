@@ -1,24 +1,37 @@
 /**
- * The main menu at play.qwakk.fun: the Play tab's join flow (1 name and #tag,
- * 2 pick a duck, 3 drop in: Quick Play or Deathmatch), the stage with the duck,
- * parties and the live room lists; the leaderboard, settings and how to play
- * tabs. Pure DOM and no game imports, so it paints before the Three.js and
- * Rapier bundle has loaded. This file wires the parts together and owns the
- * Play flow; each part is its own module.
+ * The main menu at play.qwakk.fun, behind the entry screens (account/entry.ts:
+ * sign in or play as a guest, then the character select). The Play tab's
+ * join flow depends on who plays:
+ *   signed in: 1 the duck you picked (Switch duck), 2 drop in (Quick Play
+ *     battle royale or Deathmatch);
+ *   guest: 1 name and #tag, 2 pick a look, 3 drop in (Deathmatch; Quick Play
+ *     asks to sign in, guests do not play battle royale).
+ * Plus the stage with the duck, parties and the live room lists, and the
+ * leaderboard, settings, how to play and account tabs. Pure DOM and no game
+ * imports, so it paints before the Three.js and Rapier bundle has loaded.
+ * This file wires the parts together and owns the Play flow; each part is
+ * its own module.
  */
 import { isTouchOnly } from '../../input/touch/device.ts';
 import { changeLocale, locale } from '../../i18n/locale.ts';
 import { loadSettings, toGameSettings } from '../../settings.ts';
+import { ACCOUNT_ERROR, type CharacterView } from '@qwakk/shared/accounts';
 import { ApiError, fetchMe, type MeData } from './api.ts';
+import { AccountPanel } from './account/accountPanel.ts';
+import { ActiveDuck, guestGate } from './account/activeDuck.ts';
+import { Entry, type Screen } from './account/entry.ts';
+import { LoginScreen } from './account/loginScreen.ts';
+import { showStorageNotice } from './account/storageNotice.ts';
 import { CharacterStep } from './characterStep.ts';
-import { characterById, gameId, loadCharacter, type Character } from './characters.ts';
+import { characterById, characterOfLook, gameId, loadCharacter, type Character } from './characters.ts';
 import { COPY, LINKS } from './copy.ts';
 import { asset, h } from './dom.ts';
 import { howtoPanel } from './howtoPanel.ts';
+import { icon } from './icons.ts';
 import { loadIdentity, NAME_RE } from './identity.ts';
 import { LOBBY_ERROR, partyCodeOf, pickQuickRoom, TEAM_ERROR, type PartyGo } from '@qwakk/shared/lobby';
 import { LeaderboardPanel } from './leaderboardPanel.ts';
-import { NameStep } from './nameStep.ts';
+import { errorText, NameStep } from './nameStep.ts';
 import { devWithoutApi, PartyController } from './partyController.ts';
 import { PlayStep } from './playStep.ts';
 import { ResultCard } from './resultCard.ts';
@@ -35,6 +48,8 @@ import './styles/shell.css';
 import './styles/play.css';
 import './styles/lobby.css';
 import './styles/panels.css';
+import './styles/account.css';
+import './styles/ducks.css';
 
 export type { ExitReason, GameMode, MatchSummary, MenuHooks, StartOptions } from './types.ts';
 
@@ -52,6 +67,10 @@ const JOIN_ERRORS: Record<number, string> = {
   [TEAM_ERROR.noTeam]: 'no_team',
   [LOBBY_ERROR.maintenance]: 'maintenance',
   [LOBBY_ERROR.modeOff]: 'mode_off',
+  [ACCOUNT_ERROR.needsAccount]: 'needs_account',
+  [ACCOUNT_ERROR.roomNeedsAccount]: 'needs_account',
+  [ACCOUNT_ERROR.partyHasGuest]: 'party_has_guest',
+  [ACCOUNT_ERROR.roomPartyHasGuest]: 'party_has_guest',
 };
 
 /** One numbered step of the join flow. */
@@ -78,14 +97,25 @@ export class Menu {
   private readonly rooms: RoomsPanel;
   private readonly party: PartyController;
   private readonly status: StatusBar;
+  private readonly entry: Entry;
+  private readonly accountPanel: AccountPanel;
+  private readonly activeDuck: ActiveDuck;
   private readonly nameStepEl: HTMLElement;
+  private readonly lookStepEl: HTMLElement;
+  private readonly duckStepEl: HTMLElement;
+  private readonly playStepEl: HTMLElement;
+  private readonly gateEl: HTMLElement;
+  private readonly whoBtn: HTMLButtonElement;
   /** The header's right corner: the version badge (ui/buildBadge.ts) sits here while the menu is up. */
   private readonly badgeSlot: HTMLElement;
-  /** A party code from the share link (?party=), joined once the menu shows. */
+  /** A party code from the share link (?party=), joined once the main menu shows. */
   private pendingCode: string | null = null;
   private busy = false;
   private before: MeData | null = null;
   private lastMode: GameMode = 'br';
+  /** Who plays: an account duck, or a guest. */
+  private signedIn = false;
+  private booted = false;
 
   constructor(hooks: MenuHooks) {
     this.hooks = hooks;
@@ -117,15 +147,32 @@ export class Menu {
     this.name = new NameStep(() => this.syncPlayer());
     this.characters = new CharacterStep(character.id, (c) => this.stage.setCharacter(c));
     this.playStep = new PlayStep(touchOnly, (mode) => void this.play(mode));
+    this.activeDuck = new ActiveDuck(() => this.switchDuck());
+    this.gateEl = guestGate(() => this.signIn());
+
+    this.entry = new Entry(
+      {
+        screen: (s) => this.setScreen(s),
+        main: (tab) => this.enterMain(true, tab),
+        guest: () => this.enterMain(false),
+        identityChanged: () => this.party.leave(),
+      },
+      hooks.hero?.bind(hooks),
+    );
+    this.accountPanel = new AccountPanel(this.entry.session, {
+      signIn: () => this.signIn(),
+      switchDuck: () => this.switchDuck(),
+      logout: () => void this.entry.logout(),
+      deleted: () => this.entry.deleted(),
+      expired: () => this.entry.expired(),
+      inMatch: () => false,
+    });
 
     this.nameStepEl = step(1, COPY.steps.name, this.name.el);
-    const steps = h(
-      'ol',
-      { class: 'qm-steps', 'aria-label': COPY.aria.steps },
-      this.nameStepEl,
-      step(2, COPY.steps.character, this.characters.el),
-      step(3, COPY.steps.play, this.playStep.el),
-    );
+    this.lookStepEl = step(2, COPY.steps.character, this.characters.el);
+    this.duckStepEl = step(1, COPY.account.activeDuck, this.activeDuck.el);
+    this.playStepEl = step(3, COPY.steps.play, this.playStep.el);
+    const steps = h('ol', { class: 'qm-steps', 'aria-label': COPY.aria.steps }, this.duckStepEl, this.nameStepEl, this.lookStepEl, this.playStepEl);
 
     const playPanel = h(
       'div',
@@ -138,7 +185,7 @@ export class Menu {
         h('p', { class: 'qm-tagline' }, COPY.tagline),
       ),
       this.stage.el,
-      h('div', { class: 'qm-join' }, this.status.el, this.result.el, steps),
+      h('div', { class: 'qm-join' }, this.status.el, this.result.el, this.gateEl, steps),
       h(
         'aside',
         { class: 'qm-lobby', 'aria-label': COPY.aria.lobby },
@@ -159,6 +206,7 @@ export class Menu {
         ['leaderboard', this.leaderboard.el],
         ['settings', this.settingsPanel.el],
         ['howto', howtoPanel()],
+        ['account', this.accountPanel.el],
       ],
       (tab) => this.onTab(tab),
     );
@@ -168,6 +216,8 @@ export class Menu {
       h('option', { value: 'en' }, 'English'), h('option', { value: 'tr' }, 'Türkçe'));
     language.value = locale;
     language.addEventListener('change', () => changeLocale(language.value === 'tr' ? 'tr' : 'en'));
+    this.whoBtn = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-btn-sm qm-who' }, icon('user'), h('span', { class: 'qm-who-text' }));
+    this.whoBtn.addEventListener('click', () => (this.signedIn ? this.tabs.select('account') : this.signIn()));
     this.root = h(
       'div',
       { id: 'menu', class: `qm${touchOnly ? ' is-touch' : ''}` },
@@ -177,21 +227,22 @@ export class Menu {
         { class: 'qm-top' },
         h('a', { class: 'qm-brand', href: LINKS.home, 'aria-label': COPY.aria.home }, h('img', { src: asset('ui/brand-mark.svg'), alt: '', width: 36, height: 36 }), h('span', {}, 'Qwakk')),
         this.tabs.bar,
-        h('div', { class: 'qm-top-end' }, language, this.badgeSlot),
+        h('div', { class: 'qm-top-end' }, this.whoBtn, language, this.badgeSlot),
       ),
+      this.entry.el,
       this.tabs.main,
       h(
         'footer',
         { class: 'qm-foot' },
-        h('nav', { 'aria-label': COPY.aria.links }, h('a', { href: LINKS.home }, COPY.footer.home), h('a', { href: LINKS.terms }, COPY.footer.terms), h('a', { href: LINKS.privacy }, COPY.footer.privacy)),
+        h('nav', { 'aria-label': COPY.aria.links }, h('a', { href: LINKS.home }, COPY.footer.home), h('a', { href: LINKS.terms }, COPY.footer.terms), h('a', { href: LINKS.privacy }, COPY.footer.privacy), h('a', { href: LINKS.cookies }, COPY.footer.storage)),
         h('p', {}, COPY.footer.note),
       ),
     );
-    this.syncPlayer();
+    this.applyMode();
     this.tabs.select('play');
   }
 
-  /** Put the menu on the page (once) and show it, with the last round's result if there is one. */
+  /** Put the menu on the page (once) and show it: the entry screens first, the main menu after a match. */
   show(exit?: { reason: ExitReason; summary?: MatchSummary }): void {
     if (!this.root.isConnected) document.body.append(this.root);
     this.root.hidden = false;
@@ -199,29 +250,21 @@ export class Menu {
     // The badge scrolls with the header instead of floating over the menu.
     const badge = document.getElementById('build-badge');
     if (badge) this.badgeSlot.append(badge);
+    showStorageNotice(this.root);
     this.setBusy(false);
     this.playStep.clear();
-    this.rooms.start();
-    this.status.start();
     if (exit) void this.result.show(exit.reason, exit.summary, this.lastMode, this.before);
-    this.tabs.select('play');
-    if (!isTouchOnly()) this.playStep.primary.focus({ preventScroll: true });
-    // After paint: the 3D duck, then the game bundle (they share the Three.js chunk).
-    const later = (): void => {
-      if (!this.root.hidden && !this.busy) this.stage.hero.start();
-      this.hooks.prefetch?.();
-    };
+    if (!this.booted) {
+      this.booted = true;
+      this.entry.boot();
+    } else {
+      this.enterMain(this.signedIn);
+    }
+    // After paint: warm the game bundle (it shares the Three.js chunk with the 3D ducks).
+    const later = (): void => this.hooks.prefetch?.();
     const idle = (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
     if (idle) idle(later, { timeout: 1500 });
     else setTimeout(later, 300);
-    // Get or refresh the #tag quietly (no Turnstile prompt until Play).
-    if (loadIdentity().deviceToken && NAME_RE.test(this.name.value)) this.name.commit(true).catch(() => {});
-    this.applyLock();
-    if (this.pendingCode) {
-      const code = this.pendingCode;
-      this.pendingCode = null;
-      void this.party.join(code);
-    }
   }
 
   hide(): void {
@@ -235,20 +278,103 @@ export class Menu {
     if (badge) document.body.append(badge);
   }
 
-  /** The picked duck: Play sends it as the `character` join option (characters.ts). */
+  /** The look Play sends as the `character` join option (characters.ts); an account duck wears its own. */
   get character(): Character {
-    return this.characters.selected;
+    const duck = this.duck;
+    return duck ? characterOfLook(duck.look) : this.characters.selected;
+  }
+
+  /** The account duck playing now, or null for a guest. */
+  private get duck(): CharacterView | null {
+    return this.signedIn ? this.entry.session.active : null;
+  }
+
+  // ---- screens and modes ----------------------------------------------------
+
+  /** The entry screens hide the tabs and the main panels; the main screen brings them back. */
+  private setScreen(s: Screen): void {
+    this.root.dataset.screen = s;
+    if (s !== 'main') {
+      this.rooms.stop();
+      this.status.stop();
+      this.stage.hero.stop();
+      this.root.scrollTo({ top: 0 });
+    }
+  }
+
+  /** The main menu, as the account's duck (`signedIn`) or as a guest. */
+  private enterMain(signedIn: boolean, tab: Tab = 'play'): void {
+    this.signedIn = signedIn && this.entry.session.signedIn;
+    this.applyMode();
+    this.entry.leftEntry();
+    this.root.dataset.screen = 'main';
+    this.rooms.start();
+    this.status.start();
+    this.tabs.select(tab);
+    if (tab === 'play' && !isTouchOnly()) this.playStep.primary.focus({ preventScroll: true });
+    // After paint: the 3D duck on the stage.
+    requestAnimationFrame(() => requestAnimationFrame(() => !this.root.hidden && !this.busy && this.root.dataset.screen === 'main' && this.stage.hero.start()));
+    // Get or refresh the guest's #tag quietly (no Turnstile prompt until Play).
+    if (!this.signedIn && loadIdentity().deviceToken && NAME_RE.test(this.name.value)) this.name.commit(true).catch(() => {});
+    this.applyLock();
+    if (this.pendingCode) {
+      const code = this.pendingCode;
+      this.pendingCode = null;
+      void this.party.join(code);
+    }
+  }
+
+  /** Show what fits who plays: the duck card or the name and look steps, the guest locks, the account tab. */
+  private applyMode(): void {
+    const account = this.signedIn;
+    this.root.classList.toggle('is-account', account);
+    this.root.classList.toggle('is-guest', !account);
+    this.duckStepEl.hidden = !account;
+    this.nameStepEl.hidden = account;
+    this.lookStepEl.hidden = account;
+    this.gateEl.hidden = account;
+    const num = (el: HTMLElement, n: number): void => {
+      el.dataset.step = String(n);
+      const s = el.querySelector('.qm-step-num');
+      if (s) s.textContent = String(n);
+    };
+    num(this.playStepEl, account ? 2 : 3);
+    this.playStep.setGuest(!account);
+    this.rooms.setGuest(!account);
+    this.activeDuck.set(this.duck);
+    const duck = this.duck;
+    (this.whoBtn.lastElementChild as HTMLElement).textContent = duck ? `${duck.name}#${duck.tag}` : account ? COPY.account.title : COPY.account.signIn;
+    this.whoBtn.classList.toggle('is-signin', !account);
+    this.stage.setCharacter(this.character);
+    this.syncPlayer();
+    this.accountPanel.render();
+  }
+
+  private signIn(): void {
+    this.entry.openLogin({ canGoBack: true });
+  }
+
+  private switchDuck(): void {
+    if (this.busy) return;
+    if (!this.entry.session.signedIn) return this.signIn();
+    this.entry.openDucks({ refetch: true });
   }
 
   private onTab(tab: Tab): void {
     this.root.dataset.tab = tab;
     this.stage.hero.setActive(tab === 'play');
     if (tab === 'leaderboard') void this.leaderboard.load();
+    if (tab === 'account') this.accountPanel.render();
     if (this.root.isConnected) this.root.scrollTo({ top: 0 });
   }
 
   /** Name, tag and the done mark of step 1, on the stage plate too. */
   private syncPlayer(): void {
+    const duck = this.duck;
+    if (duck) {
+      this.stage.setPlayer(duck.name, `#${duck.tag}`);
+      return;
+    }
     this.stage.setPlayer(this.name.value, this.name.tag);
     this.nameStepEl.classList.toggle('is-done', this.name.valid && this.name.tag !== null);
   }
@@ -268,16 +394,34 @@ export class Menu {
     this.party.panel.setBusy(this.busy);
   }
 
-  /** A session token for party actions (the name must be valid), or null with a message. */
-  private async partyToken(): Promise<string | null | undefined> {
-    try {
-      const t = await this.name.commit();
-      if (!t) {
-        this.party.panel.message(COPY.party.needName, true);
-        this.name.focus();
+  // ---- sessions -----------------------------------------------------------
+
+  /** A game session token for whoever plays: the account duck's, or the guest's (the name must be valid). */
+  private async sessionToken(quiet: boolean): Promise<string | null> {
+    if (this.signedIn) {
+      try {
+        return (await this.entry.session.gameSession()).token;
+      } catch (err) {
+        if (err instanceof ApiError && err.status === 401) this.entry.expired();
+        else if (!quiet) this.playStep.error(errorText(err));
         return null;
       }
-      return t.token;
+    }
+    return (await this.name.commit())?.token ?? null;
+  }
+
+  /** A session token for party actions, or null with a message. */
+  private async partyToken(): Promise<string | null | undefined> {
+    try {
+      const t = await this.sessionToken(true);
+      if (!t) {
+        if (!this.signedIn) {
+          this.party.panel.message(COPY.party.needName, true);
+          this.name.focus();
+        }
+        return null;
+      }
+      return t;
     } catch (err) {
       return devWithoutApi(err) ? undefined : null;
     }
@@ -285,15 +429,38 @@ export class Menu {
 
   /** The leader went into a room: members in the menu follow (in a match the server does not send it anyway). */
   private follow(g: PartyGo, leader: string): void {
-    if (this.root.hidden || this.busy) return;
+    if (this.root.hidden || this.busy || this.root.dataset.screen !== 'main') return;
+    if (g.mode === 'br' && !this.signedIn) {
+      this.playStep.error(COPY.errors.needs_account!);
+      return;
+    }
     this.party.panel.message(COPY.party.following(leader));
     void this.play(g.mode, { roomId: g.roomId }, true);
   }
+
+  // ---- play ---------------------------------------------------------------
 
   private async play(mode: GameMode, target: PlayTarget = {}, follow = false): Promise<void> {
     if (this.busy) return;
     if (this.party.followsLeader && !follow) {
       this.playStep.error(COPY.errors.party_lead!);
+      return;
+    }
+    // Guests play deathmatch only: battle royale asks to sign in (the server refuses it too).
+    if (mode === 'br' && !this.signedIn) {
+      this.signIn();
+      return;
+    }
+    if (this.signedIn && LoginScreen.needsLegal(this.entry.session)) {
+      this.entry.openDucks({ refetch: false });
+      return;
+    }
+    if (mode === 'br' && this.party.view?.members.some((m) => m.guest)) {
+      this.playStep.error(COPY.errors.party_has_guest!);
+      return;
+    }
+    if (this.signedIn && !this.duck) {
+      this.switchDuck();
       return;
     }
     // Battle royale: the room's team size, and Quick Play picks from the live list a room
@@ -314,8 +481,8 @@ export class Menu {
     this.playStep.progress(COPY.finding);
     let token: string | undefined;
     try {
-      token = (await this.name.commit())?.token;
-      if (!token) return this.backToMenu(true);
+      token = (await this.sessionToken(false)) ?? undefined;
+      if (!token) return this.backToMenu(!this.signedIn);
     } catch (err) {
       // Dev without a game server API: the server hands out a guest identity.
       if (!(import.meta.env.DEV && err instanceof ApiError && err.code === 'unreachable')) return this.backToMenu(false);
@@ -328,8 +495,9 @@ export class Menu {
     this.playStep.progress(COPY.loadingGame);
     // Free the 3D duck's renderer before the game makes its own.
     this.stage.hero.stop();
+    const duck = this.duck;
     try {
-      const joined = await this.hooks.start({ mode, ...target, token, name: this.name.value, character: gameId(this.character.id), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
+      const joined = await this.hooks.start({ mode, ...target, token, name: duck?.name ?? this.name.value, character: gameId(this.character.id), settings: toGameSettings(this.settingsPanel.current ?? loadSettings()) });
       // The leader tells the party where it went; the members in the menu follow.
       if (joined) this.party.went(mode, joined.roomId);
       this.party.panel.message(null);
@@ -341,6 +509,7 @@ export class Menu {
       const code = (err as { code?: number } | null)?.code ?? 0;
       // A deathmatch room never closes: a refused join by id means it is full.
       const known = mode === 'dm' && code === 522 ? 'dm_room_full' : JOIN_ERRORS[code];
+      if (known === 'needs_account' && this.signedIn) this.entry.session.dropGameSession();
       this.playStep.error(COPY.errors[known ?? 'start_failed'] ?? COPY.errors.start_failed!);
     }
   }
@@ -348,7 +517,9 @@ export class Menu {
   /** Play stopped before the game loaded (no valid name, or the session failed: the name step says why). */
   private backToMenu(focusName: boolean): void {
     this.setBusy(false);
-    this.playStep.clear();
+    if (this.root.dataset.screen !== 'main') return;
+    // A guest's name step says why; an account's error stays on the Play step.
+    if (!this.signedIn) this.playStep.clear();
     if (focusName) {
       this.name.focus();
       this.nameStepEl.scrollIntoView({ block: 'center', behavior: 'smooth' });

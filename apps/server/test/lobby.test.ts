@@ -183,7 +183,9 @@ describe('lobby listing helpers', () => {
 
 describe('matchmaking guard', () => {
   it('keeps only the join options rooms read', () => {
-    expect(cleanClientOptions('br', 'lobby', { name: 'Duck', token: 't', spectate: true, maxClients: 99, countdownSeconds: 0, seed: 1 })).toEqual({ name: 'Duck', token: 't', spectate: true });
+    expect(cleanClientOptions('br', 'lobby', { name: 'Duck', token: 't', spectate: true, maxClients: 99, countdownSeconds: 0, seed: 1 }, true)).toEqual({ name: 'Duck', token: 't', spectate: true });
+    // A room without spectators never gets the flag (it would skip the admission checks).
+    expect(cleanClientOptions('br', 'lobby', { name: 'Duck', spectate: true })).toEqual({ name: 'Duck' });
     expect(cleanClientOptions('br', 'lobby', { spectate: 'yes' })).toEqual({});
     expect(cleanClientOptions('lobby', 'lobby', { filter: { name: 'island' } })).toEqual({});
     expect(cleanClientOptions('br', 'lobby', null)).toEqual({});

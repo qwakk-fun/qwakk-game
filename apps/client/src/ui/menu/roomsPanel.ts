@@ -51,6 +51,8 @@ export class RoomsPanel {
   /** Bumped on every start/stop, so a late connect from an old run closes itself. */
   private generation = 0;
   private partySize = 1;
+  /** A guest: battle royale rooms ask to sign in first (the menu opens the sign-in screen). */
+  private guest = false;
   /** Battle royale rooms the server opens at once (GET /api/status; the default until it answers). */
   private cap = BR_ROOM_CAP;
 
@@ -107,6 +109,13 @@ export class RoomsPanel {
   setRules(rules: LiveRules): void {
     this.cap = rules.brMaxRooms;
     this.dm.setRules(rules.dmRooms, rules.dmPlayers, rules.dmCap);
+    this.render();
+  }
+
+  /** Guests see Sign in on the battle royale rooms (deathmatch rooms stay open to them). */
+  setGuest(on: boolean): void {
+    if (on === this.guest) return;
+    this.guest = on;
     this.render();
   }
 
@@ -199,7 +208,8 @@ export class RoomsPanel {
     // Your whole party must fit on one team there.
     const fits = team >= this.partySize && (l.fit ?? team) >= this.partySize;
     const open = !r.locked && !full && (l.stage === 'waiting' || l.stage === 'countdown');
-    const join = h('button', { type: 'button', class: 'qm-btn qm-btn-sm qm-rooms-join', 'aria-label': R.joinLabel(l.label) }, full && !r.locked ? R.full : open && !fits ? R.noFit : R.join);
+    const label = full && !r.locked ? R.full : open && !fits ? R.noFit : this.guest && open ? COPY.account.signIn : R.join;
+    const join = h('button', { type: 'button', class: `qm-btn qm-btn-sm qm-rooms-join${this.guest ? ' is-locked' : ''}`, 'aria-label': this.guest ? COPY.gate.brButton : R.joinLabel(l.label) }, this.guest && open ? icon('lock') : null, label);
     join.disabled = !open || !fits || this.busy;
     join.addEventListener('click', () => this.hooks.join(r.roomId));
     return h(

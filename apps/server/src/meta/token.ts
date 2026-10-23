@@ -7,8 +7,11 @@
  * valid one skips the Turnstile check (Turnstile guards guest creation).
  *
  * Session token: `s1.<payload>.<sig>`, payload = base64url JSON
- * `{ p: playerId, n: name, t: tag, i: issuedAt, e: expiresAt }` (seconds).
- * Short-lived; the client refreshes it from the device token.
+ * `{ p: playerId, n: name, t: tag, i: issuedAt, e: expiresAt }` (seconds),
+ * plus `k: 'a'` and `c: look` for an account character (accounts/): the
+ * rooms then know the player signed in (battle royale needs that) and seat
+ * the character's stored look. No `k`: a guest. Short-lived; a guest
+ * refreshes it from the device token, an account from its account session.
  *
  * Each kind signs under its own prefix, so one can never pass as the other.
  */
@@ -23,6 +26,19 @@ export interface SessionClaims {
   tag: string;
   issuedAt: number;
   expiresAt: number;
+  /** An account character (signed in), not a guest. */
+  account: boolean;
+  /** The character's look (shared catalog id); account characters only. */
+  look?: number;
+}
+
+/** What a game session is minted for: a guest, or an account character with its look. */
+export interface SessionSubject {
+  playerId: string;
+  name: string;
+  tag: string;
+  account?: boolean;
+  look?: number;
 }
 
 function sign(secret: string, kind: string, body: string): string {
@@ -64,10 +80,11 @@ export function verifyDeviceToken(secret: string, token: unknown): string | null
   return sameSig(parts[2]!, sign(secret, 'device', hex)) ? hexToUuid(hex) : null;
 }
 
-export function signSession(secret: string, claims: { playerId: string; name: string; tag: string }, nowMs = Date.now(), ttlS = SESSION_TTL_S): { token: string; expiresAt: number } {
+export function signSession(secret: string, claims: SessionSubject, nowMs = Date.now(), ttlS = SESSION_TTL_S): { token: string; expiresAt: number } {
   const i = Math.floor(nowMs / 1000);
   const e = i + ttlS;
-  const body = Buffer.from(JSON.stringify({ p: claims.playerId, n: claims.name, t: claims.tag, i, e })).toString('base64url');
+  const kind = claims.account ? { k: 'a', c: claims.look ?? 0 } : {};
+  const body = Buffer.from(JSON.stringify({ p: claims.playerId, n: claims.name, t: claims.tag, i, e, ...kind })).toString('base64url');
   return { token: `s1.${body}.${sign(secret, 'session', body)}`, expiresAt: e * 1000 };
 }
 
@@ -89,7 +106,9 @@ export function verifySessionToken(secret: string, token: unknown, nowMs = Date.
   if (typeof c.p !== 'string' || typeof c.n !== 'string' || typeof c.t !== 'string') return null;
   if (typeof c.i !== 'number' || typeof c.e !== 'number') return null;
   if (c.e * 1000 <= nowMs) return null;
-  return { playerId: c.p, name: c.n, tag: c.t, issuedAt: c.i * 1000, expiresAt: c.e * 1000 };
+  const account = c.k === 'a';
+  if (account && (typeof c.c !== 'number' || !Number.isInteger(c.c))) return null;
+  return { playerId: c.p, name: c.n, tag: c.t, issuedAt: c.i * 1000, expiresAt: c.e * 1000, account, ...(account ? { look: c.c as number } : {}) };
 }
 
 /** Random 4-digit discriminator, 1000 to 9999. */

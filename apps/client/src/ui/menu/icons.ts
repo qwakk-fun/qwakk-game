@@ -40,6 +40,24 @@ const ICONS = {
     ['circle', 12, 12, 2],
     ['path', 'M7.8 16.2a6 6 0 0 1 0-8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.9 19.1a10 10 0 0 1 0-14.2M19.1 4.9a10 10 0 0 1 0 14.2'],
   ],
+  user: [
+    ['circle', 12, 8, 4],
+    ['path', 'M4 21c0-4 3.6-7 8-7s8 3 8 7'],
+  ],
+  lock: [
+    ['rect', 5, 10.5, 14, 10, 2.5],
+    ['path', 'M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3'],
+  ],
+  mail: [
+    ['rect', 3, 5.5, 18, 13, 2.5],
+    ['path', 'M3.5 7l8.5 6 8.5-6'],
+  ],
+  trash: [['path', 'M4.5 7h15M10 11v6M14 11v6M6.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-12M9.5 7V4.5h5V7']],
+  wallet: [
+    ['rect', 3, 6, 18, 13, 2.5],
+    ['path', 'M16 12.5h2M3.5 9h17'],
+  ],
+  swap: [['path', 'M7 7h12l-3.5-3.5M17 17H5l3.5 3.5']],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;

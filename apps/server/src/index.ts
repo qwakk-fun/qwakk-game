@@ -6,6 +6,7 @@
  *   QWAKK_SEED        greybox seed (default 1337)
  *   QWAKK_DM_MAP      deathmatch map id for this run (default MATCH.mapId; 'greybox' works too)
  *   QWAKK_DM_SPAWN_RADIUS deathmatch spawns only within this many meters of the arena center (tests)
+ *   QWAKK_DM_HERO=0   no caped hero in the deathmatch (tests that check health; the admin setting dm.hero)
  *   QWAKK_STATS=1     print tick/patch timing and CPU (every QWAKK_STATS_MS, default 5000)
  *   QWAKK_BOTS=0      no bots (tests that need a quiet room)
  *   QWAKK_MAX_CLIENTS human clients per deathmatch room (default 32; the benchmark raises it)
@@ -17,7 +18,10 @@
  *   QWAKK_BR_SEED     battle royale match seed (default: random per match)
  *   QWAKK_ZONE_SCALE  zone timeline speed-up for tests (0.2 = five times faster)
  *   QWAKK_TEST_HOOKS=1 tests only, refused in production: a client may hurt its own
- *                     battle royale duck (the party e2e knocks a duck to revive it)
+ *                     battle royale duck (the party e2e knocks a duck to revive it), and
+ *                     the dev mail sink's codes are readable at GET /api/test/mail
+ *   Accounts (email sign-in codes): SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS,
+ *                     MAIL_FROM (see src/meta/config.ts; unset in dev: a local mail sink)
  *   COLYSEUS_LATENCY  Colyseus built-in simulated round-trip latency in ms (dev only)
  *   QWAKK_CLIENT_DIR  serve the built client from this folder on the same port
  *                     (the server image sets it; unset in dev, where Vite serves it)
@@ -38,7 +42,8 @@ import { BotNav } from './nav/botNav.ts';
 import { loadOrBuildInBackground } from './nav/navmesh.ts';
 import { dmMapId, GREYBOX, loadMapV1, SAINTE_CANARD } from './maps.ts';
 import { createDmBot } from './dmBot.ts';
-import { allowCreateRoom, allowPartyCreate, allowPartyJoin, applyMatchmakingCors, checkUpgradeOrigin, guardJoinIps, joinIp, metaHttpHandler, startMeta } from './meta/index.ts';
+import { allowCreateRoom, allowPartyCreate, allowPartyJoin, applyMatchmakingCors, checkUpgradeOrigin, guardJoinIps, joinIp, metaHttpHandler, startMeta, verifySession } from './meta/index.ts';
+import { parties } from './party/registry.ts';
 import { PartyRoom } from './party/PartyRoom.ts';
 import { QwakkLobby } from './lobby.ts';
 import { installMatchmakingGuard } from './matchmaking.ts';
@@ -161,6 +166,15 @@ installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
   allowCreate: allowCreateRoom,
   ipOf: (auth) => joinIp(auth),
   party: { roomName: PARTY.roomName, allowCreate: allowPartyCreate, allowJoin: allowPartyJoin },
+  // `{ spectate: true }` only where spectators are on (QWAKK_SPECTATORS=1, the deathmatch rooms).
+  spectators: (name) => roomOptions.spectators === true && name === ROOM.name,
+  // Guests play deathmatch only: battle royale needs an account (and a party without guests).
+  accountOnly: {
+    rooms: [BR.roomName],
+    identify: verifySession,
+    partyHasGuest: (id) => parties.partyHasGuest(id),
+    roomNameOf: (id) => matchMaker.getLocalRoomById(id)?.roomName,
+  },
 });
 
 await server.listen(port);

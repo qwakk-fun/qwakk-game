@@ -110,6 +110,7 @@ export class PartyPanel {
             m.leader ? h('span', { class: 'qm-party-chip is-leader' }, P.leader) : null,
             m.you ? h('span', { class: 'qm-party-chip' }, P.you) : null,
             m.busy ? h('span', { class: 'qm-party-chip is-busy' }, P.busy) : null,
+            m.guest ? h('span', { class: 'qm-party-chip is-guest' }, P.guest) : null,
           ),
         ),
       ),

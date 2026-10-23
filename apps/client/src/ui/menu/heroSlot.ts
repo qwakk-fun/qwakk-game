@@ -12,6 +12,12 @@ export interface HeroModule {
     host: HTMLElement,
     opts?: { onLost?: () => void; cancelled?: () => boolean; character?: string },
   ): Promise<{ setActive(on: boolean): void; setCharacter(id: string): void; dispose(): void }>;
+  /** The character select's ducks (src/menuHero/roster.ts). */
+  mountRoster(opts?: { cancelled?: () => boolean }): Promise<{
+    set(slots: ({ canvas: HTMLCanvasElement; character: string } | null)[]): void;
+    select(index: number): void;
+    dispose(): void;
+  }>;
 }
 
 type Handle = Awaited<ReturnType<HeroModule['mountHero']>>;
