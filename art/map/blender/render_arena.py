@@ -39,13 +39,14 @@ SKY = "#9fd7f2"
 SHOTS = {
     "canard-quarter": [
         ("eye_street_east", -84, 1.5, 1.6, 10, -8, 4.0, 32),          # down the Rue du Canard into the square
-        ("eye_square_church", 9, -1.0, 1.6, -1, -30, 7.0, 28),        # the square, the church front and tower
+        ("eye_square_tower", 17, 5.0, 1.6, 0, -16, 6.0, 28),          # the square and the tower arcade from the crossroads
+        ("eye_south_road_tower", 1.5, 70, 1.6, 0, -16, 13.0, 30),     # up the south road: the lettering from 86 m
         ("eye_trenches_nw", 76, 58, 1.6, 10, 24, 3.5, 30),            # past the trench toward the farm and the square
         ("eye_bombed_ne", -66, 54, 1.6, -14, 12, 4.0, 30),            # across the bombed lots toward the shop corner
         ("eye_orchard_lane", -40, -74, 1.6, -22, -16, 4.0, 30),       # down the orchard track toward the bakery and the square
     ],
 }
-LABEL_OFFSETS = {"canard-quarter": {"ruin": (4, -16), "square": (0, -4), "bakery": (-6, -10), "church": (0, -6)}}
+LABEL_OFFSETS = {"canard-quarter": {"ruin": (4, -16), "square": (0, 9), "bakery": (-6, -10), "tower": (0, 0)}}
 DUCKS = 6          # ducks placed on the first spawns for scale in the eye-level shots
 
 

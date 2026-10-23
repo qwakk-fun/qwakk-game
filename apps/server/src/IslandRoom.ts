@@ -10,13 +10,15 @@
  * royale, or the seeded greybox (ray-steering bots, no culling).
  */
 import type { Client } from '@colyseus/core';
-import { INTEREST, ROOM } from '@qwakk/shared';
+import { eyeHeight, INTEREST, OPAQUE_QUERY_GROUPS, ROOM } from '@qwakk/shared';
 import { DM_ROOM_CATALOG, type RoomListing } from '@qwakk/shared/lobby';
 import { recordMatch } from './meta/index.ts';
-import { DmPickup, DmRoundRow, GameMode, MatchPhase, Msg, type PlayerState } from '@qwakk/shared/net';
+import { DmPickup, DmRoundRow, GameMode, KillWeapon, MatchPhase, Msg, type PlayerState } from '@qwakk/shared/net';
 import type { BotLike } from './arena.ts';
 import { Deathmatch, DEFAULT_DM, type Seat } from './deathmatch.ts';
-import { GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
+import { angleMilli, GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
+import type { ExplosiveEvents } from './dmExplosives.ts';
+import { ExplosivesNet } from './dmExplosivesNet.ts';
 import { dmMapId, GREYBOX, loadMap, type ServerMap } from './maps.ts';
 import { parties } from './party/registry.ts';
 import type { SimWorld } from '@qwakk/shared';
@@ -148,20 +150,72 @@ export class IslandRoom extends GameRoom<Deathmatch> {
         kill: (killer, victim, weapon, head) => {
           this.sendKill(killer, victim, weapon, head);
           const client = this.clients.getById(victim.id);
-          if (client) {
+          // No killcam for a blast: a grenade over a wall or splash round a corner does not need a clear line, so the thrower's pose would leak.
+          if (client && weapon !== KillWeapon.Grenade && weapon !== KillWeapon.Rocket) {
             const replay = this.match.replay.forDeath(this.match.currentTick, killer, victim);
             if (replay) client.send(Msg.DmKillcam, replay);
           }
         },
         reward: (seat, reward) => this.clients.getById(seat.id)?.send(Msg.DmReward, reward),
         powerup: (seat, kind) => this.clients.getById(seat.id)?.send(Msg.DmPower, kind),
+        hero: (event, hero, other) => this.broadcast(Msg.DmHero, [event, hero.pid, other?.pid ?? 0]),
+        // The coarse hero ping (dmHero.ts, the CLAUDE.md exception): grid meters, everyone but the hero.
+        heroPing: (hero, x, z) => {
+          for (const client of this.clients) if (client.sessionId !== hero.id) client.send(Msg.DmHeroPing, [hero.pid, x, z]);
+        },
+        explosives: this.explosiveEvents(),
         roundEnd: () => this.recordRound(),
         roundStart: () => {
           this.roundStartedAt = Date.now();
+          this.explosivesNet?.clear();
           if (this.match) this.state.scoreLimit = this.match.scoreLimit;
         },
       },
     );
+  }
+
+  private explosivesNet: ExplosivesNet | null = null;
+
+  /** Grenades, rockets and blasts to messages (who may hear what: dmExplosivesNet.ts), and their HUD feedback. */
+  private explosiveEvents(): ExplosiveEvents {
+    const net = new ExplosivesNet({
+      viewers: () => this.clients,
+      viewpoint: (id) => this.viewpointOf(id),
+      sees: (viewer, target) => this.viewerSees(viewer, target),
+      seesSpot: (viewer, x, y, z) => this.seesSpot(viewer, x, y, z),
+    });
+    this.explosivesNet = net;
+    return {
+      launched: (f, owner) => net.launched(f, owner),
+      rested: (f) => net.rested(f),
+      boom: (b) => net.boom(b),
+      rocketPicked: (seat, rockets) => this.clients.getById(seat.id)?.send(Msg.DmRocket, rockets),
+      // The hit marker (explosive flag set) and a damage arc toward the blast, never toward the thrower's position.
+      blastHit: (attacker, victim, damage, killed) => this.clients.getById(attacker.id)?.send(Msg.HitConfirm, [victim.pid, damage, 0, killed ? 1 : 0, 0, 1]),
+      blastDamaged: (victim, damage, x, z) => this.clients.getById(victim.id)?.send(Msg.Damaged, [angleMilli(victim.sim.x, victim.sim.z, x, z), damage, 0]),
+    };
+  }
+
+  /** A clear opaque line from the viewer's eye to a point (a resting grenade). Spectators without a seat see it. */
+  private seesSpot(viewerId: string, x: number, y: number, z: number): boolean {
+    const vp = this.viewpointOf(viewerId);
+    if (!vp) return true;
+    const from = { x: vp.x, y: vp.y + eyeHeight(vp.crouch), z: vp.z };
+    const dx = x - from.x;
+    const dy = y - from.y;
+    const dz = z - from.z;
+    const d = Math.hypot(dx, dy, dz);
+    if (d < 0.05) return true;
+    const hit = this.sim.world.castRay(new this.sim.rapier.Ray(from, { x: dx / d, y: dy / d, z: dz / d }), d, true, undefined, OPAQUE_QUERY_GROUPS);
+    return !hit || hit.timeOfImpact >= d - 0.15;
+  }
+
+  /** The launcher pickup into the public state (at most one entry). */
+  private writeRocketPickup(): void {
+    const st = this.state;
+    const p = this.match.explosives.rocket;
+    for (const id of st.dmRockets.keys()) if (p?.id !== id) st.dmRockets.delete(id);
+    if (p && !st.dmRockets.has(p.id)) st.dmRockets.set(p.id, new DmPickup({ kind: 0, x: p.x, y: p.y, z: p.z }));
   }
 
   /** Party id to its ally group in this room (the seats' `team`). */
@@ -225,10 +279,12 @@ export class IslandRoom extends GameRoom<Deathmatch> {
     if (st.winner !== dm.winner) st.winner = dm.winner;
     st.dmWeapon = dm.rotationWeapon;
     st.dmRotationLeft = dm.rotationSecondsLeft;
+    if (st.dmHeroHp !== dm.hero.health) st.dmHeroHp = dm.hero.health;
     for (const id of st.dmPickups.keys()) if (!dm.powerups.pickups.has(id)) st.dmPickups.delete(id);
     for (const [id, p] of dm.powerups.pickups) {
       if (!st.dmPickups.has(id)) st.dmPickups.set(id, new DmPickup({ kind: p.kind, x: p.x, y: p.y, z: p.z }));
     }
+    this.writeRocketPickup();
     if (dm.phase === 'playing') st.dmResults.clear();
     else for (const result of dm.results) {
       if (!st.dmResults.has(String(result.pid))) st.dmResults.set(String(result.pid), new DmRoundRow(result));

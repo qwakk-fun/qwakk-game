@@ -11,7 +11,7 @@ The real battle royale map for Phase 2: a Normandy-style coastal village and boc
 
 - World War II flavor without real-world politics: a fictional coast called Yelova ("canard" is French for duck). Two fictional factions appear only as set dressing on wrecks and crates: the **Pond Brigade** (olive drab, yellow ring) and the **Grey Gull Corps** (field grey, orange triangle). Players are all ducks and are not split by faction.
 - Never real Nazi symbols, national markings, unit markings, real place names or real text on signs. No brand or token logos on loot.
-- Readability first: buildings and landmarks have distinct silhouettes (church spire, lighthouse, poplar rows, hedgerows), loot containers carry the yellow ring and an outline.
+- Readability first: buildings and landmarks have distinct silhouettes (lighthouse, poplar rows, hedgerows; the QoreChain Tower on Kavren), loot containers carry the yellow ring and an outline.
 
 ## 2. Size and players
 
@@ -28,7 +28,7 @@ Top-down (north up). Named zones, their centers and character:
         | Pointe du Bec   |        Mallard Beach (sand, hedgehogs)    | R  |
         | lighthouse,     |   landing craft    bunker line on bluff   | i  |
         | cliffs, bunkers |-------------------------------------------| v  |
-        |       coast road  \     Yelova (church square)   Pont | e  |
+        |       coast road  \     Yelova (village square)  Pont | e  |
         |                    \--- village street --------------- Vieux | r  |
         |  bocage fields         |  main road                     |    |    |
         |                        |                                | Feather   |
@@ -45,7 +45,7 @@ Top-down (north up). Named zones, their centers and character:
 | --- | --- | --- | --- | --- | --- | --- |
 | Mallard Beach (`beach`) | (35, -305) | 0.037 km2 | 2 | medium | 44 (7) | 6 pillboxes on the bluff, 79 hedgehogs, 20 log obstacles, 57 wire segments, 3 landing craft, 3 trench lines (21 tiles), 14 craters, 1 tank, 1 truck |
 | Pointe du Bec (`headland`) | (-300, -300) | 0.041 km2 | 3 | medium | 72 (10) | lighthouse, 4 pillboxes, trench zigzag (16 tiles), keeper's townhouse, barn, wire, rocks, bushes |
-| Yelova (`village`) | (45, -185) | 0.033 km2 | 3 | hot | 211 (22) | church, 14 houses with full interiors (8 townhouses with a bakery, 4 farmhouses, 2 ruins), kitchen gardens and a bombed lot where plainer houses stood, cobbled square, tank in the square, 2 trucks, rubble, garden walls, poplar avenue |
+| Yelova (`village`) | (45, -185) | 0.033 km2 | 3 | hot | 211 (22) | 15 houses with full interiors (8 townhouses with a bakery, 5 farmhouses, one of them at the head of the square, 2 ruins), kitchen gardens and a bombed lot where plainer houses stood, cobbled square, tank in the square, 2 trucks, rubble, garden walls, poplar avenue |
 | Pont Vieux (`bridge`) | (202, -150) | 0.005 km2 | 2 | medium | 7 (2) | stone bridge, sandbag nests at both ends, tank wreck on the approach |
 | Feather Ridge (`ridge`) | (284, 33) | 0.026 km2 | 3 | medium | 53 (12) | 64-tile zigzag trench on the crest, 3 pillboxes facing west, wire on the west slope, supply dump and truck on the reverse slope, 9 craters |
 | Ferme Colvert (`farm`) | (-160, 46) | 0.012 km2 | 2 | medium | 33 (6) | farmhouse, barn, walled yard, a kitchen garden, small apple orchard, fences |
@@ -55,7 +55,7 @@ Top-down (north up). Named zones, their centers and character:
 | Hameau Sud (`hamlet`) | (240, 274) | 0.006 km2 | 2 | quiet | 36 (3) | townhouse, farmhouse, barn, a bombed lot, walls |
 | Bocage (`countryside`, the rest) | everywhere else | about 0.3 km2 | 1 | quiet | 70 (70) | 349 hedgerow blocks on a 54 m field grid with gates, lone trees, bushes, rocks, crates in the fields |
 
-Roads (dirt, cobbles in the village): the main road runs north to south from the beach exit through the church square and the crossroads to the south coast; the village street runs west to the headland (coast road) and east over Pont Vieux to the ridge; the farm road runs west to east through Ferme Colvert, the crossroads and a second bridge (the ford at (193, 120)) to the ridge; lanes lead to the hamlet and the forest edge.
+Roads (dirt, cobbles in the village): the main road runs north to south from the beach exit through the village square and the crossroads to the south coast; the village street runs west to the headland (coast road) and east over Pont Vieux to the ridge; the farm road runs west to east through Ferme Colvert, the crossroads and a second bridge (the ford at (193, 120)) to the ridge; lanes lead to the hamlet and the forest edge.
 
 The river La Mare runs from the southern hills north to the sea east of the beach, splitting the ridge from the rest of the island. Two bridges cross it; elsewhere players wade (0.6 m deep, banks about 40 degrees).
 
@@ -63,7 +63,7 @@ The river La Mare runs from the southern hills north to the sea east of the beac
 
 - **Mallard Beach.** Long open sand under the bunker line: the hedgehogs, log ramps, craters and the three landing craft are the only cover between the waterline and the bluff (about 6 m high, about 18 degrees, walkable). Wire along the bluff foot funnels players to gaps. Hot only for players who want the pillbox loot; good for a fast early fight, bad for final circles. The bunkers' slits look north, so the bluff top can be taken from the side or the trench lines behind.
 - **Pointe du Bec.** A plateau 19 m up with sheer cliffs on three sides: the lighthouse is a landmark, not a building to enter. High tier loot in a corner of the map means players must cross the open coast road or the village to leave. Sightlines over the beach from the headland edge.
-- **Yelova.** The main hot drop. Streets 6 m wide, houses door-to-street on both sides, the church square in the middle with a tank wreck for cover. The church tower belfry (11.35 m) sees the whole village, the beach exit and the road to the crossroads, but it has only two ground doors and one long stair: strong but trappable. Ruins give half cover and quick vertical lines. Garden walls and fences behind the houses make flanking routes.
+- **Yelova.** The main hot drop. Streets 6 m wide, houses door-to-street on both sides, the village square in the middle with a tank wreck for cover and a big stone farmhouse at its head (a walled garden behind it). The upper floors of the houses around the square watch the streets, but each has one stair: strong but trappable. Ruins give half cover and quick vertical lines. Garden walls and fences behind the houses make flanking routes.
 - **Pont Vieux.** A chokepoint: the river banks are steep, so the bridge and the wade are the only ways east in the north. Sandbag nests on both ends.
 - **Feather Ridge.** The highest ground (crest about 24 m). The trench line along the crest gives crouch cover with stand-up firing, three pillboxes overlook the river valley, and the reverse slope has a supply dump. Best medium-range fights on the map and a strong final circle.
 - **Ferme Colvert.** A walled courtyard between a farmhouse and a barn (the barn loft gives height), orchard rows to the west, hedgerows all around. Medium heat, good mid-game.
@@ -114,7 +114,7 @@ Where final circles play well (`circle.finalCandidates`, weighted): Feather Ridg
 - Coastline: a hand-drawn polygon with a profile per edge: `beach` (north: 75 m of shallow water, a 45 m sand flat at about 3 degrees, a bluff about 6 m high at about 18 degrees, then the plateau at about 8 m), `cliff` (north-west headland and the east coast below the ridge: plateau straight into deep water), `shore` (everything else: gentle sandy or grassy shore). The coast polygon is in `terrain.coast`.
 - Inland: rolling bocage at about 8 m, the headland plateau at 19 m, Feather Ridge (north to south crest at x = 282, about 24 m), the forest hills (about 14 m), a swell under the orchard.
 - River: centerline with bed heights in `water.river` (6 m at the source down to -2.5 m at the mouth), a 12 m flat bed, 3 m banks, water surface 0.6 m above the bed. Draw the water as a ribbon mesh along the centerline at the `water` height.
-- Pads: every building, the church square, the crossroads, the bridge ends and every trench tile are flattened into the heights (smooth falloff), and every crater dents them by 0.55 m. Buildings sit exactly on their pad (`y` in the JSON).
+- Pads: every building, the village square, the crossroads, the bridge ends and every trench tile are flattened into the heights (smooth falloff), and every crater dents them by 0.55 m. Buildings sit exactly on their pad (`y` in the JSON).
 
 ### Files
 
@@ -206,7 +206,7 @@ Targets: desktop first, mid-range phones later (phase 3) without a rewrite.
 | Draw calls | under 150 desktop, under 100 mobile | estimated 80 to 140 small InstancedMeshes in view (37 prop types x up to 3 LODs x visible chunks), plus terrain chunks and water; not measured yet |
 | Triangles drawn | under 600k desktop, under 200k mobile | 44k worst frame from the village square (below) |
 | Materials | 1 for every prop (palette), 1 terrain, 1 water, plus the outline pass for 3 loot props | same |
-| Prop downloads | as small as possible | 1,212 KB for all 38 GLBs (meshopt + quantization), 4,693 KB uncompressed; the four detailed houses are 618 KB of it |
+| Prop downloads | as small as possible | 1,261 KB for all 38 GLBs (meshopt + quantization), 4,952 KB uncompressed; the four detailed houses are 618 KB of it |
 
 ### Triangles in view (`art/map/layout/estimate_view.py`)
 
@@ -222,7 +222,7 @@ Camera at eye height (1.6 m above the ground), 300 m view distance, LOD switch a
 For comparison, the village square with LOD0 everywhere and no culling: 579k all around and 206k in the worst frame. Terrain is 26k to 35k of each "all around" number.
 
 - **Instancing.** One `InstancedMesh` per LOD per prop type per chunk (4 x 4 chunks of 210 m, slices from `propIndex`). A single InstancedMesh per type would be culled as one block.
-- **LODs.** Shipped in every GLB (see `art/map/README.md` and `renders/lod_sheet.png`). Distances: hedgerows 35 / 110 / 320 m, trees 45 / 140 / 450 m, bushes, sandbags and stone walls 30 / 90 / 200 to 220 m, buildings 60 / 180 / 700 m, the church 70 / 220 / 1200 m, wrecks 45 / 140 / 450 m; small props are culled at 80 to 150 m. Distance fog in the sky color hides the far cut; a short dither fade would hide the LOD pops.
+- **LODs.** Shipped in every GLB (see `art/map/README.md` and `renders/lod_sheet.png`). Distances: hedgerows 35 / 110 / 320 m, trees 45 / 140 / 450 m, bushes, sandbags and stone walls 30 / 90 / 200 to 220 m, buildings 60 / 180 / 700 m, the QoreChain Tower (Kavren) 80 / 260 / 1200 m, wrecks 45 / 140 / 450 m; small props are culled at 80 to 150 m. Distance fog in the sky color hides the far cut; a short dither fade would hide the LOD pops.
 - **Static merging.** Not needed at these numbers. Keep it as the fallback if profiling ever shows draw calls as the limit (merge the village per chunk with the palette material).
 - **Shadows.** None in real time. The toon ramp does the shading; later, blob shadows under vehicles and trees can be baked into the ground paint.
 - **Terrain.** 211 x 211 vertices with ground colors per vertex (88k triangles, one draw call per chunk). Roads can be drawn as thin ribbon meshes from `roads` for crisp edges.
@@ -240,7 +240,7 @@ For comparison, the village square with LOD0 everywhere and no culling: 579k all
 ## 9. Known gaps
 
 - Hedgerows cut the countryside into a maze on purpose; if rotations feel slow, raise the gate rate (`bocage()` in `gen_map.py`).
-- The church keeps its original sparse interior (pews, altar, the tower stair); the four house types have full interiors (art/map/README.md, Building notes).
+- The four house types have full interiors (art/map/README.md, Building notes); the Kavren QoreChain Tower is an open arcade hall with a solid tower over it.
 - The river has no current or swim state: it is a wading slow-down zone (engine rule).
 - Craters dent the heightfield at 4 m resolution, so the dent is softer than the crater mesh rim.
 - Beach waterline props (landing craft) sit in 0.3 m of water; the sea is cosmetic, there is no swimming.

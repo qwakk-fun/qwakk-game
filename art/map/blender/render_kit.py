@@ -171,7 +171,7 @@ CLOSEUPS = {
     "farmhouse": (30, 18, 40, 4.4),
     "townhouse": (-32, 18, 40, 4.4),
     "house_ruined": (35, 26, 40, 4.4),
-    "church": (32, 14, 35, 8.0),
+    "qorechain_tower": (32, 10, 35, 3.2),
     "barn": (-35, 20, 40, 4.3),
     "lighthouse": (30, 10, 40, None),
     "bridge_stone": (55, 22, 40, None),
@@ -184,7 +184,7 @@ CLOSEUPS = {
 
 LIFT = {"bridge_stone": 3.4}
 # the collider overlay cuts lower than the cutaway, to show door gaps and stairs on the ground floor
-COLLIDER_CUT = {"farmhouse": 2.6, "townhouse": 2.6, "house_ruined": 2.6, "barn": 2.4, "church": 4.0}
+COLLIDER_CUT = {"farmhouse": 2.6, "townhouse": 2.6, "house_ruined": 2.6, "barn": 2.4, "qorechain_tower": 2.2}
 
 
 def closeups(built, renders_dir):
@@ -304,14 +304,14 @@ def relax_arms(arm):
 
 def street_scene(built, renders_dir, game_dir, out_name=None, door_shot=True):
     names = by_name(built)
-    need = ["farmhouse", "sandbag_wall", "tank_wreck", "church"]
+    need = ["farmhouse", "sandbag_wall", "tank_wreck"]
     if not all(n in names for n in need):
         return
     for _, _, objs in built:
         _hide_all(objs, True)
     toon.setup_scene(samples=bpy.context.scene.eevee.taa_render_samples, size=(1920, 1080), bg=SKY)
     tmp = [ground_plane(600)]
-    # road along X in front of the farmhouse, and a lane toward the church
+    # road along X in front of the farmhouse, and a lane up the village street
     bpy.ops.mesh.primitive_plane_add(size=1, location=(0, -9.5, 0.0))
     road = bpy.context.active_object
     road.scale = (160, 7.5, 1)
@@ -323,7 +323,7 @@ def street_scene(built, renders_dir, game_dir, out_name=None, door_shot=True):
     lane.data.materials.append(toon.flat_material("road2", ROAD))
     tmp.append(lane)
     place = [
-        ("farmhouse", (0, 0, 0), 0), ("church", (-5, 60, 0), 150), ("tank_wreck", (11, -9.5, 0), 72),
+        ("farmhouse", (0, 0, 0), 0), ("townhouse", (-5, 60, 0), 150), ("tank_wreck", (11, -9.5, 0), 72),
         ("sandbag_wall", (-3.2, -14.2, 0), 0), ("sandbag_corner", (-6.4, -14.2, 0), 0), ("crate_small", (-1.2, -15.6, 0), 15),
         ("crate_large", (5.6, -6.3, 0), -8), ("ammo_box", (-0.4, -15.4, 0.0), 30), ("fuel_barrel", (6.8, -5.0, 0), 0),
         ("fuel_barrel", (7.5, -5.6, 0), 40), ("signpost", (-7.5, -6.0, 0), 20), ("wood_fence", (-9.5, -4.6, 0), 0),
@@ -356,7 +356,7 @@ def street_scene(built, renders_dir, game_dir, out_name=None, door_shot=True):
 
 
 LOD_SHEET = ["hedgerow", "tree_oak", "tree_poplar", "tree_apple", "bush_round", "farmhouse", "townhouse", "house_ruined",
-             "church", "barn", "bunker_pillbox", "tank_wreck", "truck_wreck", "trench_corner", "sandbag_corner", "stone_wall"]
+             "qorechain_tower", "barn", "bunker_pillbox", "tank_wreck", "truck_wreck", "trench_corner", "sandbag_corner", "stone_wall"]
 
 
 def lod_sheet(built, renders_dir, thumbs_dir, size=300):

@@ -571,3 +571,19 @@ body.touch-game #overlay button {
     transform: rotate(-90deg);
   }
 }
+
+/* Deathmatch explosives: the grenade (hold, let go to throw) where the battle royale heals sit, the launcher above it. */
+.tc-grenade {
+  --s: 50px;
+  right: calc(262px + var(--sr));
+  bottom: calc(24px + var(--sb));
+  font-size: 11px;
+  border-color: #9bd37a;
+}
+.tc-rocket {
+  --s: 50px;
+  right: calc(266px + var(--sr));
+  bottom: calc(112px + var(--sb));
+  font-size: 11px;
+  border-color: var(--beak);
+}

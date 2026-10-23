@@ -146,14 +146,14 @@ export class GameHud {
     this.cross.classList.toggle('ads', v > 0.5);
   }
 
-  /** Hit marker: white for a hit, yellow for a headshot, red for a kill. */
-  hitMarker(kind: 'hit' | 'head' | 'kill'): void {
+  /** Hit marker: white for a hit, yellow for a headshot, red for a kill, orange for explosive damage. */
+  hitMarker(kind: 'hit' | 'head' | 'kill' | 'blast'): void {
     this.marker.className = `ghud-marker on ${kind}`;
     this.markerT = kind === 'kill' ? 0.45 : 0.22;
   }
 
   health(hp: number, max: number): void {
-    const f = Math.max(0, hp / max);
+    const f = Math.min(1, Math.max(0, hp / max));
     this.hpFill.style.width = `${f * 100}%`;
     this.hpFill.classList.toggle('low', f < 0.35);
     this.hpText.textContent = `${Math.max(0, Math.round(hp))}`;
@@ -179,7 +179,8 @@ export class GameHud {
     this.arcList.push({ e, t: 1.4, worldAngle });
   }
 
-  killFeed(killer: string, victim: string, weapon: string, head: boolean, mine: boolean): void {
+  /** `icon`: a small drawn icon before the weapon (deathmatch 'grenade' or 'rocket' kills). */
+  killFeed(killer: string, victim: string, weapon: string, head: boolean, mine: boolean, icon?: 'grenade' | 'rocket'): void {
     const row = el('div', `ghud-feedrow${mine ? ' mine' : ''}`, this.feed);
     const k = document.createElement('span');
     k.className = 'k';
@@ -191,6 +192,12 @@ export class GameHud {
     v.className = 'v';
     v.textContent = victim;
     row.append(k, w, v);
+    if (icon) {
+      const ic = document.createElement('span');
+      ic.className = `ic ${icon}`;
+      ic.setAttribute('aria-hidden', 'true');
+      row.insertBefore(ic, w);
+    }
     while (this.feed.children.length > 5) this.feed.firstElementChild?.remove();
     setTimeout(() => row.remove(), 6000);
   }

@@ -1002,81 +1002,71 @@
    ],
    "glbBytes": 136436
   },
-  "church": {
-   "category": "building",
-   "file": "church.glb",
-   "triangles": 3244,
+  "qorechain_tower": {
+   "category": "landmark",
+   "file": "qorechain_tower.glb",
+   "triangles": 5786,
    "bounds": {
     "min": [
-     -5.1364,
+     -8.3349,
      -0.6,
-     -14.4
+     -8.3349
     ],
     "max": [
-     5.1364,
-     25.49,
-     11.3
+     8.3349,
+     34.0094,
+     8.3349
     ]
    },
    "lods": [
     {
      "node": "LOD0",
-     "until": 70,
-     "triangles": 3244
+     "until": 80,
+     "triangles": 5786
     },
     {
      "node": "LOD1",
-     "until": 220,
-     "triangles": 112
+     "until": 260,
+     "triangles": 652
     },
     {
      "node": "LOD2",
      "until": 1200,
-     "triangles": 64
+     "triangles": 568
     }
    ],
    "cullDistance": 1200,
-   "loot": [
-    {
-     "p": [
-      1.4,
-      11.35,
-      8
-     ],
-     "tierBonus": 2
-    },
-    {
-     "p": [
+   "note": "QoreChain Tower: open arcade hall (3 arches per side, solid core, columns, planters); the shaft and the 60 degree crown cannot be reached; QORECHAIN on all four faces",
+   "walk": [
+    [
+     [
+      -4.5,
       0,
-      0.45,
-      -12.8
+      10.5
      ],
-     "tierBonus": 1
-    },
-    {
-     "p": [
-      -2,
+     [
+      -4.5,
       0.15,
-      -5
-     ]
-    },
-    {
-     "p": [
-      2.2,
+      6.4
+     ],
+     [
+      -4.5,
       0.15,
-      4.2
-     ]
-    },
-    {
-     "p": [
+      -3.4
+     ],
+     [
+      4.5,
+      0.15,
+      -3.4
+     ],
+     [
+      4.5,
       0,
-      0.15,
-      9.6
+      -10.5
      ]
-    }
+    ]
    ],
-   "note": "tower door on the front and west side; 8 flights to the belfry at 11.35 m with sniper openings on all sides",
-   "glbBytes": 52192
+   "glbBytes": 101748
   },
   "barn": {
    "category": "building",

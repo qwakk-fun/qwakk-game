@@ -143,6 +143,8 @@ async function deathmatch(browser: import('playwright').Browser): Promise<void> 
   const pose = await a.evaluate((id) => (window as any).__qwakk.poseOf(id), bId);
   await a.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 4000, -0.05), [pose.x, pose.z]);
   const before = (await snap(a)).combat;
+  // Health before the burst: 100, or more if the deathmatch made B the caped hero meanwhile.
+  const bHpBefore = (await snap(b)).mine?.hp ?? (await snap(b)).team.hp;
   await a.evaluate((btn) => (window as any).__qwakk.press(btn, 1500), Button.Fire);
   await sleep(2500);
   const after = (await snap(a)).combat;
@@ -150,7 +152,7 @@ async function deathmatch(browser: import('playwright').Browser): Promise<void> 
   const shots = after.shotsFired - before.shotsFired;
   console.log(`friendly fire: A fired ${shots} shots at B: ${after.confirmedHits - before.confirmedHits} hits confirmed, ${after.predictedHits - before.predictedHits} predicted, B health ${bHp}`);
   if (shots < 3) throw new Error('A did not fire');
-  if (after.confirmedHits !== before.confirmedHits || after.predictedHits !== before.predictedHits || bHp !== 100) throw new Error('a party ally took damage');
+  if (after.confirmedHits !== before.confirmedHits || after.predictedHits !== before.predictedHits || bHp !== bHpBefore || bHp < 100) throw new Error('a party ally took damage');
   await A.ctx.close();
   await B.ctx.close();
 }

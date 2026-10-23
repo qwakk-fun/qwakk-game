@@ -179,17 +179,17 @@
   "glb_src_bytes": 610788,
   "colliders": 99
  },
- "church": {
-  "category": "building",
-  "triangles": 3244,
+ "qorechain_tower": {
+  "category": "landmark",
+  "triangles": 5786,
   "lodTriangles": [
-   3244,
-   112,
-   64
+   5786,
+   652,
+   568
   ],
-  "vertices": 2261,
-  "glb_src_bytes": 238556,
-  "colliders": 167
+  "vertices": 3931,
+  "glb_src_bytes": 503852,
+  "colliders": 112
  },
  "barn": {
   "category": "building",

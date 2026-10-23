@@ -1,11 +1,13 @@
 import * as THREE from 'three/webgpu';
-import { DM, DmPower, compareDmResults, dmAccuracy, TICK_RATE, type DmReward, type DmKillcam, type SimWorld } from '@qwakk/shared';
-import { MatchPhase } from '@qwakk/shared/net';
+import { COMBAT, DM, DM_HERO, DmPower, compareDmResults, dmAccuracy, isHero, killStacks, TICK_RATE, type DmReward, type DmKillcam, type SimWorld } from '@qwakk/shared';
+import { DmHeroEvent, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import type { Session } from '../net/session.ts';
 import type { Sound } from '../audio/sound.ts';
 import type { GameHud } from '../hud/gameHud.ts';
 import { t } from '../i18n/game.ts';
 import { DeathReplay } from './deathReplay.ts';
+import { DmBuffsView, type BuffDuck } from './dmBuffsView.ts';
+import { DmHeroHud } from '../hud/dmHeroHud.ts';
 import '../hud/dm.css';
 
 const powerName = (kind: number): string => t(kind === DmPower.Speed ? 'Speed boost' : kind === DmPower.Armor ? 'Armor boost' : 'High jump');
@@ -28,6 +30,12 @@ export class DmClient {
   private lastRotation = -1;
   private warned = false;
   private wasIntermission = false;
+  /** Kill stacks and the caped hero: HUD, and the aura and cape on the ducks. */
+  private readonly heroHud: DmHeroHud;
+  private readonly buffView: DmBuffsView;
+  private lastStacks = -1;
+  private lastStackLife = -1;
+  private pingHeroPid = 0;
 
   private readonly session: Session;
   private readonly sound: Sound;
@@ -51,6 +59,8 @@ export class DmClient {
     this.ribbon.append(this.replayLabel, skip);
     this.root.append(this.status, this.rewards, this.mvp, this.ribbon);
     hud.element.append(this.root);
+    this.heroHud = new DmHeroHud(this.root);
+    this.buffView = new DmBuffsView(scene, sound);
     scene.add(this.powerGroup);
     window.addEventListener('keydown', this.skip);
   }
@@ -69,9 +79,9 @@ export class DmClient {
   }
 
   reward(reward: DmReward): void {
-    const labels = [reward.kill ? t('Elimination') : '', reward.head ? t('Headshot') : '', reward.revenge ? t('Revenge') : ''].filter(Boolean);
+    const labels = [reward.hero ? t('Hero takedown') : '', reward.kill ? t('Elimination') : '', reward.head ? t('Headshot') : '', reward.revenge ? t('Revenge') : ''].filter(Boolean);
     const title = reward.milestone ? t('{n} KILL STREAK', { n: reward.milestone }) : labels.shift() ?? '';
-    this.toast(title, `+${reward.points} ${t('points')}${labels.length ? ` · ${labels.join(' · ')}` : ''}`, reward.milestone ? 'streak' : reward.head ? 'head' : '');
+    this.toast(title, `+${reward.points} ${t('points')}${labels.length ? ` · ${labels.join(' · ')}` : ''}`, reward.milestone || reward.hero ? 'streak' : reward.head ? 'head' : '');
     if (reward.milestone || reward.revenge) this.sound.reward(reward.milestone);
     else if (reward.head) this.sound.headshot();
   }
@@ -79,6 +89,55 @@ export class DmClient {
   power(kind: number): void {
     this.toast(powerName(kind), t('{n} seconds · replaces your current boost', { n: DM.powerDurationSeconds }), 'power');
     this.sound.reward();
+  }
+
+  private nameOf(pid: number): string {
+    for (const p of this.session.room.state.players.values()) if (p.pid === pid) return p.name;
+    return '?';
+  }
+
+  /** The server's hero news (Msg.DmHero): announcement, kill feed, fanfare. No position. */
+  heroEvent(event: number, heroPid: number, otherPid: number): void {
+    const mine = this.session.mine?.pid;
+    const name = this.nameOf(heroPid);
+    const me = heroPid === mine;
+    const touch = document.body.classList.contains('touch-ui');
+    const hint = me ? (touch ? t('Hold Jump to fly') : t('Hold Space to fly')) : t('Take it down to take the cape');
+    if (event === DmHeroEvent.Lost) {
+      this.heroHud.clearPing();
+      this.pingHeroPid = 0;
+      this.heroHud.announce(t('The cape is free'), t('A new hero comes soon'), false);
+      this.hud.killFeed(name, '', 'lost the cape', false, me);
+      return;
+    }
+    if (event === DmHeroEvent.Took) {
+      const from = this.nameOf(otherPid);
+      this.heroHud.announce(me ? t('You took the cape!') : t('{name} took the cape!', { name }), hint, me);
+      this.hud.killFeed(name, from, 'took the cape from', false, me || otherPid === mine);
+    } else {
+      this.heroHud.announce(me ? t('You are the hero!') : t('{name} is the hero!', { name }), hint, me);
+      this.hud.killFeed(name, '', 'is the hero', false, me);
+    }
+    this.heroHud.clearPing();
+    this.pingHeroPid = 0;
+    this.sound.heroFanfare(me);
+  }
+
+  /** The coarse hero ping (grid meters, every DM_HERO.pingEverySeconds): the compass. */
+  heroPing(heroPid: number, x: number, z: number): void {
+    if (this.pingHeroPid !== heroPid) this.sound.heroPing();
+    this.pingHeroPid = heroPid;
+    this.heroHud.pinged(x, z, this.nameOf(heroPid), performance.now());
+  }
+
+  /** Health bar size: the hero's health while you wear the cape. */
+  maxHp(mine: PlayerState | null | undefined): number {
+    return mine && isHero(mine) ? this.session.room.state.dmHeroHp || DM_HERO.health : COMBAT.maxHp;
+  }
+
+  /** Aura, cape and their effects on the ducks drawn this frame. */
+  buffs(dt: number, ducks: readonly BuffDuck[], camera: THREE.Camera): void {
+    this.buffView.frame(dt, ducks, camera, this.replay.active);
   }
 
   private toast(title: string, detail: string, kind: string): void {
@@ -137,8 +196,9 @@ export class DmClient {
     }
   }
 
-  hudFrame(): void {
+  hudFrame(yaw = 0): void {
     const state = this.session.room.state, mine = this.session.mine;
+    this.heroFrame(state.phase === MatchPhase.Intermission, yaw);
     const intermission = state.phase === MatchPhase.Intermission;
     if (intermission !== this.wasIntermission) {
       this.replay.clear();
@@ -179,6 +239,24 @@ export class DmClient {
     this.mvp.innerHTML = `<small>${t('ROUND HIGHLIGHTS')}</small><h2>${t('MVP')}</h2><p>${state.winner ? t('{name} wins', { name: esc(state.winner) }) : t('Time is up')}</p><div class="dm-awards">${card(t('Most points'), mvp?.name ?? '—', mvp ? `${mvp.points} ${t('points')}` : '—')}${card(t('Best streak'), streak?.name ?? '—', String(streak?.bestStreak ?? 0))}${card(t('Best accuracy'), accuracy?.name ?? '—', accuracy ? `${dmAccuracy(accuracy)}% · ${accuracy.hits}/${accuracy.shots}` : t('At least {n} shots', { n: DM.accuracyMinShots }))}</div>${me ? `<p class="dm-personal">${t('Your round')}: ${me.points} ${t('points')} · ${me.kills}/${me.deaths} K/D · ${dmAccuracy(me)}% ${t('accuracy')} · ${t('Best streak')} ${me.bestStreak}</p>` : ''}<p>${t('Next round in {n}', { n: state.timeLeft })}</p>`;
   }
 
+  /** Your stack meter (and its toast and sound), flight energy and the hero compass. */
+  private heroFrame(intermission: boolean, yaw: number): void {
+    const mine = this.session.mine, me = this.session.me;
+    const alive = mine?.alive === 1;
+    const stacks = mine && alive ? killStacks(mine) : 0;
+    const life = mine?.life ?? -1;
+    if (life === this.lastStackLife && stacks > this.lastStacks && this.lastStacks >= 0 && !intermission) {
+      this.toast(t('Power up x{n}', { n: stacks }), t('More damage and speed until you go down'), 'power');
+      this.sound.stackUp(stacks);
+    }
+    this.lastStacks = stacks;
+    this.lastStackLife = life;
+    const hero = !!mine && alive && isHero(mine);
+    const energy = hero && me ? me.state.dmEnergy : null;
+    const pos = me ? { x: me.value('x'), z: me.value('z') } : null;
+    this.heroHud.update(performance.now(), !intermission && !this.replay.active && !!mine, stacks, energy, pos, yaw);
+  }
+
   private disposePickup(group: THREE.Group): void {
     group.removeFromParent();
     group.traverse((object) => {
@@ -196,6 +274,8 @@ export class DmClient {
   dispose(): void {
     this.replay.clear();
     this.clearRewards();
+    this.heroHud.dispose();
+    this.buffView.dispose();
     window.removeEventListener('keydown', this.skip);
     for (const group of this.pickups.values()) this.disposePickup(group);
     this.pickups.clear();

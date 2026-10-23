@@ -1,4 +1,4 @@
-/** Deathmatch-only rewards and temporary effects. No permanent combat upgrades. */
+/** Deathmatch-only rewards and temporary effects. Kill stacks and the hero cape (dmBuffs.ts) reset on death. */
 export const DM = {
   killPoints: 100,
   headHitPoints: 10,
@@ -31,6 +31,8 @@ export interface DmReward {
   head: boolean;
   revenge: boolean;
   kill: boolean;
+  /** The victim was the caped hero (bonus points included in `points`; the killer takes the cape). */
+  hero?: boolean;
 }
 
 export interface DmStats {

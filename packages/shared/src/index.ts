@@ -27,3 +27,7 @@ export * from './plane.ts';
 export * from './ads.ts';
 export * from './characters.ts';
 export * from './deathmatch.ts';
+export * from './dmBuffs.ts';
+export * from './heroFlight.ts';
+export * from './explosives.ts';
+export * from './projectiles.ts';

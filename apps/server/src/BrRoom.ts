@@ -25,7 +25,7 @@ import { recordMatch } from './meta/index.ts';
 import { parties } from './party/registry.ts';
 import type { TeamGroup } from './br/teams.ts';
 import { roomLabel, TEAM_ERROR, teamSizeOf, type RoomListing, type RoomStage } from '@qwakk/shared/lobby';
-import { brStartRules } from './settings/index.ts';
+import { brStartRules, brZoneRules } from './settings/index.ts';
 
 export interface BrRoomOptions extends GameRoomOptions {
   /** Start countdown length override (s), for tests. */
@@ -80,6 +80,7 @@ export class BrRoom extends GameRoom<BattleRoyale> {
   protected createMatch(options: BrRoomOptions): BattleRoyale {
     // The start rule from the admin settings (the room keeps it), unless the server options set one (tests).
     const start = brStartRules();
+    const zone = brZoneRules();
     this.countdownTicks = Math.max(1, Math.round((options.countdownSeconds ?? start.countdownSeconds) * TICK_RATE));
     this.state.mode = GameMode.BattleRoyale;
     this.state.phase = MatchPhase.Warmup;
@@ -99,7 +100,9 @@ export class BrRoom extends GameRoom<BattleRoyale> {
         bots: options.bots !== false,
         seed: options.seed,
         createBot,
-        zoneTimeScale: options.zoneTimeScale,
+        // Zone tempo from the admin settings; a server option (tests) overrides the time scale.
+        ...zone,
+        zoneTimeScale: options.zoneTimeScale ?? zone.zoneTimeScale,
         teamSize,
         isFar: (viewer, target, now, rtt) => this.interest.isFarAt(viewer, target, now, rtt),
         farExtraDelayMs: INTEREST.farExtraDelayMs,

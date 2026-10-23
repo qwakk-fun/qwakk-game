@@ -11,6 +11,8 @@ export { settings, RuntimeSettings, type SettingView, type SetResult } from './r
 export { SETTING_DEFS, type SettingDef, type SettingValue, type Applies } from './defs.ts';
 export { currentPreset, presetValues, PRESETS, type Preset, type SkillGroup } from './skills.ts';
 export { serverWeapon } from './weapons.ts';
+export { stackDamageScale } from './dmBuffs.ts';
+export { explosiveRules, grenadesPerLife, rocketPickupRules, type ExplosiveRules, type BlastRules } from './explosives.ts';
 export * from './rules.ts';
 
 installSkillSync(settings);

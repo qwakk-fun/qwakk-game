@@ -7,7 +7,7 @@
  * fresh checkout builds it (about a minute).
  */
 import { beforeAll, describe, expect, it } from 'vitest';
-import { createSimWorld, initPhysics, Mode, terrainHeightAt, TICK_RATE } from '@qwakk/shared';
+import { createSimWorld, initPhysics, Mode, terrainHeightAt, TICK_RATE, zoneDuration } from '@qwakk/shared';
 import { BattleRoyale, DEFAULT_BR } from '../src/br/battleRoyale.ts';
 import { createBrBot } from '../src/br/brBot.ts';
 import { loadSainteCanard } from '../src/maps.ts';
@@ -50,10 +50,10 @@ describe('battle royale bots', () => {
 
   it('play a full 16-bot match to exactly one winner', async () => {
     const r = await runHeadlessMatch(7);
-    // Ends, in a sane time.
+    // Ends, in a sane time: the zone closes 5.5 minutes after the plane starts.
     expect(r.ended).toBe(true);
-    expect(r.seconds).toBeGreaterThan(120);
-    expect(r.seconds).toBeLessThan(12 * 60);
+    expect(r.seconds).toBeGreaterThan(60);
+    expect(r.seconds).toBeLessThan(zoneDuration() + 30);
     // Exactly one winner, and every duck has its own place 1 to 16.
     expect(r.placements.filter((p) => p === 1).length).toBe(1);
     expect([...r.placements].sort((a, b) => a - b)).toEqual(Array.from({ length: 16 }, (_, i) => i + 1));

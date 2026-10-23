@@ -25,6 +25,7 @@ import {
   outsideCircle,
   overLand,
   planCircles,
+  ejectForCircle,
   planeAt,
   planePathIndex,
   planeRoute,
@@ -81,10 +82,31 @@ export interface BrOptions extends ArenaOptions {
   seed?: number;
   /** Makes the brain for a bot seat. */
   createBot: (ctx: BrBotContext, seatId: string) => BotLike;
-  /** Zone timeline speed-up for tests (0.2: five times faster). Default 1. */
+  /** Zone timeline scale: waits and shrinks times this (0.2: five times faster; the `br.zoneTimeScale` setting, tests). Default 1. */
   zoneTimeScale?: number;
+  /** Zone damage scale: damage per second outside times this, rounded, at least 1 after the drop (`br.zoneDamageScale`). Default 1. */
+  zoneDamageScale?: number;
+  /** First circle radius (m) instead of ZONE.phases[0] (`br.firstCircleRadius`); kept above the second circle. */
+  firstCircleRadius?: number;
   /** Ducks per team: 1 solo (default), 2 duo, 4 squad. */
   teamSize?: number;
+}
+
+/** The zone phases a match runs: ZONE.phases with the time and damage scales and the first radius applied. */
+export function zonePhases(o: { zoneTimeScale?: number; zoneDamageScale?: number; firstCircleRadius?: number }): ZonePhase[] {
+  const k = o.zoneTimeScale ?? 1;
+  const dmg = o.zoneDamageScale ?? 1;
+  const phases: ZonePhase[] = ZONE.phases.map((p, i) => ({
+    waitS: p.waitS * k,
+    shrinkS: p.shrinkS * k,
+    radius: p.radius,
+    // Whole numbers (the wire carries a uint8), never 0 after the drop.
+    dps: i === 0 ? 0 : Math.max(1, Math.min(255, Math.round(p.dps * dmg))),
+  }));
+  const p0 = phases[0];
+  const p1 = phases[1];
+  if (p0 && o.firstCircleRadius !== undefined) p0.radius = Math.max((p1?.radius ?? 0) + 20, o.firstCircleRadius);
+  return phases;
 }
 
 export const DEFAULT_BR: Omit<BrOptions, 'bots' | 'createBot'> = {
@@ -145,8 +167,7 @@ export class BattleRoyale extends Arena {
     this.seed = (options.seed ?? randomSecret()) >>> 0;
     this.teams = new TeamBook(options.players, options.teamSize ?? 1);
     this.loot = new LootWorld(sim, events.loot, () => this.tick);
-    const k = options.zoneTimeScale ?? 1;
-    this.phases = ZONE.phases.map((p) => ({ ...p, waitS: p.waitS * k, shrinkS: p.shrinkS * k }));
+    this.phases = zonePhases(options);
     this.botContext = {
       sim,
       map: sim.map,
@@ -158,6 +179,7 @@ export class BattleRoyale extends Arena {
       lootable: (e) => e.kind !== Item.Crate || (this.loot.lootable(e) && !isEmptyCrate(e)),
       armorOf: (id) => this.armorFor(id),
       downedMate: (id, range) => this.downedMateOf(id, range),
+      holdsGun: (id) => ((this.seats.get(id)?.sim.arms ?? 0) & 3) !== 0,
     };
   }
 
@@ -345,8 +367,11 @@ export class BattleRoyale extends Arena {
       }
     }
     this.field = this.teams.used;
-    this.route = planeRoute(this.sim.map, planePathIndex(this.sim.map, this.seed));
-    this.plan = planCircles(this.sim.map, this.seed);
+    // The circles first: the plane takes the path over the first circle and ejects soon after it.
+    this.plan = planCircles(this.sim.map, this.seed, this.phases);
+    const first = this.plan[0];
+    this.route = planeRoute(this.sim.map, planePathIndex(this.sim.map, this.seed, first));
+    if (this.route && first) this.route.ejectS = ejectForCircle(this.sim.map, this.route, first);
     this.startMs = this.now + BOARDING_S * 1000;
     this.zone = zoneAt(this.plan, 0, this.phases);
     this.loot.clear();

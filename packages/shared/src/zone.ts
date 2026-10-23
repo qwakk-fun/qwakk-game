@@ -52,6 +52,14 @@ export function landShare(map: MapDef, c: Circle, samples = 14): number {
   return inside === 0 ? 1 : land / inside;
 }
 
+/** Loot spots of the map inside a circle (where the houses and the ducks are). */
+export function lootInside(map: MapDef, c: Circle): number {
+  let n = 0;
+  const r2 = c.r * c.r;
+  for (const p of map.br?.loot ?? []) if ((p.x - c.x) ** 2 + (p.z - c.z) ** 2 <= r2) n++;
+  return n;
+}
+
 /**
  * Circles for phases 0..n-1 (circle k is where phase k ends). Seeded: the
  * same seed and map give the same plan.
@@ -88,7 +96,7 @@ export function planCircles(map: MapDef, seed: number, phases: readonly ZonePhas
     const r = (phases[k] as ZonePhase).radius;
     const slack = r - next.r;
     let best: Circle | null = null;
-    let bestShare = -1;
+    let bestScore = -1;
     for (let tries = 0; tries < 10; tries++) {
       const a = rng() * 6.283185307179586;
       const d = (0.25 + rng() * 0.6) * slack;
@@ -107,16 +115,14 @@ export function planCircles(map: MapDef, seed: number, phases: readonly ZonePhas
         z = next.z + (oz / off) * slack;
       }
       const c = { x, z, r };
-      if (r > ZONE.landCheckMaxRadius) {
+      // Enough land first (circles up to landCheckMaxRadius), then the most loot spots
+      // inside: the populated part of the island, so the ducks meet soon.
+      const share = r > ZONE.landCheckMaxRadius ? 1 : landShare(map, c);
+      const score = (share >= ZONE.minLandShare ? 1e6 : share * 1e5) + lootInside(map, c);
+      if (score > bestScore) {
         best = c;
-        break;
+        bestScore = score;
       }
-      const share = landShare(map, c);
-      if (share > bestShare) {
-        best = c;
-        bestShare = share;
-      }
-      if (share >= ZONE.minLandShare) break;
     }
     out[k] = best as Circle;
   }

@@ -22,7 +22,13 @@ import {
   LOOT,
   Mode,
   MOVE,
+  ejectForCircle,
+  landShare,
+  lootInside,
   planCircles,
+  planeAt,
+  planePathIndex,
+  planeRoute,
   rollLoot,
   stepPlayer,
   ZONE,
@@ -310,7 +316,9 @@ describe('zone', () => {
     const z0 = zoneAt(plan, 10_000);
     expect(z0.phase).toBe(0);
     expect(z0.dps).toBe(0);
-    expect(z0.shown).toBe(false);
+    // The first circle is up from the start (the plane), so players can aim their drop at it.
+    expect(ZONE.firstShownS).toBeLessThan(ZONE.phases[0]!.waitS);
+    expect(zoneAt(plan, 0).shown).toBe(ZONE.firstShownS === 0);
     expect(zoneAt(plan, ZONE.firstShownS * 1000 + 1).shown).toBe(true);
     const p1 = ZONE.phases[0]!.waitS * 1000;
     const z1 = zoneAt(plan, p1 + 1000);
@@ -332,8 +340,72 @@ describe('zone', () => {
     expect(end.dps).toBe(ZONE.phases[ZONE.phases.length - 1]!.dps);
   });
 
-  it('the whole timeline is about 10 minutes', () => {
-    expect(zoneDuration()).toBeGreaterThan(8 * 60);
-    expect(zoneDuration()).toBeLessThan(12 * 60);
+  it('the whole timeline is about 5.5 minutes, from a first circle of about 220 m', () => {
+    expect(zoneDuration()).toBeGreaterThanOrEqual(5 * 60);
+    expect(zoneDuration()).toBeLessThanOrEqual(6 * 60);
+    expect(ZONE.phases[0]!.radius).toBe(220);
+    for (const p of ZONE.phases) expect(Number.isInteger(p.dps)).toBe(true);
+  });
+
+  it('circles lean toward the loot (the populated part) and keep enough land', () => {
+    // Land only in the east half; loot spots only in the north-east corner.
+    const half = flatMap(5, { finalCandidates: [{ name: 'C', x: 40, z: 0, r: 20, weight: 1 }] });
+    const h = half.terrain.heights;
+    const n = half.terrain.cells + 1;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) h[j * n + i] = i * half.terrain.cellSize - 200 < -60 ? -5 : 5;
+    half.br!.loot = Array.from({ length: 60 }, (_, i) => ({ id: i, kind: 'ground', x: 60 + (i % 10) * 6, y: 5, z: -80 - Math.floor(i / 10) * 6, tier: 1, zone: 0, container: Container.None }));
+    const phases = [
+      { waitS: 1, shrinkS: 0, radius: 120, dps: 0 },
+      { waitS: 1, shrinkS: 1, radius: 20, dps: 1 },
+    ];
+    let toward = 0;
+    for (let seed = 1; seed <= 20; seed++) {
+      const [c0, c1] = planCircles(half, seed, phases);
+      expect(Math.hypot(c0!.x - c1!.x, c0!.z - c1!.z) + c1!.r).toBeLessThanOrEqual(c0!.r + 1e-6);
+      expect(landShare(half, c0!)).toBeGreaterThanOrEqual(ZONE.minLandShare);
+      // The first circle sits north-east of the final one (toward the loot) far more often than not.
+      if (c0!.z < c1!.z && c0!.x > c1!.x - 5) toward++;
+      expect(lootInside(half, c0!)).toBeGreaterThan(0);
+    }
+    expect(toward).toBeGreaterThanOrEqual(15);
+  });
+});
+
+describe('the plane', () => {
+  // A 300 m square island in a 400 m world (sea around it), crossed by two paths: west to east through
+  // the middle, and north to south along x = 150 (terrain lookups past the world's edge clamp to the sea).
+  const sea = flatMap(5, { flight: { altitude: 180, speed: 50, paths: [{ from: [-400, 0], to: [400, 0] }, { from: [150, 400], to: [150, -400] }] } });
+  const ts = sea.terrain;
+  const n = ts.cells + 1;
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) ts.heights[j * n + i] = Math.abs(i * ts.cellSize - 200) > 150 || Math.abs(j * ts.cellSize - 200) > 150 ? -5 : 5;
+
+  it('cuts the sea before the island and flies faster than the map says', () => {
+    const r = planeRoute(sea, 0)!;
+    expect(r.speed).toBeCloseTo(50 * DROP.planeSpeedScale, 6);
+    // The path starts planeLeadIn before the first land point (x = -150), not at -400.
+    expect(r.fromX).toBeGreaterThan(-150 - DROP.planeLeadIn - 6);
+    expect(r.fromX).toBeLessThan(-150 - DROP.planeLeadIn + 6);
+    expect(r.fromX + r.dirX * r.length).toBeCloseTo(400, 3);
+    // Auto-eject before the coast.
+    expect(planeAt(r, r.ejectS).x).toBeLessThanOrEqual(150 - DROP.autoEjectBeforeCoast + 6);
+  });
+
+  it('takes the path over the first circle and ejects at its far edge', () => {
+    const near1 = { x: 150, z: -60, r: 60 };
+    expect(planePathIndex(sea, 0, near1)).toBe(1);
+    expect(planePathIndex(sea, 0, { x: 10, z: 5, r: 60 })).toBe(0);
+    // Two choices: the seed picks between the two best paths.
+    const picks = new Set([0, 1, 2, 3].map((seed) => planePathIndex(sea, seed, near1)));
+    expect(picks).toEqual(new Set([0, 1]));
+    // Without a circle: seed mod path count (the map's rule).
+    expect(planePathIndex(sea, 3)).toBe(1);
+    const r = planeRoute(sea, 0)!;
+    const c = { x: 0, z: 10, r: 60 };
+    const eject = ejectForCircle(sea, r, c);
+    const farEdge = (c.x + c.r * DROP.autoEjectPastCircle - r.fromX) / r.speed;
+    expect(eject).toBeCloseTo(Math.min(r.ejectS, Math.max(DROP.minEjectS, farEdge)), 6);
+    // A slow plane reaches the far edge before the coast: it ejects there.
+    const slow = { ...r, speed: 20, ejectS: (r.ejectS * r.speed) / 20 };
+    expect(planeAt(slow, ejectForCircle(sea, slow, c)).x).toBeCloseTo(c.x + c.r * DROP.autoEjectPastCircle, 3);
   });
 });

@@ -6,7 +6,7 @@ const TR: Record<string, string> = {
   'Enter to send · Esc to close': 'Enter ile gönder · Esc ile kapat',
   'Wait a moment before sending another message.': 'Yeni mesaj göndermek için biraz bekle.',
   'Kavren Bridge': 'Kavren Köprüsü', 'Harman Gardens': 'Harman Bahçeleri', 'Yelova Fields': 'Yelova Kırları',
-  'Kavren Square': 'Kavren Meydanı', 'Old Chapel': 'Eski Şapel', 'Chapel Yard': 'Şapel Avlusu',
+  'Kavren Square': 'Kavren Meydanı', 'QoreChain Tower': 'QoreChain Kulesi', 'Tower Park': 'Kule Parkı', 'Walled Garden': 'Duvarlı Bahçe',
   'Bakery': 'Fırın', 'Harman Yard': 'Harman Avlusu', 'Ruins': 'Harabeler', 'Crater Field': 'Krater Alanı', 'Trenches': 'Siperler',
   'Your team beat {n} teams on Yelova. The pond is yours.': 'Takımın Yelova’da {n} takımı geride bıraktı. Ada sizin!',
   'You beat {n} ducks on Yelova. The pond is yours.': 'Yelova’da {n} ördeği geride bıraktın. Ada senin!',
@@ -66,6 +66,13 @@ const TR: Record<string, string> = {
   'Killcam · {name}': 'Ölüm kamerası · {name}', 'Skip · Space': 'Atla · Boşluk',
   'Next round in {n}': 'Sonraki tura {n}', 'Plucked': 'Elendin', 'by {name}. ': '{name} tarafından. ', 'Back in {n}': 'Yeniden doğmana {n}',
   'You {kills}  |  {leader} {score}  |  First to {limit}': 'Sen {kills}  |  {leader} {score}  |  Hedef {limit}', '{weapon}, head': '{weapon}, kafa',
+  'Power': 'Güç', 'Flight': 'Uçuş', 'CAPED HERO': 'PELERİNLİ KAHRAMAN', '{name} · about {n} m': '{name} · yaklaşık {n} m',
+  'Hero takedown': 'Kahraman avı', 'Hold Jump to fly': 'Uçmak için Zıpla tuşunu basılı tut', 'Hold Space to fly': 'Uçmak için Boşluk tuşunu basılı tut',
+  'Take it down to take the cape': 'Pelerini almak için onu indir', 'The cape is free': 'Pelerin boşta', 'A new hero comes soon': 'Yakında yeni bir kahraman seçilecek',
+  'lost the cape': 'pelerini kaybetti', 'You took the cape!': 'Pelerini kaptın!', '{name} took the cape!': '{name} pelerini kaptı!', 'took the cape from': 'pelerini kaptı',
+  'You are the hero!': 'Kahraman sensin!', '{name} is the hero!': '{name} artık kahraman!', 'is the hero': 'kahraman oldu',
+  'Power up x{n}': 'Güç arttı x{n}', 'More damage and speed until you go down': 'Düşene kadar daha fazla hasar ve hız',
+  'Grenade': 'El bombası', 'Rocket': 'Roket', 'Rocket launcher': 'Roketatar', '{n} rockets · press 3': '{n} roket · 3 tuşuna bas',
 };
 export function t(text: string, values: Record<string, string | number> = {}): string {
   const template = isTurkish ? TR[text] ?? text : text;

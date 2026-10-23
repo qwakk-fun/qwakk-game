@@ -4,7 +4,7 @@
  * SimWorld: the same (state, input) gives the same next state on the client
  * (prediction and replay) and on the server (authority).
  */
-import { ADS, BODY, DT, HEAL, KNOCK, MOVE, TICK_RATE, WATER } from './constants.ts';
+import { ADS, BODY, DT, HEAL, HERO_FLIGHT, KNOCK, MOVE, TICK_RATE, WATER } from './constants.ts';
 import { DM, DmPower } from './deathmatch.ts';
 import { aimBlend, stepAim } from './ads.ts';
 import { Button, type InputFrame } from './input.ts';
@@ -15,6 +15,9 @@ import { CROUCH_CAPSULE, PLAYER_QUERY_GROUPS, STAND_CAPSULE, type SimWorld } fro
 import { waterSurfaceAt } from './brMapData.ts';
 import { stepDrop } from './drop.ts';
 import { stepHeal } from './heal.ts';
+import { isHero, stackSpeedFactor } from './dmBuffs.ts';
+import { heroThrust, stepHeroEnergy, stepHeroVertical } from './heroFlight.ts';
+import { exLauncher, lastExplosive, stepExplosives } from './explosives.ts';
 
 /** Movement mode. Plane riders are not in the world; freefall and glide are the drop. */
 export const Mode = {
@@ -90,6 +93,15 @@ export interface PlayerSim {
   dmPower: number;
   dmPowerTicks: number;
   dmShield: number;
+  /** Deathmatch kill stacks and the hero bit, packed (dmBuffs.ts; set by the server, zero in BR). */
+  dmBuff: number;
+  /** Deathmatch hero flight energy in ticks (heroFlight.ts; zero unless the hero). */
+  dmEnergy: number;
+  /**
+   * Deathmatch explosives, packed (explosives.ts: grenades, rockets, the
+   * launcher in hand and both gates in one integer; 0 in the battle royale).
+   */
+  ex: number;
 }
 
 /** Field list in a fixed order: reconciler mirror list and test helpers. */
@@ -97,6 +109,8 @@ export const PLAYER_SIM_FIELDS = [
   'x', 'y', 'z', 'vx', 'vy', 'vz', 'yaw', 'pitch', 'crouch', 'grounded', 'air', 'jumpBuf', 'prevButtons',
   'alive', 'weapon', 'equip', 'cooldown', 'reload', 'mag0', 'mag1', 'res0', 'res1', 'spray', 'shotSeq',
   'mode', 'hp', 'arms', 'heal', 'healKind', 'bandages', 'medkits', 'aim', 'down', 'dmPower', 'dmPowerTicks', 'dmShield',
+  'dmBuff', 'dmEnergy',
+  'ex',
 ] as const satisfies readonly (keyof PlayerSim)[];
 
 export function createPlayerSim(x: number, y: number, z: number, yaw = 0): PlayerSim {
@@ -107,6 +121,8 @@ export function createPlayerSim(x: number, y: number, z: number, yaw = 0): Playe
     alive: 1, weapon: WeaponId.Rifle, equip: 0, cooldown: 0, reload: 0,
     mag0: rifle.magSize, mag1: pistol.magSize, res0: rifle.reserve, res1: pistol.reserve, spray: 0, shotSeq: 0,
     mode: 0, hp: 100, arms: 3, heal: 0, healKind: 0, bandages: 0, medkits: 0, aim: 0, down: 0, dmPower: 0, dmPowerTicks: 0, dmShield: 0,
+    dmBuff: 0, dmEnergy: 0,
+    ex: 0,
   };
 }
 
@@ -182,6 +198,7 @@ const UNSTICK_LIFT = 0.004;
 export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number = DT): ShotFired | null {
   const buttons = input.buttons | 0;
   let shot: ShotFired | null = null;
+  lastExplosive.kind = 0;
   if (s.alive && s.mode === Mode.Ground && s.down) {
     // Knocked: crawl only. The weapon, the aim and heals stay frozen.
     s.aim = 0;
@@ -190,7 +207,9 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
     stepAim(s, input);
     stepMovement(sim, s, input, dt);
     stepHeal(s, input);
-    shot = stepWeapon(s, input);
+    // Grenade throw and the rocket launcher slot; with the launcher up the gun does not step.
+    stepExplosives(s, input);
+    if (!exLauncher(s)) shot = stepWeapon(s, input);
   } else if (s.alive && (s.mode === Mode.Freefall || s.mode === Mode.Glide)) {
     stepDrop(sim, s, input, dt);
     s.aim = 0;
@@ -248,15 +267,22 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   const wlen = Math.sqrt(wx * wx + wz * wz);
   let wishSpeed = 0;
   if (wlen > 1e-6) {
-    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1);
+    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1) * stackSpeedFactor(s);
     wx /= wlen;
     wz /= wlen;
   }
 
   const canJump = s.down === 0 && s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
+  const hero = isHero(s);
   if (s.grounded) {
     applyFriction(s, dt, s.down ? KNOCK.crawlStopSpeed : MOVE.stopSpeed);
     if (wishSpeed > 0) accelerate(s, wx, wz, wishSpeed, MOVE.groundAccel, dt, Infinity);
+  } else if (hero) {
+    // Caped hero in the air: full steering at the flight speed (heroFlight.ts), light drag.
+    if (wishSpeed > 0) accelerate(s, wx, wz, HERO_FLIGHT.speed * Math.min(wlen, 1) * stackSpeedFactor(s), HERO_FLIGHT.airAccel, dt, Infinity);
+    const drag = 1 - HERO_FLIGHT.drag * dt;
+    s.vx *= drag;
+    s.vz *= drag;
   } else {
     if (wishSpeed > 0) accelerate(s, wx, wz, wishSpeed, MOVE.airAccel, dt, MOVE.airWishSpeedCap);
     const drag = 1 - MOVE.airDrag * dt;
@@ -270,9 +296,13 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
     s.air = COYOTE_TICKS + 1;
   }
 
-  // Gravity always pulls, so the controller keeps detecting the ground.
-  s.vy -= MOVE.gravity * dt;
-  if (s.vy < -MOVE.maxFallSpeed) s.vy = -MOVE.maxFallSpeed;
+  // Gravity always pulls, so the controller keeps detecting the ground (the hero: thrust or glide instead).
+  const thrust = hero && heroThrust(s, buttons, canJump);
+  if (hero) stepHeroVertical(sim, s, thrust, dt);
+  else {
+    s.vy -= MOVE.gravity * dt;
+    if (s.vy < -MOVE.maxFallSpeed) s.vy = -MOVE.maxFallSpeed;
+  }
 
   const grounded = moveCapsule(sim, s, dt);
   if (grounded && s.vy <= 0) {
@@ -283,6 +313,7 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
     s.grounded = 0;
     if (s.air < 255) s.air += 1;
   }
+  if (hero) stepHeroEnergy(s, thrust);
 }
 
 /** Speed factor for wading (river, shallow sea). 1 on dry land and on maps without water. */

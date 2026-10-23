@@ -48,6 +48,12 @@ export interface CombatStats {
 }
 
 const WEAPON_NAMES = [translate('Rifle'), translate('Pistol')];
+/** Kill feed name and icon of a deathmatch explosive kill (KillWeapon.Grenade or Rocket), or null. */
+function explosiveKill(weapon: number): { name: string; icon: 'grenade' | 'rocket' } | null {
+  if (weapon === KillWeapon.Grenade) return { name: 'Grenade', icon: 'grenade' };
+  if (weapon === KillWeapon.Rocket) return { name: 'Rocket', icon: 'rocket' };
+  return null;
+}
 
 export class CombatFeedback {
   readonly stats: CombatStats = { shotsFired: 0, predictedHits: 0, confirmedHits: 0, kills: 0, knocks: 0, deaths: 0, tracers: 0, featherBursts: 0, lastMarkerAt: 0, lastFeatherAt: 0, lastTracerAt: 0 };
@@ -85,9 +91,14 @@ export class CombatFeedback {
       shots: (list) => {
         for (const s of list) this.remoteShot(s.pid, s.weapon, s.outcome, s.from, s.to);
       },
-      hitConfirm: (_victim, _damage, head, killed, knocked) => {
+      hitConfirm: (_victim, _damage, head, killed, knocked, explosive) => {
         this.stats.confirmedHits++;
-        if (knocked) {
+        if (explosive && !killed && !knocked) {
+          // A grenade or rocket hurt someone (never predicted): the orange marker.
+          this.hud.hitMarker('blast');
+          this.sound.hit();
+          this.stats.lastMarkerAt = performance.now();
+        } else if (knocked) {
           // Knocked, not out yet: the kill marker without the quack.
           this.stats.knocks++;
           this.hud.hitMarker('kill');
@@ -133,7 +144,11 @@ export class CombatFeedback {
         const bled = weapon === KillWeapon.Bleed;
         if (left) this.hud.killFeed(victim?.name ?? '?', '', 'left the pond', false, false);
         else if (bled) this.hud.killFeed(victim?.name ?? '?', '', 'bled out', false, victimPid === myPid || killerPid === myPid);
-        else this.hud.killFeed(zone ? 'The zone' : (killer?.name ?? '?'), victim?.name ?? '?', zone ? 'zone' : (WEAPON_NAMES[weapon] ?? ''), head, killerPid === myPid || victimPid === myPid);
+        else if (explosiveKill(weapon)) {
+          // A grenade or rocket kill (killer 0: the thrower left before the blast).
+          const ex = explosiveKill(weapon)!;
+          this.hud.killFeed(killerPid === 0 ? '?' : (killer?.name ?? '?'), victim?.name ?? '?', ex.name, false, killerPid === myPid || victimPid === myPid, ex.icon);
+        } else this.hud.killFeed(zone ? 'The zone' : (killer?.name ?? '?'), victim?.name ?? '?', zone ? 'zone' : (WEAPON_NAMES[weapon] ?? ''), head, killerPid === myPid || victimPid === myPid);
         // The splat goes where the victim is drawn, not where the server had it.
         // No position (we could not see the victim) and nothing drawn: no splat.
         const avatar = victimId ? this.views.remoteAvatar(victimId) : null;
@@ -150,7 +165,7 @@ export class CombatFeedback {
         if (victimPid === myPid) {
           this.diedAt = performance.now();
           this.stats.deaths++;
-          this.killerName = zone && !bled ? 'the zone' : (killer?.name ?? '');
+          this.killerName = zone && !bled && !explosiveKill(weapon) ? 'the zone' : (killer?.name ?? '');
           this.killerId = zone ? null : this.session.idOfPid(killerPid);
           this.sound.quack(undefined, 0.4);
         }

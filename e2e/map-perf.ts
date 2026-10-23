@@ -1,7 +1,7 @@
 /**
  * Map rendering benchmark in headless Chrome: opens the dev-only map viewer
  * (build the test bundle first: npm run build:test), flies its camera path
- * (plane pass, glide over the village, street walk, a turn at the church
+ * (plane pass, glide over the village, street walk, a turn at the village
  * square, 16 ducks in the square) and prints frame time, CPU time per frame,
  * draw calls and triangles per segment. Saves a screenshot per segment.
  *

@@ -248,10 +248,23 @@ export const DROP = {
   sinkRate: 3,
   /** Jump only over land: terrain at least this high under the plane. */
   minLandHeight: 1,
-  /** Everyone still aboard is ejected this many meters before the plane's last land point. */
+  /** Everyone still aboard is ejected this many meters before the plane's last land point... */
   autoEjectBeforeCoast: 70,
-  /** Seconds between the start of the match phase and the plane reaching its path start. */
-  planeLeadSeconds: 0,
+  /** ...or at the first circle's far edge (this many radii past its center), whichever comes first (server: `ejectForCircle`)... */
+  autoEjectPastCircle: 1,
+  /** ...but never sooner than this many seconds after the plane starts (time to pick a spot). */
+  minEjectS: 6,
+  /** Plane speed: the map's flight speed times this (55 m/s on Yelova, so about 72 m/s). */
+  planeSpeedScale: 1.3,
+  /** The plane's path starts this many meters before its first land point (the sea before it is cut off). */
+  planeLeadIn: 60,
+  /**
+   * Path choice: the map path that passes closest to the first circle's center, picked by seed among
+   * this many best. A path whose start is close to the circle scores worse (the plane would be over it
+   * at once): every meter the center lies short of `planeCircleMinAlong` along the path adds half a meter.
+   */
+  planePathChoices: 2,
+  planeCircleMinAlong: 250,
 } as const;
 
 /**
@@ -321,21 +334,29 @@ export const BR = {
   crateSeconds: 600,
 } as const;
 
-/** Zone (circle) phases: wait, then shrink to the radius; damage per second outside. Phase 0 is the drop. */
+/**
+ * Zone (circle) phases: wait, then shrink to the radius; damage per second
+ * outside. Phase 0 is the drop. Tuned for a 5 to 6 minute 16-duck match on
+ * the 840 m Yelova map: a first circle of 220 m shown early, short waits and
+ * shrinks, and the zone fully closed 5.5 minutes after the plane starts. The
+ * server scales the times, the damage and the first radius with the runtime
+ * settings (`br.zoneTimeScale`, `br.zoneDamageScale`, `br.firstCircleRadius`);
+ * the client only draws what the server sends. dps is a whole number (it is a
+ * uint8 on the wire).
+ */
 export const ZONE = {
   phases: [
-    { waitS: 90, shrinkS: 0, radius: 380, dps: 0 },
-    { waitS: 90, shrinkS: 60, radius: 260, dps: 1 },
-    { waitS: 60, shrinkS: 45, radius: 170, dps: 2 },
-    { waitS: 50, shrinkS: 40, radius: 105, dps: 4 },
-    { waitS: 40, shrinkS: 30, radius: 60, dps: 7 },
-    { waitS: 30, shrinkS: 25, radius: 30, dps: 11 },
-    { waitS: 20, shrinkS: 20, radius: 0, dps: 18 },
+    { waitS: 50, shrinkS: 0, radius: 220, dps: 0 },
+    { waitS: 40, shrinkS: 40, radius: 150, dps: 2 },
+    { waitS: 35, shrinkS: 35, radius: 95, dps: 4 },
+    { waitS: 30, shrinkS: 25, radius: 55, dps: 7 },
+    { waitS: 20, shrinkS: 20, radius: 25, dps: 12 },
+    { waitS: 15, shrinkS: 20, radius: 0, dps: 20 },
   ],
   /** Before the first circle shows, the zone covers the whole map with this radius. */
   startRadius: 700,
-  /** The first circle is shown this many seconds into phase 0. */
-  firstShownS: 60,
+  /** The first circle is shown this many seconds into phase 0; 0: already while boarding, so players can aim their drop. */
+  firstShownS: 0,
   /** Keep at least this share of land inside circles up to this radius. */
   minLandShare: 0.7,
   landCheckMaxRadius: 260,
@@ -405,4 +426,155 @@ export const NAMETAG = {
   /** Label height above the feet (m). */
   labelStand: 1.85,
   labelCrouch: 1.4,
+} as const;
+
+/**
+ * Deathmatch kill stacks (`dmBuffs.ts`): every kill since the last death adds a
+ * stack, up to `max`; death, respawn and the round end clear them. The speed
+ * part is simulated on both sides (prediction), so it is a constant here. The
+ * damage part is server only: `damagePerStack` is just the default of the
+ * admin setting `dm.stackDamagePercent`.
+ */
+export const KILL_STACKS = {
+  max: 5,
+  /** Move speed bonus per stack (+4% each, +20% at five). */
+  speedPerStack: 0.04,
+  /** Default damage bonus per stack (server only, admin setting). */
+  damagePerStack: 0.06,
+} as const;
+
+/**
+ * Deathmatch caped hero flight (`heroFlight.ts`), part of the shared sim: hold
+ * Jump in the air to climb (up to `maxHeight` above the ground, then hover),
+ * steer with the move keys, let go to glide down slowly. Thrust drains the
+ * flight energy one tick per tick; standing on the ground refills it, so the
+ * hero has to land and is never out of reach for long.
+ */
+export const HERO_FLIGHT = {
+  /** Thrust ticks a full bar holds (4 s). */
+  energyTicks: 120,
+  /** Energy back per tick on the ground (a full bar in 4 s). */
+  rechargePerTick: 1,
+  /** Climb speed while thrusting (m/s) and how fast the vertical speed eases toward it (per second). */
+  climbSpeed: 5.5,
+  climbEase: 9,
+  /** Thrust climbs up to this height above the ground below (m), then holds (hover). */
+  maxHeight: 12,
+  /** Glide: the fall speed is capped at this (m/s) while the hero is in the air without thrust. */
+  glideFallSpeed: 2.6,
+  /** Air steering: target speed (m/s), acceleration (accel times speed per second) and drag (per second). */
+  speed: 6.4,
+  airAccel: 4,
+  drag: 1.2,
+} as const;
+
+/**
+ * Deathmatch caped hero rules, server only (`apps/server/src/dmHero.ts`).
+ * These are the defaults of the admin settings `dm.hero*`; the ping grid and
+ * cadence are fixed (they are part of the visibility rule in CLAUDE.md).
+ */
+export const DM_HERO = {
+  /** A hero is picked this long after a round starts, then checked every `everySeconds` when nobody holds the cape. */
+  firstDelaySeconds: 5,
+  everySeconds: 120,
+  /** Health of a fresh hero (normal ducks have 100). */
+  health: 200,
+  /** Bonus points for taking down the hero, and points every `holdEverySeconds` while holding the cape. */
+  killPoints: 300,
+  holdPoints: 10,
+  holdEverySeconds: 5,
+  /** The coarse hero ping: every `pingEverySeconds`, its position rounded to a `pingGrid` meter grid. */
+  pingEverySeconds: 5,
+  pingGrid: 10,
+} as const;
+
+/**
+ * Deathmatch explosives: grenades (G: hold to see the arc, let go to throw;
+ * `grenade.perLife` each life) and the rocket launcher from a rare map pickup
+ * (a temporary third slot, key 3). The throw, the launch, their fire-rate
+ * gates and the counts are part of the shared sim (`explosives.ts`, predicted
+ * like the guns); flight, fuse, explosion, damage and knockback are server
+ * only (`apps/server/src/dmExplosives.ts`). The battle royale never hands any
+ * out (its ducks keep zero grenades and rockets).
+ *
+ * Server-only numbers here are the defaults of admin settings
+ * (`settings/explosives.ts`): damage, radii, self damage, knockback, grenades
+ * per life, rockets per pickup and the pickup timing. Launch speeds, gravity,
+ * bounce and the fire-rate gates are also simulated by the client (the throw
+ * arc preview, the predicted gates), so they stay constants.
+ */
+export const EXPLOSIVE = {
+  grenade: {
+    /** Grenades each life starts with (refilled on respawn). Admin setting `dm.grenadesPerLife`. */
+    perLife: 2,
+    /** Ticks between two throws (the throw's fire-rate gate). */
+    throwTicks: 24,
+    /** The gun waits this many ticks after a throw (the hand is busy). */
+    busyTicks: 9,
+    /** Launch speed (m/s) along the aim, tilted up by `upBias` (rad), plus this share of the thrower's ground velocity. */
+    speed: 19,
+    upBias: 0.14,
+    inherit: 0.4,
+    /** Hand position relative to the feet: right, up (standing / crouched), forward (m). */
+    handRight: 0.28,
+    handUp: 1.38,
+    handUpCrouch: 1.02,
+    handForward: 0.3,
+    gravity: 18,
+    /** Collision radius (m): the grenade stays this far off what it hits. */
+    radius: 0.09,
+    /** Bounce: normal speed kept, tangential speed kept per bounce. */
+    restitution: 0.4,
+    friction: 0.55,
+    /** Rolling on the ground: speed lost per second (m/s); below `restSpeed` it rests. */
+    rollDecel: 12,
+    restSpeed: 0.35,
+    /** Below this normal impact speed (m/s) a bounce makes no tick sound. */
+    tickSpeed: 1.6,
+    /** Fuse from the throw (ticks): 2.5 s. Server only. */
+    fuseTicks: 75,
+    /** Damage at the blast center (inside `innerRadius`), falling off linearly to `edgeScale` of it at `blastRadius` (m). */
+    damage: 98,
+    innerRadius: 1.2,
+    blastRadius: 6.5,
+    edgeScale: 0.12,
+    /** Knockback at the center (m/s): a horizontal push away from the blast and an upward pop, scaled like the damage. */
+    knockback: 7,
+    lift: 4.5,
+  },
+  rocket: {
+    /** Rockets a pickup gives (the slot goes away with the last one). Admin setting `dm.rocketsPerPickup`. */
+    perPickup: 3,
+    /** Ticks between two rockets (1.1 s), and to raise the launcher. */
+    fireTicks: 33,
+    equipTicks: 12,
+    /** Flight speed (m/s), straight from the muzzle to the crosshair's world point; it explodes after `maxTicks`. */
+    speed: 34,
+    maxTicks: 90,
+    /** Collision radius against ducks (m). */
+    radius: 0.12,
+    /** Extra damage to the duck the rocket hits, on top of the splash at the center. */
+    directDamage: 45,
+    damage: 85,
+    innerRadius: 0.8,
+    blastRadius: 4.5,
+    edgeScale: 0.15,
+    knockback: 9,
+    lift: 5.5,
+    /** The map pickup: one at a time, every 45 to 60 s, gone after 30 s. */
+    pickupMinSeconds: 45,
+    pickupMaxSeconds: 60,
+    pickupLifetimeSeconds: 30,
+    pickupRadius: 1.7,
+  },
+  /** Your own explosion hurts you this much (rocket jumps stay possible). */
+  selfDamageScale: 0.5,
+  /** Earshot (m): a throw is quiet, a launch and a blast are loud. A hint never carries a position. */
+  throwHear: 30,
+  launchHear: 220,
+  boomHear: 300,
+  /** A resting grenade is shown to viewers who see its spot within this range (m); its thrower never is. */
+  restRevealRange: 45,
+  /** The throw arc preview while G is held: at most this many seconds of flight (client only). */
+  previewSeconds: 1.6,
 } as const;

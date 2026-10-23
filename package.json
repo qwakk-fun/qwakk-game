@@ -31,6 +31,8 @@
     "bench:br": "npm run bench:br -w @qwakk/server --",
     "test:br": "npm run test:br -w @qwakk/server",
     "e2e:dm-rewards": "node --disable-warning=ExperimentalWarning e2e/dm-rewards.ts",
+    "e2e:dm-hero": "node --disable-warning=ExperimentalWarning e2e/dm-hero.ts",
+    "e2e:explosives": "node --disable-warning=ExperimentalWarning e2e/explosives.ts",
     "e2e:dm": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts",
     "e2e:br": "node --disable-warning=ExperimentalWarning e2e/br-two-clients.ts",
     "e2e:lobby": "node --disable-warning=ExperimentalWarning e2e/br-lobby.ts",

@@ -30,6 +30,8 @@ export interface TestView {
   press(buttons: number, ms: number, mz?: number): void;
   camera: { aimBlend: number };
   tags: NameTags;
+  /** Deathmatch explosives (null in the battle royale). */
+  explosives: { stats(): Record<string, number | boolean> } | null;
 }
 
 function renderStats(v: TestView): { drawCalls: number; triangles: number; world: { drawCalls: number; triangles: number } | null } {
@@ -96,6 +98,8 @@ export function exposeTestHook(v: TestView): void {
         },
       };
     },
+    /** Deathmatch explosives drawn here: projectiles, blasts, our predicted throws, the throw preview. */
+    explosives: () => ({ ...(v.explosives?.stats() ?? {}), now: performance.now() }),
     /** Test servers only (QWAKK_TEST_HOOKS=1): hurt our own battle royale duck (knock it for the revive e2e). */
     devHurt: (n: number) => v.session.room.send('dev:hurt', n),
     /** Where a player is drawn (pose) by session id, or null when not sent. */

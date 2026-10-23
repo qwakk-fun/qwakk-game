@@ -1,0 +1,34 @@
+.dmh { pointer-events: none; color: #fff8e7; }
+.dmh [hidden] { display: none !important; }
+.dmh-label { font-size: 11px; letter-spacing: .12em; text-transform: uppercase; color: #e7cc83; }
+.dmh-stacks, .dmh-fly { position: absolute; left: 24px; display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 8px; background: #151619b3; }
+.dmh-stacks { bottom: 54px; }
+.dmh-fly { bottom: 54px; left: 208px; }
+.dmh-pips { display: flex; gap: 4px; }
+.dmh-pip { display: block; width: 18px; height: 8px; border-radius: 3px; background: #ffffff26; border: 1px solid #ffffff33; transition: background .2s, box-shadow .2s; }
+.dmh-pip.on { background: #ff8a3d; border-color: #ffd43b; box-shadow: 0 0 8px #ff8a3daa; }
+.dmh-stacks.max .dmh-pip.on { background: #ffd43b; box-shadow: 0 0 10px #ffd43bcc; animation: dmh-glow 0.9s ease-in-out infinite alternate; }
+.dmh-flybar { display: block; width: 150px; height: 8px; border-radius: 4px; background: #ffffff1f; overflow: hidden; border: 1px solid #ffd43b88; }
+.dmh-flyfill { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #ff8a3d, #ffd43b); transition: width .1s linear; }
+.dmh-fly.low .dmh-flyfill { background: #e5383b; }
+.dmh-compass { position: absolute; top: 132px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 5px 12px; border-radius: 999px; background: #151619cc; border: 1px solid #ffd43b; font-size: 13px; white-space: nowrap; }
+.dmh-arrow { display: inline-block; color: #ffd43b; font-size: 14px; line-height: 1; transition: transform .12s linear; }
+.dmh-banner { position: absolute; top: 60%; left: 50%; transform: translateX(-50%); display: grid; gap: 4px; justify-items: center; padding: 12px 26px; border-radius: 12px; background: #151619ee; border: 2px solid #ffd43b; box-shadow: 0 0 40px #ffd43b55; text-align: center; min-width: min(360px, 86vw); }
+.dmh-banner.pop { animation: dmh-pop 260ms cubic-bezier(.2, 1.4, .5, 1); }
+.dmh-banner.mine { background: #3a2e0df2; }
+.dmh-kicker { font-size: 11px; letter-spacing: .2em; color: #ff8a3d; }
+.dmh-banner strong { font-size: 26px; color: #ffd43b; overflow-wrap: anywhere; }
+.dmh-banner span { font-size: 13px; color: #ffe0a0; }
+.dm-replaying .dmh, .dm-intermission .dmh { visibility: hidden; }
+@keyframes dmh-pop { from { opacity: 0; transform: translateX(-50%) scale(.8); } to { opacity: 1; transform: translateX(-50%) scale(1); } }
+@keyframes dmh-glow { from { filter: brightness(1); } to { filter: brightness(1.35); } }
+body.touch-ui .dmh-stacks { left: calc(12px + var(--sl, 0px)); top: calc(72px + var(--st, 0px)); bottom: auto; padding: 2px 6px; gap: 5px; }
+body.touch-ui .dmh-fly { left: calc(12px + var(--sl, 0px)); top: calc(96px + var(--st, 0px)); bottom: auto; padding: 2px 6px; gap: 5px; }
+body.touch-ui .dmh-pip { width: 12px; height: 6px; }
+body.touch-ui .dmh-flybar { width: 100px; height: 6px; }
+body.touch-ui .dmh-label { font-size: 9px; }
+body.touch-ui .dmh-compass { top: calc(98px + var(--st, 0px)); font-size: 11px; padding: 3px 9px; }
+body.touch-ui .dmh-banner { top: 58%; padding: 8px 16px; }
+body.touch-ui .dmh-banner strong { font-size: 18px; }
+@media (max-width: 600px) { .dmh-compass { top: 112px; font-size: 11px; } .dmh-banner strong { font-size: 19px; } }
+@media (prefers-reduced-motion: reduce) { .dmh-banner.pop, .dmh-stacks.max .dmh-pip.on { animation: none; } }

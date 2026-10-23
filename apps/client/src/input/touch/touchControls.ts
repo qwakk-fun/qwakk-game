@@ -44,6 +44,10 @@ export interface TouchFrame {
   mapOpen: boolean;
   /** The inventory screen can open now (alive on the ground in a battle royale match). */
   canBag: boolean;
+  /** Deathmatch explosives: grenades left, rockets left, the launcher in hand. Unset: none. */
+  nades?: number;
+  rockets?: number;
+  rocketOut?: boolean;
 }
 
 export interface TouchHooks {
@@ -53,8 +57,9 @@ export interface TouchHooks {
   mouse(): void;
 }
 
-const HOLD: Partial<Record<ButtonId, number>> = { fire: Button.Fire, fireL: Button.Fire, use: Button.Use };
-const TAP: Partial<Record<ButtonId, number>> = { jump: Button.Jump, reload: Button.Reload, deploy: Button.Deploy, heal1: Button.Heal1, heal2: Button.Heal2 };
+// Jump is held (a tap still latches one press): the deathmatch hero flies while it is held.
+const HOLD: Partial<Record<ButtonId, number>> = { fire: Button.Fire, fireL: Button.Fire, use: Button.Use, jump: Button.Jump, grenade: Button.Grenade };
+const TAP: Partial<Record<ButtonId, number>> = { reload: Button.Reload, deploy: Button.Deploy, heal1: Button.Heal1, heal2: Button.Heal2 };
 const TOGGLE: Partial<Record<ButtonId, number>> = { aim: Button.Aim, crouch: Button.Crouch };
 
 export class TouchControls {
@@ -67,6 +72,8 @@ export class TouchControls {
   private boardOn = false;
   private lastShown = '';
   private lastBadges = '';
+  /** The launcher is in hand (the rocket button then puts it away). */
+  private rocketOut = false;
   /** A button that opens a screen (pause, map, bag) acts on touch down; the click the same tap makes later must not land on that screen. */
   private swallowClicksUntil = 0;
   private readonly abort = new AbortController();
@@ -205,7 +212,8 @@ export class TouchControls {
     const toggle = TOGGLE[id];
     if (toggle !== undefined) return c.setTouchHeld(toggle, !c.touchHeldHas(toggle));
     if (id === 'pause' || id === 'map' || id === 'bag') this.swallowClicksUntil = performance.now() + TOUCH.clickGuardMs;
-    if (id === 'swap') c.swapWeapon();
+    if (id === 'rocket') c.selectSlot(this.rocketOut ? c.currentSlot : 2);
+    else if (id === 'swap') c.swapWeapon();
     else if (id === 'pause') this.hooks.pause();
     else if (id === 'map') c.action('map');
     else if (id === 'bag') c.action('inventory');
@@ -262,6 +270,8 @@ export class TouchControls {
         if (t.otherWeapon) show.add('swap');
         if (t.bandages > 0) show.add('heal1');
         if (t.medkits > 0) show.add('heal2');
+        if ((t.nades ?? 0) > 0 || this.fingers.holding('btn:grenade')) show.add('grenade');
+        if ((t.rockets ?? 0) > 0) show.add('rocket');
       }
       // A revive in progress drops the prompt, but the thumb on Use must keep holding.
       if (t.alive && (t.promptKey === 'E' || (ground && this.fingers.holding('btn:use')))) show.add('use');
@@ -298,9 +308,13 @@ export class TouchControls {
     }
     for (const [id, bits] of Object.entries(TOGGLE) as [ButtonId, number][]) this.ui.buttons.get(id)!.classList.toggle('on', c.touchHeldHas(bits));
     this.ui.buttons.get('board')!.classList.toggle('on', this.boardOn);
-    const badges = `${t.bandages}|${t.medkits}|${t.otherWeapon}`;
+    this.rocketOut = t.rocketOut === true;
+    this.ui.buttons.get('rocket')!.classList.toggle('on', this.rocketOut);
+    const badges = `${t.bandages}|${t.medkits}|${t.otherWeapon}|${t.nades ?? 0}|${t.rockets ?? 0}`;
     if (badges !== this.lastBadges) {
       this.lastBadges = badges;
+      this.ui.badges.get('grenade')!.textContent = String(t.nades ?? 0);
+      this.ui.badges.get('rocket')!.textContent = String(t.rockets ?? 0);
       this.ui.badges.get('heal1')!.textContent = String(t.bandages);
       this.ui.badges.get('heal2')!.textContent = String(t.medkits);
       this.ui.badges.get('swap')!.textContent = t.otherWeapon;

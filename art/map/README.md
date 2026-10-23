@@ -55,7 +55,8 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | `blender/house_kit.py` | Shared house parts: two-tone walls (outside stone or plaster, inside lining in height bands), windows with lintels, casements and shutters, doorways, tiled roofs with courses, fascias and gutters, dormers, chimneys, stair flights with their ramp collider, plank and flagstone floors, beams, rails, ruin helpers, LOD shell decals |
 | `blender/furniture.py` | The furniture and decoration library (tables, beds, wardrobes, hearth, range, sink, shop counter and shelves, bookcases, piano, stalls...), each piece built in its own frame with one cover collider |
 | `blender/house_farm.py`, `house_town.py`, `house_ruin.py`, `house_barn.py` | The four enterable houses (layout, furniture, loot spots, probes, walk paths, review cameras) and their LODs |
-| `blender/props_buildings.py` | Church, lighthouse, stone bridge, and the list of all building builders |
+| `blender/props_buildings.py` | Lighthouse, stone bridge, and the list of all building builders |
+| `blender/qorechain_tower.py` | The QoreChain Tower (the Kavren centerpiece): arcade hall, solid lettered shaft, crown, and the QORECHAIN glyphs built from convex quads |
 | `blender/props_country.py` | Hedgerow, stone wall, fence, signpost, trees, bushes, rocks, crater, rubble |
 | `blender/props_vehicles.py` | Tank wreck, truck wreck, landing craft, drop plane |
 | `blender/toon.py`, `blender/render_kit.py`, `blender/render_map.py` | Toon look and the review renders |
@@ -65,13 +66,13 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 
 ## Deathmatch arena: Kavren (`canard-quarter`)
 
-A compact village quarter for the 32-duck deathmatch, built from the same kit (no new props, so `colliders.json` and Yelova stay untouched). `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`.
+A compact village quarter for the 24-duck deathmatch, built from the same kit plus one landmark of its own, the QoreChain Tower (Yelova does not place it). `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`.
 
 - Size: terrain 288 x 288 m (72 cells of 4 m); the play area is the inside of a closed hedgerow ring about 162 x 162 m (25,100 m2). Outside the ring: a second hedge line, crop fields and tree lines on rising ground (scenery, never reachable). The loader's invisible walls (138 m) stay as a backstop.
-- Layout: the church square (Place du Canard) on a crossroads, the climbable church tower on its north side, a townhouse bakery (west) and the ruined house (east) on the square, a second townhouse on the south-west corner, a farmhouse on the south road, the barn over a fenced farmyard (north-east). Around them: a walled churchyard, an apple orchard behind a hedge, bombed lots with craters, rubble, a tank and sandbag nests (south-west), a zigzag trench field with wire (south-east), inner hedges with gates that cut the long diagonals. Two long lanes (the 162 m Rue du Canard and the south road) have wrecks and barricades along their edges.
-- Counts: 593 props (6 buildings: church, 2 townhouses, farmhouse, ruin, barn; 253 hedgerow pieces, 110 of them in the ring; 168 trees; 13 trench tiles; wrecks, walls, sandbags, crates), 1,542 colliders.
+- Layout: Kavren Square on the crossroads with the QoreChain Tower in its middle (an open arcade hall under a 34 m tower with QORECHAIN on all four faces; nothing above the hall can be reached), a townhouse bakery (west) and the ruined house (east) on the square, a second townhouse on the south-west corner, a farmhouse on the south road, the barn over a fenced farmyard (north-east). Around them: Tower Park behind the tower (a terrace wall with a gap, apple trees, crates, a sandbag nest), the Walled Garden, an apple orchard behind a hedge, bombed lots with craters, rubble, a tank and sandbag nests (south-west), a zigzag trench field with wire (south-east), inner hedges with gates that cut the long diagonals. Two long lanes (the 162 m Rue du Canard and the south road) have wrecks and barricades along their edges.
+- Counts: 603 props (6 buildings: the QoreChain Tower, 2 townhouses, farmhouse, ruin, barn; 253 hedgerow pieces, 110 of them in the ring; 170 trees; 13 trench tiles; wrecks, walls, sandbags, crates), 1,498 colliders.
 - Extra fields in `map_v1.json`: `mode: "deathmatch"`; `playArea.ring` (the ring's center line, inset 1.4 m); `dmSpawns`, 48 points `[x, y, z, yaw]` at least 15 m apart on free open ground (y is terrain + 0.1 m; yaw is the player yaw: 0 looks north, the duck looks along (-sin yaw, -cos yaw)); `zones` hold callout names only. No loot, plane or circle data.
-- Checks: `apps/server/test/canardQuarter.test.ts` (determinism, heightfield, stale copy, every spawn free and on the ground, a duck running and jumping at the ring from 108 points, straight and at two angles (324 runs), never gets out) and `houses.test.ts` (every house walk path on this map too). The generator asserts that the ground under every building stays below its floor.
+- Checks: `apps/server/test/canardQuarter.test.ts` (determinism, heightfield, stale copy, the tower in the middle with an open hall and no walkable top, every spawn free and on the ground, a duck running and jumping at the ring from 108 points, straight and at two angles (324 runs), never gets out), `nav.test.ts` (bots route around and through the tower, never through its core or piers) and `houses.test.ts` (every house walk path on this map too). The generator asserts that the ground under every building stays below its floor.
 
 ## Conventions
 
@@ -81,7 +82,7 @@ A compact village quarter for the 32-duck deathmatch, built from the same kit (n
 - Shadow tints: characters keep `#d9a6a0` (warm, the duck recipe). Environment props and the terrain use **`#b4bccf`** (cool neutral), so stone, plaster and concrete stay stone-colored in shadow instead of turning pink. The ducks then pop a little more against the set. Both values are in `manifest.json` (`shadowTint`) and `blender/kit.py`. See `renders/tint_compare.png`.
 - Shading: organic parts (foliage blobs, trunks, the crater bowl, the fuselage and nacelles) use smooth normals; hard-surface parts (walls, roofs, crates, sandbags, wrecks, rocks) keep flat normals on purpose, because the faceted 2-band look is the style. Smoothing them would make the toon terminator wander across flat walls. Flat normals cost file size; meshopt and quantization absorb most of it.
 - Brand accents are kept for readability: the yellow ring marks loot containers, the Pond Brigade insignia and the plane stripes; orange marks the Grey Gull Corps insignia and a few signpost stripes.
-- Fictional factions only: **Pond Brigade** (olive drab, yellow ring insignia) and **Grey Gull Corps** (field grey, orange triangle insignia). No real national, Nazi or unit markings, no real text, no brand logos.
+- Fictional factions only: **Pond Brigade** (olive drab, yellow ring insignia) and **Grey Gull Corps** (field grey, orange triangle insignia). No real national, Nazi or unit markings, no real text, no brand logos. The one exception is the owner-requested QORECHAIN lettering on the Kavren tower (text only, no logo). No religious buildings.
 - The drop plane has two pivot nodes, `PropLeft` and `PropRight`, at the hubs (empties with the blade meshes as children); spin the pivots around their local Z (the flight axis).
 
 ## LODs and compression
@@ -91,7 +92,7 @@ A compact village quarter for the 32-duck deathmatch, built from the same kit (n
 - Trees use low-poly geometry for LOD2 instead of a billboard: at 26 triangles it costs less than an alpha-tested impostor would cost in overdraw, needs no extra texture, and keeps the toon shading (a flat card cannot take the 2-band light).
 - Compression: `EXT_meshopt_compression` plus `KHR_mesh_quantization` (positions 14 bit over one volume per file, normals 10 bit, UVs 12 bit, which keeps the 16 px palette cell centers exact). Load with `GLTFLoader.setMeshoptDecoder(MeshoptDecoder)` from `three/examples/jsm/libs/meshopt_decoder.module.js`.
 - **Engine note:** quantization stores positions as normalized integers and puts one scale and translation on each `LOD` node (the same values on every LOD of a file). Three's loader applies it, but when you take `mesh.geometry` out to build an `InstancedMesh`, bake the node transform first (`geometry.applyMatrix4(lodNode.matrix)`) or put it in the instance matrices. Colliders and loot points are in the root's space, not affected.
-- Sizes: 4,693 KB uncompressed to 1,212 KB compressed for all 38 files (3.9 times smaller), before any gzip or brotli on the server.
+- Sizes: 4,952 KB uncompressed to 1,261 KB compressed for all 38 files (3.9 times smaller), before any gzip or brotli on the server.
 
 ## Collider format (`colliders.json`)
 
@@ -141,10 +142,10 @@ Triangles per LOD (LOD0 / LOD1 / LOD2), the distance in meters up to which each 
 | `crate_large` | 536 | 140 | 36 KB | 11.3 KB | 1 | 1.6 x 0.9 x 0.9 | 23 |
 | `ammo_box` | 122 | 80 | 13 KB | 6.8 KB | 1 | 0.5 x 0.4 x 0.3 | 50 |
 | `fuel_barrel` | 166 | 100 | 14 KB | 7.2 KB | 1 | 0.6 x 0.9 x 0.6 | 30 |
-| `farmhouse` | 12,306 / 212 / 84 | 60 / 180 / 700 | 872 KB | 176.7 KB | 100 | 12.0 x 12.3 x 9.4 | 8 |
+| `farmhouse` | 12,306 / 212 / 84 | 60 / 180 / 700 | 872 KB | 176.7 KB | 100 | 12.0 x 12.3 x 9.4 | 9 |
 | `townhouse` | 12,956 / 210 / 82 | 60 / 180 / 700 | 979 KB | 205.3 KB | 93 | 9.6 x 11.1 x 9.7 | 11 |
 | `house_ruined` | 8,126 / 266 / 86 | 60 / 180 / 700 | 596 KB | 133.2 KB | 99 | 13.2 x 12.3 x 10.0 | 4 |
-| `church` | 3,244 / 112 / 64 | 70 / 220 / 1200 | 233 KB | 51.0 KB | 167 | 10.3 x 26.1 x 25.7 | 1 |
+| `qorechain_tower` | 5,786 / 652 / 568 | 80 / 260 / 1200 | 492 KB | 100.3 KB | 112 | 16.7 x 34.6 x 16.7 | 0 (Kavren: 1) |
 | `barn` | 6,642 / 120 / 46 | 60 / 180 / 700 | 484 KB | 103.2 KB | 57 | 11.7 x 11.4 x 15.3 | 4 |
 | `lighthouse` | 678 | 1200 | 47 KB | 13.8 KB | 5 | 6.0 x 20.2 x 9.6 | 1 |
 | `bridge_stone` | 418 | 600 | 32 KB | 10.5 KB | 19 | 5.6 x 4.9 x 20.0 | 2 |
@@ -167,18 +168,18 @@ Triangles per LOD (LOD0 / LOD1 / LOD2), the distance in meters up to which each 
 | `landing_craft` | 594 / 80 / 64 | 45 / 140 / 450 | 52 KB | 17.2 KB | 7 | 3.4 x 2.6 x 12.7 | 3 |
 | `transport_plane` | 3,376 | 2000 | 168 KB | 42.1 KB | 0 | 29.5 x 5.3 x 19.9 | flyover |
 
-All 38 props at LOD0: 64,556 triangles. GLBs: 4,693 KB uncompressed, 1,212 KB compressed (the four houses are 618 KB of that). `colliders.json` 66 KB.
+All 38 props at LOD0: 67,098 triangles. GLBs: 4,952 KB uncompressed, 1,261 KB compressed (the four houses are 618 KB of that). `colliders.json` 66 KB.
 
 ### Building notes
 
-Four enterable house types, each with a real interior (rooms, furniture with cover colliders, loot on furniture tops), placed 27 times on map_v1 (8 farmhouses, 11 townhouses, 4 ruins, 4 barns; the first layout had 37 plainer houses). Shared look: two-tone walls (outside stone or plaster with proud stones, plaster patches and quoins; inside a lining in height bands: panelling, plaster, wallpaper), lintels and sills, casement windows swung open, open shutters, flower boxes, plank and flagstone floors, ceiling beams, pendant lamps, pictures, rugs. Review shots: `renders/closeup_*`, `cutaway_*` and `interior_<house>_<room>.png`.
+Four enterable house types, each with a real interior (rooms, furniture with cover colliders, loot on furniture tops), placed 28 times on map_v1 (9 farmhouses, 11 townhouses, 4 ruins, 4 barns; the first layout had 37 plainer houses). The farmhouse at the head of the village square keeps 5 of its 10 loot spots, the count of the landmark that stood there before. Shared look: two-tone walls (outside stone or plaster with proud stones, plaster patches and quoins; inside a lining in height bands: panelling, plaster, wallpaper), lintels and sills, casement windows swung open, open shutters, flower boxes, plank and flagstone floors, ceiling beams, pendant lamps, pictures, rugs. Review shots: `renders/closeup_*`, `cutaway_*` and `interior_<house>_<room>.png`.
 
 - **Farmhouse** (stone, slate roof with two dormers, a slate porch canopy over the front door, green shutters, chimney on the west gable): a farm kitchen on flagstones (stone hearth with logs and a pot, long table with benches, a plate dresser, a stone sink with a hand pump, a barrel and sacks) and a parlour (sofa, two armchairs, coffee table, radio table, bookcase, grandfather clock). A 15-step stair along the back wall climbs to the main bedroom (double bed, chest of drawers with a mirror, wardrobe, trunk) and a study bedroom (single bed, desk with a typewriter, bookcase, washstand). Outside: a woodpile on the east gable, a bench by the door, a rain barrel, a ladder. 10 loot spots.
 - **Townhouse** (plaster, tile roof, blue shutters): a bakery. The shop has a display window with mullions, a red and cream striped awning, a painted sign (a loaf and wheat ears, no lettering), terracotta and cream tiles, a glass display case, a counter with a till, shelves of bread and jars and a cafe table; behind it a bakehouse with a brick bread oven, a kneading table and a range. A 15-step stair along the west wall climbs to a living room with two Juliet balconies (French windows with iron rails: cover colliders, shoot over them), a piano, a sofa and a sideboard with a radio, and a bedroom. Outside: a produce stand under the awning, a cafe table, a wall lamp. 10 loot spots.
 - **Ruined house** (the farmhouse footprint after shelling): the west half stands to the eaves under a holed slate roof with charred rafters; the east half is broken down to waist and chest height and full of rubble mounds and fallen beams. Part of the upper floor has collapsed into a solid debris ramp (33 degrees, `ramp` collider), a second way up beside the stairs; a shell breach opens the west gable and a gap the east wall. Upstairs: a sandbagged firing position at the broken floor edge (cover) with an ammo box, a bed and a toppled wardrobe. 8 loot spots.
 - **Barn** (timber on a stone base, tile roof with a louvred ridge vent and a duck vane, X-braced door leaves swung open as cover, a hay door with a hoist beam and pulley in the front gable): two cattle stalls with a feed trough, the hay cart, a workbench and tool racks, milk churns, barrels and bales; exposed posts, tie beams and rafters. Hay loft at 2.9 m over the back half (13-step stair along the west wall) with bales, a shelf and a supply cache of crates. 8 loot spots.
 - All furniture has `cover` colliders (one box or cylinder per piece). The probes check that no furniture blocks a door, a stair foot or the upper floor paths, and the walk test climbs every staircase.
-- **Church**: nave with pews (cover), side doors, chancel with the altar, and a climbable bell tower: front and west doors, 8 flights of 7 steps around an open shaft up to the belfry at 11.35 m, sniper openings on all four sides. The weathervane is a yellow duck.
+- **QoreChain Tower** (Kavren only): a 16 x 16 m Art Deco tower. The ground floor is an open arcade hall: three round arches (3 m wide, 4.4 m high) on every side, a solid 4 x 4 m core with yellow-banded lift doors, four columns and four waist-high planters (`cover`). Over the hall the shaft is one solid `wall` block to 18 m with sheer faces and no ledge, and the crown is a 60 degree pyramid (hip lines 51 degrees, both steeper than the 46 degree climb limit) with yellow hips and a yellow beacon at 34 m: no stairs and no walkable top, so it is cover and a landmark, never a perch. QORECHAIN runs across all four faces in 2.7 m yellow letters on a dark band at 12.4 to 16.4 m (above the house ridges, readable across the arena); the letters, window strips and trims are mesh only, so nothing snags a duck. The glyphs are our own convex quads (no font file). LOD1 and LOD2 keep the lettering as flat quads.
 - **Lighthouse**: exterior landmark only, with a keeper's hut.
 - **Stone bridge**: a 20 m deck spanning a river 3 m deep, parapets as cover, arch underneath (2.5 m clear).
 

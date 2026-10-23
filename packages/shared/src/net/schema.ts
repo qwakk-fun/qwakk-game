@@ -96,6 +96,19 @@ export const PlayerState = schema(
     dmPower: t.uint8().view(),
     dmPowerTicks: t.uint16().view(),
     dmShield: t.float32().view(),
+    /**
+     * Deathmatch kill stacks and the hero bit, packed (dmBuffs.ts). Public: it
+     * draws the aura and the cape on ducks a viewer receives, and holds no
+     * position or movement state. PlayerState is near Colyseus' 63 field limit.
+     */
+    dmBuff: t.uint8(),
+    /** Hero flight energy (ticks), owner only: thrust on or off is movement state. */
+    dmEnergy: t.uint8().view(),
+    /**
+     * Deathmatch explosives, owner only, packed into one field (explosives.ts: grenades, rockets, the
+     * launcher in hand, both gates). This schema is near its limit of 64 fields: pack new sim state too.
+     */
+    ex: t.uint32().view(),
   },
   'PlayerState',
 );
@@ -120,6 +133,8 @@ export const Pose = schema(
      */
     fly: t.uint8(),
     act: t.uint8(),
+    /** Deathmatch: 1 while the duck holds the rocket launcher (drawn in place of the rifle). Culled with the pose. */
+    lnch: t.uint8(),
   },
   'Pose',
 );
@@ -246,6 +261,10 @@ export const IslandState = schema(
     dmResults: t.map(DmRoundRow),
     dmWeapon: t.uint8(),
     dmRotationLeft: t.uint16(),
+    /** Health a hero gets (admin setting, read when a hero is made): the hero's health bar. */
+    dmHeroHp: t.uint8(),
+    /** The rocket launcher pickup (at most one): a public map objective like `dmPickups` (kind unused). */
+    dmRockets: t.map(DmPickup),
     // Battle royale.
     /** Lobby room name (roomLabel) and, while waiting, how many more humans the countdown needs. */
     label: t.string(),
@@ -295,13 +314,16 @@ export const KillWeapon = {
   Left: 4,
   /** A knocked duck whose team has nobody standing, or that bled out. */
   Bleed: 5,
+  /** Deathmatch explosives (also the weapon of their Msg.ShotHint). */
+  Grenade: 6,
+  Rocket: 7,
 } as const;
 
 /** Server to client messages. Arrays keep them small on the wire. */
 export const Msg = {
   /** Batched shot effects for everyone but the shooter: [pid, weapon, outcome, mx,my,mz, ex,ey,ez][] */
   Shots: 'shots',
-  /** To the shooter: [victimPid, damage, head(0/1), killed(0/1), knocked(0/1)] */
+  /** To the shooter: [victimPid, damage, head(0/1), killed(0/1), knocked(0/1), explosive(0/1, optional)] */
   HitConfirm: 'hit',
   /** To the victim: [directionMilliRad, damage, source] (source 0 a duck, 1 the zone; direction is the world angle toward the attacker). No position. */
   Damaged: 'dmg',
@@ -342,6 +364,39 @@ export const Msg = {
   DmPower: 'dm-power',
   /** Server to the dead victim only: DmKillcam. No client request handler. */
   DmKillcam: 'dm-killcam',
+  /**
+   * To everyone: [DmHeroEvent, heroPid, otherPid]. Chosen (other 0), took the
+   * cape from `otherPid`, or lost (heroPid: the old hero; nobody holds it).
+   * No position.
+   */
+  DmHero: 'dm-hero',
+  /**
+   * To everyone but the hero, every DM_HERO.pingEverySeconds: [heroPid, x, z],
+   * the hero's position rounded to a DM_HERO.pingGrid meter grid. A deliberate,
+   * public mode objective (CLAUDE.md anti-wallhack exception), never a pose.
+   */
+  DmHeroPing: 'dm-hero-ping',
+  /**
+   * Deathmatch explosives in flight: [id, kind, ownerPid, x, y, z, vx, vy, vz] (cm, cm/s; kind ExplosiveKind).
+   * Only to viewers who see the thrower (and the thrower); everyone else in earshot gets a Msg.ShotHint
+   * (KillWeapon.Grenade or Rocket, direction only). A grenade at rest is also shown, with ownerPid 0 and no
+   * velocity, to viewers who see its spot: it never leads back to a hidden thrower.
+   */
+  Proj: 'pj',
+  /**
+   * An explosion, public within earshot: [id, kind, x, y, z] (cm). No thrower: a blast never names or
+   * places who caused it. `id` ends the projectile of that id, if the client draws it.
+   */
+  Boom: 'boom',
+  /** To the collector only: the rocket launcher with this many rockets. */
+  DmRocket: 'dm-rocket',
+} as const;
+
+/** `Msg.DmHero` events. */
+export const DmHeroEvent = {
+  Chosen: 1,
+  Took: 2,
+  Lost: 3,
 } as const;
 
 /** Plain room chat. No positions, device identities or tokens. */

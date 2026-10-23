@@ -1,13 +1,13 @@
 /**
  * Every setting the admin panel can change at runtime, with its type, range,
  * default and when it takes effect. The defaults are the constants
- * (`MATCH`, `BR`, `DM_BOT`, `SPAWN_PROTECTION`, `WEAPONS`, `BR_SKILL`,
+ * (`MATCH`, `BR`, `ZONE`, `DM_BOT`, `SPAWN_PROTECTION`, `WEAPONS`, `BR_SKILL`,
  * `DM_ROOM_CATALOG`): with nothing stored, the server runs exactly as the
  * constants say. Only numbers the server alone decides are here; anything the
  * client also simulates for prediction (movement, fire rate, spread, recoil,
  * aim down sights) stays a constant (it needs a client deploy).
  */
-import { BR, DM_BOT, MATCH, ROOM, SPAWN_PROTECTION, TICK_RATE, WEAPONS } from '@qwakk/shared';
+import { BR, DM_BOT, DM_HERO, EXPLOSIVE, KILL_STACKS, MATCH, ROOM, SPAWN_PROTECTION, TICK_RATE, WEAPONS, ZONE } from '@qwakk/shared';
 import { DM_OPEN_ROOMS, DM_ROOM_CATALOG } from '@qwakk/shared/lobby';
 import { BR_SKILL } from '../br/brBot.ts';
 
@@ -154,6 +154,29 @@ function weaponDefs(): SettingDef[] {
   });
 }
 
+/**
+ * Deathmatch explosives (EXPLOSIVE in constants.ts): everything here is decided by the server alone
+ * (the client only predicts the throw, the launch and their gates), read through settings/explosives.ts.
+ */
+function explosiveDefs(): SettingDef[] {
+  const G = EXPLOSIVE.grenade;
+  const R = EXPLOSIVE.rocket;
+  return [
+    { key: 'dm.grenadesPerLife', group: 'dm', label: 'Grenades per life', help: 'Grenades every deathmatch duck spawns with (G throws). 0 turns grenades off. Read at each spawn.', kind: 'int', default: G.perLife, min: 0, max: 5, step: 1, unit: 'grenades', applies: 'now' },
+    { key: 'dm.rocketsPerPickup', group: 'dm', label: 'Rockets per launcher pickup', help: 'Rockets the rare launcher pickup gives (slot 3 until they are used up). 0 turns the pickup off.', kind: 'int', default: R.perPickup, min: 0, max: 10, step: 1, unit: 'rockets', applies: 'now' },
+    { key: 'dm.rocketPickupMinSeconds', group: 'dm', label: 'Launcher pickup, shortest wait', help: 'Shortest time before the next launcher pickup appears (at most one on the map).', kind: 'int', default: R.pickupMinSeconds, min: 10, max: 600, step: 5, unit: 's', applies: 'now' },
+    { key: 'dm.rocketPickupMaxSeconds', group: 'dm', label: 'Launcher pickup, longest wait', help: 'Longest wait (raised to the shortest when lower).', kind: 'int', default: R.pickupMaxSeconds, min: 10, max: 600, step: 5, unit: 's', applies: 'now' },
+    { key: 'weapons.grenade.damage', group: 'weapons', label: 'Grenade damage', help: 'Damage at the blast center, falling off to the edge. Walls that stop bullets protect. Never hurts teammates.', kind: 'int', default: G.damage, min: 1, max: 200, step: 1, unit: 'hp', applies: 'now' },
+    { key: 'weapons.grenade.radius', group: 'weapons', label: 'Grenade blast radius', help: 'No damage past this distance.', kind: 'number', default: G.blastRadius, min: 2, max: 12, step: 0.5, unit: 'm', applies: 'now' },
+    { key: 'weapons.grenade.fuseSeconds', group: 'weapons', label: 'Grenade fuse', help: 'Time from the throw to the blast.', kind: 'number', default: G.fuseTicks / TICK_RATE, min: 1, max: 5, step: 0.1, unit: 's', applies: 'now' },
+    { key: 'weapons.rocket.damage', group: 'weapons', label: 'Rocket splash damage', help: 'Damage at the blast center, falling off to the edge.', kind: 'int', default: R.damage, min: 1, max: 200, step: 1, unit: 'hp', applies: 'now' },
+    { key: 'weapons.rocket.directDamage', group: 'weapons', label: 'Rocket direct hit bonus', help: 'Extra damage to the duck the rocket hits.', kind: 'int', default: R.directDamage, min: 0, max: 200, step: 1, unit: 'hp', applies: 'now' },
+    { key: 'weapons.rocket.radius', group: 'weapons', label: 'Rocket blast radius', help: 'No splash damage past this distance.', kind: 'number', default: R.blastRadius, min: 1, max: 10, step: 0.5, unit: 'm', applies: 'now' },
+    { key: 'weapons.explosive.selfDamage', group: 'weapons', label: 'Own explosion damage', help: 'Share of the damage your own grenade or rocket does to you.', kind: 'number', default: EXPLOSIVE.selfDamageScale, min: 0, max: 1, step: 0.05, unit: 'x', applies: 'now' },
+    { key: 'weapons.explosive.knockback', group: 'weapons', label: 'Explosion knockback', help: 'Scales the push and the upward pop of every explosion. 0 turns knockback off.', kind: 'number', default: 1, min: 0, max: 3, step: 0.1, unit: 'x', applies: 'now' },
+  ];
+}
+
 /** Weapon id to its settings key part (rifle, pistol). */
 export function weaponKey(id: number): string {
   return WEAPON_KEYS[id] ?? `w${id}`;
@@ -172,6 +195,19 @@ function dmRoomDefs(): SettingDef[] {
   }));
 }
 
+/** Kill stacks and the caped hero (server-only numbers; flight and stack speed are client-simulated constants). */
+function dmBuffDefs(): SettingDef[] {
+  return [
+    { key: 'dm.killStacks', group: 'dm', label: 'Kill stacks', help: 'Each kill since the last death adds a stack (up to 5): more damage, and 4% more move speed per stack. Off: nobody gains stacks.', kind: 'bool', default: true, applies: 'now' },
+    { key: 'dm.stackDamagePercent', group: 'dm', label: 'Damage per kill stack', help: 'Extra bullet damage per kill stack. The speed part is fixed (client simulated).', kind: 'number', default: KILL_STACKS.damagePerStack * 100, min: 0, max: 20, step: 0.5, unit: '%', applies: 'now' },
+    { key: 'dm.hero', group: 'dm', label: 'Caped hero', help: 'A random duck gets the cape (flight, extra health); whoever takes it down takes the cape. Off: no new heroes.', kind: 'bool', default: true, applies: 'now' },
+    { key: 'dm.heroEverySeconds', group: 'dm', label: 'Hero pick interval', help: 'When nobody holds the cape, a new hero is picked this often (and 5 s into every round).', kind: 'int', default: DM_HERO.everySeconds, min: 30, max: 900, step: 10, unit: 's', applies: 'now' },
+    { key: 'dm.heroHealth', group: 'dm', label: 'Hero health', help: 'Health a duck gets when it becomes the hero (normal ducks have 100).', kind: 'int', default: DM_HERO.health, min: 100, max: 250, step: 5, unit: 'hp', applies: 'now' },
+    { key: 'dm.heroKillPoints', group: 'dm', label: 'Hero takedown bonus', help: 'Extra points for taking down the hero.', kind: 'int', default: DM_HERO.killPoints, min: 0, max: 2000, step: 10, unit: 'points', applies: 'now' },
+    { key: 'dm.heroHoldPoints', group: 'dm', label: 'Hero points every 5 s', help: 'Points the hero earns every 5 seconds while it keeps the cape.', kind: 'int', default: DM_HERO.holdPoints, min: 0, max: 200, step: 1, unit: 'points', applies: 'now' },
+  ];
+}
+
 export const SETTING_DEFS: readonly SettingDef[] = [
   ...dmRoomDefs(),
   { key: 'dm.players', group: 'dm', label: 'Ducks per room', help: 'Humans plus bots in every deathmatch room. Bots fill the seats humans do not take.', kind: 'int', default: MATCH.players, min: 2, max: 32, step: 1, unit: 'ducks', applies: 'now' },
@@ -180,6 +216,7 @@ export const SETTING_DEFS: readonly SettingDef[] = [
   { key: 'dm.roundSeconds', group: 'dm', label: 'Round time', help: 'Most kills when the time runs out wins.', kind: 'int', default: MATCH.roundSeconds, min: 60, max: 3600, step: 30, unit: 's', applies: 'next-round' },
   { key: 'dm.intermissionSeconds', group: 'dm', label: 'Break between rounds', help: 'Results time before the next round.', kind: 'int', default: MATCH.intermissionSeconds, min: 3, max: 60, step: 1, unit: 's', applies: 'next-round' },
   { key: 'dm.spawnProtectionSeconds', group: 'dm', label: 'Spawn protection', help: 'A fresh duck takes no damage for this long (firing ends it early). 0 turns it off.', kind: 'number', default: SPAWN_PROTECTION.ticks / TICK_RATE, min: 0, max: 10, step: 0.5, unit: 's', applies: 'now' },
+  ...dmBuffDefs(),
   ...skillDefs('dmBot', DM_BOT_DEFAULTS),
   { key: 'br.maxRooms', group: 'br', label: 'Rooms at once', help: 'Battle royale rooms open at the same time (waiting, counting down or playing). 0 opens none.', kind: 'int', default: BR.maxRooms, min: 0, max: 8, step: 1, unit: 'rooms', applies: 'now', env: 'QWAKK_BR_MAX_ROOMS' },
   { key: 'br.minHumans', group: 'br', label: 'Humans to start', help: 'Human target without bots. Bot rooms start a countdown with the first player; later arrivals add 15 s.', kind: 'int', default: BR.minHumans, min: 1, max: BR.players, step: 1, unit: 'players', applies: 'new-rooms', env: 'QWAKK_BR_MIN_HUMANS' },
@@ -187,8 +224,12 @@ export const SETTING_DEFS: readonly SettingDef[] = [
   { key: 'br.mode.solo', group: 'br', label: 'Solo rooms', help: 'Players may open Solo rooms.', kind: 'bool', default: true, applies: 'now' },
   { key: 'br.mode.duo', group: 'br', label: 'Duo rooms', help: 'Players may open Duo rooms.', kind: 'bool', default: true, applies: 'now' },
   { key: 'br.mode.squad', group: 'br', label: 'Squad rooms', help: 'Players may open Squad rooms.', kind: 'bool', default: true, applies: 'now' },
+  { key: 'br.zoneTimeScale', group: 'br', label: 'Zone timing', help: 'Every zone wait and shrink takes this many times its default (0.8 is a faster match, 1.2 a slower one). The defaults close the zone 5.5 minutes after the plane starts.', kind: 'number', default: 1, min: 0.5, max: 2, step: 0.05, unit: 'x', applies: 'new-rooms' },
+  { key: 'br.zoneDamageScale', group: 'br', label: 'Zone damage', help: 'Damage per second outside the zone, times this (rounded, at least 1 per second).', kind: 'number', default: 1, min: 0.5, max: 3, step: 0.1, unit: 'x', applies: 'new-rooms' },
+  { key: 'br.firstCircleRadius', group: 'br', label: 'First circle', help: 'Radius of the first safe circle, shown while the plane flies. The plane flies over it and ejects everyone soon after its center.', kind: 'int', default: ZONE.phases[0].radius, min: 160, max: 380, step: 5, unit: 'm', applies: 'new-rooms' },
   ...skillDefs('brBot', BR_BOT_DEFAULTS),
   ...weaponDefs(),
+  ...explosiveDefs(),
   { key: 'ops.banner', group: 'ops', label: 'Menu banner', help: 'A short line at the top of the menu. Empty hides it.', kind: 'text', default: '', maxLength: 160, applies: 'now' },
   { key: 'ops.maintenance', group: 'ops', label: 'Maintenance mode', help: 'Refuses new joins and new rooms. Matches already running finish.', kind: 'bool', default: false, applies: 'now' },
   { key: 'ops.maintenanceMessage', group: 'ops', label: 'Maintenance note', help: 'Shown in the menu during maintenance. Empty uses the default line.', kind: 'text', default: '', maxLength: 160, applies: 'now' },

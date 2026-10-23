@@ -179,6 +179,12 @@ export class BrClient {
     return (this.serverNow() - st.planeT0) / 1000;
   }
 
+  /** Seconds after the plane start when everyone still aboard is ejected: the server's call (planeEnd). */
+  private ejectS(r: PlaneRoute): number {
+    const st = this.state;
+    return st.planeEnd > st.planeT0 ? (st.planeEnd - st.planeT0) / 1000 : r.ejectS;
+  }
+
   private ensureRoute(): PlaneRoute | null {
     const st = this.state;
     if (!st.planeT0) return null;
@@ -459,7 +465,8 @@ export class BrClient {
       const c = circleAt({ from: { x: z.cx, z: z.cz, r: z.r }, to: { x: z.tx, z: z.tz, r: z.tr }, t0: z.t0, t1: z.t1 }, now);
       current = c.r < 1000 ? c : null;
       next = z.shown && z.tr < c.r - 0.5 ? { x: z.tx, z: z.tz, r: z.tr } : null;
-      const shownAt = z.t0 - ((ZONE.phases[0]?.waitS ?? 0) - ZONE.firstShownS) * 1000;
+      // The match clock starts with the plane (planeT0); the first circle shows firstShownS later.
+      const shownAt = st.planeT0 + ZONE.firstShownS * 1000;
       if (!z.shown) zoneText = translate('First zone in {time}', { time: clock(Math.max(0, shownAt - now) / 1000) });
       else if (now < z.t0) zoneText = translate('Zone shrinks in {time}', { time: clock((z.t0 - now) / 1000) });
       else if (now < z.t1) zoneText = translate('Zone closing {time}', { time: clock((z.t1 - now) / 1000) });
@@ -480,7 +487,7 @@ export class BrClient {
     } else if (s && s.alive && s.mode === Mode.Plane && r) {
       const p = planeAt(r, Math.max(0, t));
       const land = t >= 0 && overLand(this.d.world.map, p.x, p.z);
-      const auto = Math.max(0, r.ejectS - Math.max(0, t));
+      const auto = Math.max(0, this.ejectS(r) - Math.max(0, t));
       banner = [t < 0 ? translate('Boarding the plane') : land ? translate('Over Yelova') : translate('Over the sea'), translate('Auto jump in {time}. {hint}', { time: clock(auto), hint: hint(translate('Mouse to look around, M for the map.'), COPY.touch.hints.plane) })];
       prompt = land ? { key: 'F', text: translate('Jump') } : null;
     } else if (s && s.alive && s.mode === Mode.Freefall) {
@@ -520,7 +527,7 @@ export class BrClient {
     const zoneTarget = next ?? current;
     const zoneAngle = zoneTarget && s && Math.hypot(myX - zoneTarget.x, myZ - zoneTarget.z) > zoneTarget.r ? Math.atan2(-(zoneTarget.x - myX), -(zoneTarget.z - myZ)) : null;
     const pp = r ? planeAt(r, Math.max(0, t)) : null;
-    const showPlane = r && pp && Number.isFinite(t) && (s?.mode === Mode.Plane || t < r.ejectS + 5);
+    const showPlane = r && pp && Number.isFinite(t) && (s?.mode === Mode.Plane || t < this.ejectS(r) + 5);
     const overlay: MapOverlay = {
       me: s ? { x: myX, z: myZ, yaw: this.d.controls.yaw } : null,
       allies: this.allyDots(),

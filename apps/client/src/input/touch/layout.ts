@@ -11,7 +11,7 @@ import './touch.css';
 const B = COPY.touch.buttons;
 
 /** Every button id the layer knows. */
-export type ButtonId = 'fire' | 'fireL' | 'aim' | 'jump' | 'crouch' | 'reload' | 'swap' | 'use' | 'deploy' | 'heal1' | 'heal2' | 'pause' | 'board' | 'map' | 'bag' | 'next' | 'prev';
+export type ButtonId = 'fire' | 'fireL' | 'aim' | 'jump' | 'crouch' | 'reload' | 'swap' | 'use' | 'deploy' | 'heal1' | 'heal2' | 'pause' | 'board' | 'map' | 'bag' | 'next' | 'prev' | 'grenade' | 'rocket';
 
 const SPECS: { id: ButtonId; label: string; cls: string }[] = [
   { id: 'fire', label: B.fire, cls: 'tc-btn tc-fire' },
@@ -27,6 +27,9 @@ const SPECS: { id: ButtonId; label: string; cls: string }[] = [
   { id: 'heal2', label: B.medkit, cls: 'tc-btn tc-heal tc-heal2' },
   { id: 'prev', label: B.prev, cls: 'tc-btn tc-spec tc-prev' },
   { id: 'next', label: B.next, cls: 'tc-btn tc-spec tc-next' },
+  // Deathmatch explosives: hold to aim the throw, let go to throw; the launcher slot while rockets last.
+  { id: 'grenade', label: B.grenade, cls: 'tc-btn tc-grenade' },
+  { id: 'rocket', label: B.rocket, cls: 'tc-btn tc-rocket' },
 ];
 
 const TOP: { id: ButtonId; label: string }[] = [
@@ -84,7 +87,7 @@ export function buildLayout(parent: HTMLElement): TouchLayout {
     top.append(b);
   }
   root.append(top);
-  for (const id of ['heal1', 'heal2', 'swap'] as const) {
+  for (const id of ['heal1', 'heal2', 'swap', 'grenade', 'rocket'] as const) {
     const badge = document.createElement('span');
     badge.className = 'tc-badge';
     buttons.get(id)!.append(badge);

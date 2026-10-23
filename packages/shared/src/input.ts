@@ -24,9 +24,13 @@ export const Button = {
   Deploy: 1 << 12,
   /** Aim down sights (right mouse, held). Tighter spread, less recoil, slower moves (`ADS`). */
   Aim: 1 << 13,
+  /** Deathmatch grenade (G, held): the throw goes on release (`explosives.ts`). Stand-in steps hold it where it was. */
+  Grenade: 1 << 14,
+  /** Equip the rocket launcher (key 3), while the deathmatch pickup's rockets last. Held for one tick like the slots. */
+  Slot3: 1 << 15,
 } as const;
 
-export const ALL_BUTTONS = (1 << 14) - 1;
+export const ALL_BUTTONS = (1 << 16) - 1;
 
 /** One sim tick of player intent. This is all a client ever sends. */
 export interface InputFrame {

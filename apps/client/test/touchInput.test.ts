@@ -182,6 +182,18 @@ describe('Controls with touch', () => {
     expect(c.sample().buttons & Button.Fire).toBe(0);
   });
 
+  it('holds jump while the finger stays down (hero flight), a quick tap still counts once', async () => {
+    const c = await make();
+    c.setTouchHeld(Button.Jump, true);
+    for (let i = 0; i < 4; i++) expect(c.sample().buttons & Button.Jump).toBe(Button.Jump);
+    c.setTouchHeld(Button.Jump, false);
+    expect(c.sample().buttons & Button.Jump).toBe(0);
+    c.setTouchHeld(Button.Jump, true);
+    c.setTouchHeld(Button.Jump, false);
+    expect(c.sample().buttons & Button.Jump).toBe(Button.Jump);
+    expect(c.sample().buttons & Button.Jump).toBe(0);
+  });
+
   it('sends taps (jump, reload, deploy) for exactly one tick', async () => {
     const c = await make();
     c.tapTouch(Button.Jump | Button.Reload);

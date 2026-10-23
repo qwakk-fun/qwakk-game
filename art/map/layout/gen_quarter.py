@@ -1,8 +1,9 @@
 """Generate the Kavren deathmatch arena (map id canard-quarter) as map_v1 placement data.
 
-A compact walled-in village quarter built from the same prop kit as Yelova: a church square on a
-crossroads, five enterable houses (two townhouses, a farmhouse, a ruin, a barn), a churchyard, an orchard,
-a farmyard, bombed lots and a trench field, closed by a ring of hedgerows the duck cannot cross.
+A compact walled-in village quarter built from the same prop kit as Yelova: the QoreChain Tower (an open
+arcade hall under a tall lettered tower) in the middle of the square on the crossroads, five enterable houses
+(two townhouses, a farmhouse, a ruin, a barn), a tower park and a walled garden behind it, an orchard, a
+farmyard, bombed lots and a trench field, closed by a ring of hedgerows the duck cannot cross.
 
 Pure Python 3, standard library only, fully deterministic (fixed seed, the same mulberry32 RNG as gen_map.py).
 Reads the prop manifest written by art/map/blender/build_props.py and writes:
@@ -52,27 +53,29 @@ RING_INNER = 1.4          # the hedge berm reaches 1.3 m from its center line
 
 ROADS = [
     {"id": "rue_du_canard", "width": 7, "pts": [(-81, 0), (-40, 0), (0, 0), (40, 0), (81, 0)]},
-    {"id": "rue_de_l_eglise", "width": 6, "pts": [(0, 0), (0, 40), (0, 81)]},
-    {"id": "church_lane", "width": 4, "pts": [(-18, -20), (-13, -32), (-13, -58), (-18, -80)]},
+    {"id": "south_road", "width": 6, "pts": [(0, 0), (0, 40), (0, 81)]},
+    {"id": "garden_lane", "width": 4, "pts": [(-18, -20), (-13, -32), (-13, -58), (-18, -80)]},
     {"id": "barn_track", "width": 4, "pts": [(18, -20), (32, -26), (46, -32)]},
     {"id": "orchard_track", "width": 3, "pts": [(-40, 0), (-41, -24), (-40, -50), (-42, -80)]},
 ]
-PLAZA = (-18, -24, 18, -4)        # the church square, cobbled (x0, z0, x1, z1)
+PLAZA = (-18, -30, 18, -4)        # Kavren Square around the tower, cobbled (x0, z0, x1, z1)
+LANDMARK = "qorechain_tower"      # the centerpiece: a bigger pad and yard than the houses
 
 # Buildings: (prop, x, z, facing). Doors face the square, the streets or a yard.
 BUILDINGS = [
-    ("church", 0, -38, FACE_S),            # front and tower on the square, belfry over both streets
+    ("qorechain_tower", 0, -16, FACE_S),   # the QoreChain Tower in the middle of the square, arches on all sides
     ("townhouse", -27, -14, FACE_E),       # bakery on the west side of the square
     ("house_ruined", 28, -14, FACE_W),     # shelled house on the east side of the square
     ("townhouse", -16, 12, FACE_N),        # shop front on the Rue du Canard, south-west corner
-    ("farmhouse", 16, 34, FACE_W),         # farm on the Rue de l'Old Chapel, south-east
+    ("farmhouse", 16, 34, FACE_W),         # farm on the south road, south-east
     ("barn", 50, -44, FACE_S),             # barn over the farmyard, north-east
 ]
 
 CALLOUTS = [
-    {"id": "square", "name": "Kavren Square", "poly": [(-18, -24), (18, -24), (18, -4), (-18, -4)]},
-    {"id": "church", "name": "Old Chapel", "poly": [(-10, -54), (10, -54), (10, -24), (-10, -24)]},
-    {"id": "churchyard", "name": "Chapel Yard", "poly": [(-12, -80), (18, -80), (18, -54), (-12, -54)]},
+    {"id": "tower", "name": "QoreChain Tower", "poly": [(-10, -26), (10, -26), (10, -6), (-10, -6)]},    # first: it wins over the square
+    {"id": "square", "name": "Kavren Square", "poly": [(-18, -30), (18, -30), (18, -4), (-18, -4)]},
+    {"id": "park", "name": "Tower Park", "poly": [(-12, -54), (12, -54), (12, -30), (-12, -30)]},
+    {"id": "garden", "name": "Walled Garden", "poly": [(-12, -80), (18, -80), (18, -54), (-12, -54)]},
     {"id": "orchard", "name": "Harman Gardens", "poly": [(-80, -80), (-46, -80), (-46, -26), (-80, -26)]},
     {"id": "bakery", "name": "Bakery", "poly": [(-46, -26), (-20, -26), (-20, -4), (-46, -4)]},
     {"id": "farmyard", "name": "Harman Yard", "poly": [(30, -80), (80, -80), (80, -4), (30, -4)]},
@@ -282,7 +285,7 @@ def generate():
     # stays at its pad height (the square's falloff applied last lifted the ground into the ruin's doorway).
     g.pad((PLAZA[0] + PLAZA[2]) / 2, (PLAZA[1] + PLAZA[3]) / 2, (PLAZA[2] - PLAZA[0]) / 2, (PLAZA[3] - PLAZA[1]) / 2, falloff=14.0)
     for prop, x, z, yaw in BUILDINGS:
-        g.pad_for(prop, x, z, yaw, margin=3.0 if prop != "church" else 4.0, falloff=12.0)
+        g.pad_for(prop, x, z, yaw, margin=3.0 if prop != LANDMARK else 4.0, falloff=12.0)
     trench = zigzag((0, 0), 13, run=4, jog=2, axis="z", sign=1, jog_sign=1)
     tiles = []
     for prop, i, j, yaw in trench_tiles(trench):
@@ -298,7 +301,7 @@ def generate():
     # ======== phase B: placement, most important first
     pad_y = {(round(p["x"], 2), round(p["z"], 2)): p["y"] for p in g.pads}
     for prop, x, z, yaw in BUILDINGS:
-        fp = g.footprint(prop, x, z, yaw, margin=3.0 if prop != "church" else 4.0)
+        fp = g.footprint(prop, x, z, yaw, margin=3.0 if prop != LANDMARK else 4.0)
         y = pad_y[(round(fp[0], 2), round(fp[1], 2))]
         assert g.place(prop, x, z, yaw, y=y, check=(), margin=0.0), prop
         # the ground under the house and one meter around it stays under the 0.15 m floor top and above the
@@ -318,7 +321,8 @@ def generate():
     inner_hedges(g)
     square(g, rng)
     streets(g, rng)
-    churchyard(g, rng)
+    park(g)
+    walled_garden(g, rng)
     orchard(g, rng)
     farmyard(g, rng)
     bombed(g, rng)
@@ -331,16 +335,19 @@ def generate():
 
 
 def square(g, rng):
-    """Kavren Square: a tank wreck and sandbag barricades split the square, crates along the house fronts."""
-    g.place("tank_wreck", 7, -13, 0.55, check=("solid",), margin=0.3)
-    g.place("signpost", 5.5, 5.5, 2.2, check=("solid",))
-    for x, z, yaw in ((-8, -17, 0.0), (-6, -8, PI / 2), (12, -6, 0.0), (14, -18.5, PI / 2)):
-        g.place("sandbag_wall", x, z, yaw, check=("solid",), margin=0.2)
-    g.place("sandbag_corner", -14, -21, FACE_E, check=("solid",))
-    for prop, x, z, yaw in (("crate_large", -15, -9, 0.2), ("crate_small", -15.5, -7.5, 0.7), ("fuel_barrel", 16, -22, 0.0),
-                            ("fuel_barrel", 16.6, -21, 0.0), ("crate_small", 15, -5.5, 1.1), ("ammo_box", 0, -21.5, 0.3),
-                            ("crate_large", -2, -10, 1.3), ("crate_small", -1, -11.6, 0.4), ("rubble_pile", 18.5, -27, 0.8)):
-        g.place(prop, x, z, yaw, check=("solid",), margin=0.0 if prop in FLUSH else 0.2)
+    """Kavren Square: a ring of cobbles around the tower. A tank wreck and sandbag barricades in the side bands,
+    crates along the house fronts, so the run around the tower has stops."""
+    placed = [
+        g.place("tank_wreck", 14, -15, 0.12, check=("solid",), margin=0.3),
+        g.place("signpost", 5.5, 5.5, 2.2, check=("solid",)),
+    ]
+    for x, z, yaw in ((-13.5, -13, PI / 2), (13, -5.2, 0.0), (-13, -27.5, 0.0), (8, -29, 0.0)):
+        placed.append(g.place("sandbag_wall", x, z, yaw, check=("solid",), margin=0.2))
+    placed.append(g.place("sandbag_corner", -14, -21, FACE_E, check=("solid",)))
+    for prop, x, z, yaw in (("crate_large", -15, -9, 0.2), ("crate_small", -15.5, -7.5, 0.7), ("fuel_barrel", 16, -24, 0.0),
+                            ("fuel_barrel", 16.6, -23, 0.0), ("crate_small", 16, -6.5, 1.1), ("rubble_pile", 18.5, -28, 0.8)):
+        placed.append(g.place(prop, x, z, yaw, check=("solid",), margin=0.0 if prop in FLUSH else 0.2))
+    assert all(placed), placed
 
 
 def streets(g, rng):
@@ -355,15 +362,30 @@ def streets(g, rng):
     # stone walls along the north side of the west street (garden fronts), with gaps to slip through
     for x in (-74, -70, -62, -58, -50):
         g.place("stone_wall", x, -5.6, 0.0, check=("solid",), margin=0.0)
-    # poplars along the Rue de l'Old Chapel
+    # poplars along the south road
     for z in range(10, 78, 11):
         for side in (-1, 1):
             if rng() < 0.8:
                 g.place("tree_poplar", side * 5.6, z + rng.range(-1.5, 1.5), 0.0, check=("solid",), layer="soft", margin=0.4)
 
 
-def churchyard(g, rng):
-    """Behind the church: a walled yard with gaps, poplars and bushes, a rubble heap from a fallen wall."""
+def park(g):
+    """Tower Park, behind the tower: a terrace wall with a gap, apple trees and bushes, crates and a sandbag
+    nest, so the open ground between the tower and the walled garden is never a bare run."""
+    placed = []
+    for x, z in ((-8, -41), (-4, -41), (5, -41), (9, -41)):
+        placed.append(g.place("stone_wall", x, z, 0.0, check=("solid",), margin=0.0))
+    for prop, x, z, yaw in (("crate_large", -4, -34, 0.3), ("crate_small", -2.4, -35.2, 1.0), ("ammo_box", 3.5, -34.5, 0.4),
+                            ("sandbag_corner", 7, -49, FACE_N), ("rubble_pile", -5.5, -51.5, 1.3)):
+        placed.append(g.place(prop, x, z, yaw, check=("solid",), margin=0.2))
+    # fixed yaws, no RNG draws: everything placed after this keeps the RNG sequence it had before the tower
+    for x, z, p, yaw in ((-8, -46, "tree_apple", 0.9), (9.5, -36, "tree_apple", 2.4), (1, -47, "bush_wide", 0.3), (-9.5, -34.5, "bush_round", 1.7)):
+        placed.append(g.place(p, x, z, yaw, check=("solid", "soft"), layer="soft", margin=0.3))
+    assert all(placed), placed
+
+
+def walled_garden(g, rng):
+    """Walled Garden: a walled yard with gaps, poplars and bushes, a rubble heap from a fallen wall."""
     for x in (-8, -4, 8, 12):
         g.place("stone_wall", x, -57, 0.0, check=("solid",), margin=0.0)
     for z in (-61, -65, -71):

@@ -36,7 +36,7 @@ export const TR = {
   touch: {
     menuNote: 'Telefonda mı oynuyorsun? Yatay çevir. Sol parmakla yürü, sağ parmakla nişan al.',
     rotateTitle: 'Telefonunu yatay çevir', rotateSub: 'Qwakk Adası yatay oynanır.', tapToPlay: 'Oynamak için dokun', paused: 'Duraklatıldı. Devam etmek için dokun.',
-    buttons: { fire: 'Ateş', aim: 'Nişan', jump: 'Zıpla', crouch: 'Eğil', reload: 'Doldur', swap: 'Değiştir', use: 'Kullan', bandage: 'Sargı', medkit: 'İlk yardım', pause: 'Duraklat', board: 'Skor', map: 'Harita', bag: 'Çanta', next: 'Sonraki', prev: 'Önceki', deploy: 'Atla', glider: 'Süzül' },
+    buttons: { fire: 'Ateş', aim: 'Nişan', jump: 'Zıpla', crouch: 'Eğil', reload: 'Doldur', swap: 'Değiştir', use: 'Kullan', bandage: 'Sargı', medkit: 'İlk yardım', pause: 'Duraklat', board: 'Skor', map: 'Harita', bag: 'Çanta', next: 'Sonraki', prev: 'Önceki', deploy: 'Atla', glider: 'Süzül', grenade: 'Bomba', rocket: 'Roket' },
     keys: { E: 'Kullan', F: '', Space: '', 'W / S': 'Çubuk', I: 'Çanta' } as Record<string, string>,
     hints: {
       plane: 'Bakmak için sürükle. Haritadan iniş yeri seç.', freefall: 'Süzülme kanadını aç (dalmak için çubuğu ileri it)',

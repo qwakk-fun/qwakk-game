@@ -11,12 +11,16 @@
  * (idle: no bots think, nothing is simulated); the next human starts a fresh
  * round.
  */
-import { DM, DmPower, freshDmStats, compareDmResults, weaponStats, WeaponId, type DmStats, type DmReward, type DmResult, COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, type SimWorld, type Vec3 } from '@qwakk/shared';
+import { DM, DmPower, freshDmStats, compareDmResults, weaponStats, WeaponId, type DmStats, type DmReward, type DmResult, COMBAT, createPlayerSim, groundHeightAt, MATCH, OPAQUE_QUERY_GROUPS, TICK_RATE, Button, type InputFrame, type SimWorld, type Vec3 } from '@qwakk/shared';
 import { Arena, randomSecret, type ArenaEvents, type ArenaOptions, type BotLike, type Seat } from './arena.ts';
 import { BOT_NAMES, BotBrain } from './bots.ts';
 import { DmReplayHistory } from './dmReplay.ts';
 import { DmPowerups } from './dmPowerups.ts';
-import { spawnProtectTicks } from './settings/index.ts';
+import { dmHeroRules, spawnProtectTicks } from './settings/index.ts';
+import { DmHero } from './dmHero.ts';
+import { HeroPilot } from './dmHeroPilot.ts';
+import { addKillStack, clearKillStacks, stackedDamage } from './dmStacks.ts';
+import { DmExplosives, type ExplosiveEvents } from './dmExplosives.ts';
 
 export type { BotTarget, Seat } from './arena.ts';
 
@@ -26,6 +30,12 @@ export interface DeathmatchEvents extends ArenaEvents {
   roundStart(): void;
   reward?(seat: Seat, reward: DmReward): void;
   powerup?(seat: Seat, kind: number): void;
+  /** The caped hero (dmHero.ts): chosen, took the cape, or lost it. */
+  hero?(event: number, hero: Seat, other: Seat | null): void;
+  /** The coarse hero ping (grid meters), for everyone but the hero. */
+  heroPing?(hero: Seat, x: number, z: number): void;
+  /** Grenades, rockets, blasts and the launcher pickup (dmExplosives.ts). */
+  explosives?: ExplosiveEvents;
 }
 
 export interface DeathmatchOptions extends ArenaOptions {
@@ -46,7 +56,11 @@ export class Deathmatch extends Arena {
   winner = '';
   readonly stats = new Map<string, DmStats>();
   readonly powerups: DmPowerups;
+  readonly explosives: DmExplosives;
   readonly replay = new DmReplayHistory();
+  readonly hero: DmHero;
+  /** Per bot seat: how it flies while it wears the cape. */
+  private readonly pilots = new Map<string, HeroPilot>();
   results: DmResult[] = [];
   rotationWeapon: number = WeaponId.Rifle;
   private rotationAt = 0;
@@ -61,6 +75,16 @@ export class Deathmatch extends Arena {
     this.o = options;
     this.dev = events;
     this.powerups = new DmPowerups(sim);
+    this.hero = new DmHero({
+      hero: (event, hero, other) => this.dev.hero?.(event, hero, other),
+      ping: (hero, x, z) => this.dev.heroPing?.(hero, x, z),
+      award: (hero, points) => {
+        const stats = this.stats.get(hero.id);
+        if (stats && this.phase === 'playing') stats.points += points;
+      },
+    });
+    this.explosives = new DmExplosives(sim, this);
+    if (events.explosives) this.explosives.events = events.explosives;
     this.ticksLeft = options.roundSeconds * TICK_RATE;
   }
 
@@ -99,17 +123,21 @@ export class Deathmatch extends Arena {
     while (this.seats.size < want) {
       this.botCount++;
       const id = `bot-${this.botCount}`;
-      this.addSeat(id, this.botName(), this.o.createBot ? this.o.createBot(this.sim, id) : new BotBrain(this.sim));
+      this.addSeat(id, this.botName(), this.explosives.wrapBot(this.o.createBot ? this.o.createBot(this.sim, id) : new BotBrain(this.sim)));
     }
   }
 
   private forgetSeat(id: string): void {
+    const seat = this.seats.get(id);
+    if (seat) this.hero.forget(seat);
+    this.pilots.delete(id);
     this.seats.delete(id);
     this.replay.remove(id);
     this.stats.delete(id);
     for (const st of this.stats.values()) if (st.lastKiller === id) st.lastKiller = null;
     if (this.idle) {
       this.powerups.reset(this.tick);
+      this.explosives.reset(this.tick);
       this.results = [];
     }
   }
@@ -202,6 +230,7 @@ export class Deathmatch extends Arena {
     const fresh = createPlayerSim(p[0], y, p[2], yaw);
     Object.assign(seat.sim, fresh);
     this.equipRotation(seat, true);
+    this.explosives.onSpawn(seat);
     seat.protect = spawnProtectTicks();
     seat.respawnAt = -1;
     seat.life++;
@@ -242,6 +271,19 @@ export class Deathmatch extends Arena {
     }
   }
 
+  /** Kill stacks add damage on the shooter's side (server only). */
+  protected override attackerDamage(shooter: Seat, raw: number): number {
+    return stackedDamage(shooter, raw);
+  }
+
+  /** A bot wearing the cape flies in short hops (dmHeroPilot.ts), through its input frame. */
+  protected override botFrame(seat: Seat, f: InputFrame): InputFrame {
+    if (!this.hero.heroId && this.pilots.size === 0) return f;
+    let pilot = this.pilots.get(seat.id);
+    if (!pilot) this.pilots.set(seat.id, (pilot = new HeroPilot()));
+    return pilot.apply(seat.sim, f, (f.buttons & Button.Fire) !== 0);
+  }
+
   protected override adjustDamage(victim: Seat, raw: number, _head: boolean): number {
     const sim = victim.sim;
     if (sim.dmPower !== DmPower.Armor || sim.dmPowerTicks <= 0) return raw;
@@ -251,11 +293,48 @@ export class Deathmatch extends Arena {
     return raw - absorbed;
   }
 
+  /** A grenade or rocket of this step becomes a flight (dmExplosives.ts). */
+  protected override afterStep(seat: Seat): void {
+    this.explosives.afterStep(seat, this.phase === 'playing');
+  }
+
+  /**
+   * Explosive damage (dmExplosives.ts decides who and how much): armor, the
+   * attacker's hit marker, a damage arc toward the blast, kills and points as
+   * for a shot. Not counted as a hit for accuracy (throws are not shots).
+   */
+  explosionDamage(attacker: Seat | null, victim: Seat, amount: number, weapon: number, x: number, z: number): void {
+    if (!victim.sim.alive || victim.protect > 0 || !this.damageOn()) return;
+    const dmg = Math.min(victim.sim.hp, Math.round(this.adjustDamage(victim, this.blastAttackerDamage(attacker, victim, amount), false)));
+    if (dmg <= 0) return;
+    victim.sim.hp -= dmg;
+    if (attacker && attacker !== victim) attacker.dealt += dmg;
+    const killed = victim.sim.hp <= 0;
+    if (attacker && attacker !== victim) this.dev.explosives?.blastHit?.(attacker, victim, dmg, killed);
+    this.dev.explosives?.blastDamaged?.(victim, dmg, x, z);
+    victim.bot?.damagedFrom(x + (Math.random() - 0.5) * 6, z + (Math.random() - 0.5) * 6);
+    if (killed) this.kill(attacker, victim, weapon, false);
+  }
+
+  /**
+   * The one place an explosion's damage gets the attacker's modifiers, before
+   * the victim's armor: the attacker's kill-stack damage bonus. The thrower's
+   * own blast and a thrower who left get none.
+   */
+  protected blastAttackerDamage(attacker: Seat | null, victim: Seat, amount: number): number {
+    return attacker && attacker !== victim ? stackedDamage(attacker, amount) : amount;
+  }
+
   protected onKilled(killer: Seat | null, victim: Seat, _weapon: number, head: boolean): void {
     victim.respawnAt = this.tick + COMBAT.respawnTicks;
+    victim.sim.ex = 0;
     victim.sim.dmPower = 0;
     victim.sim.dmPowerTicks = 0;
     victim.sim.dmShield = 0;
+    clearKillStacks(victim);
+    const enemies = !!killer && killer !== victim && !this.allies(killer, victim);
+    // The hero's cape goes to its killer (dmHero.ts) or is free until the next pick.
+    const heroKill = this.phase === 'playing' && this.hero.killed(this.tick, killer, victim, enemies);
     const lost = this.stats.get(victim.id)!;
     lost.streak = 0;
     lost.lastKiller = killer && killer !== victim ? killer.id : null;
@@ -266,9 +345,12 @@ export class Deathmatch extends Arena {
     const revenge = stats.lastKiller === victim.id;
     if (revenge) stats.lastKiller = null;
     const bonus = DM.streakPoints[stats.streak] ?? 0;
-    const points = DM.killPoints + (head ? DM.headKillPoints : 0) + (revenge ? DM.revengePoints : 0) + bonus;
+    const heroBonus = heroKill ? dmHeroRules().killPoints : 0;
+    const points = DM.killPoints + (head ? DM.headKillPoints : 0) + (revenge ? DM.revengePoints : 0) + bonus + heroBonus;
     stats.points += points;
-    this.dev.reward?.(killer, { points, total: stats.points, streak: stats.streak, milestone: bonus ? stats.streak : 0, head, revenge, kill: true });
+    this.dev.reward?.(killer, { points, total: stats.points, streak: stats.streak, milestone: bonus ? stats.streak : 0, head, revenge, kill: true, ...(heroKill ? { hero: true } : {}) });
+    // One more kill stack (the owner's state carries it; the client shows the toast).
+    if (killer.sim.alive === 1) addKillStack(killer);
     if (killer.kills >= this.o.scoreLimit) this.endRound(killer);
   }
 
@@ -307,6 +389,8 @@ export class Deathmatch extends Arena {
     if (this.idle) return;
     this.thinkBots();
     if (this.phase === 'playing') this.powerups.step(this.tick, this.seats.values(), (seat, kind) => this.dev.powerup?.(seat, kind));
+    if (this.phase === 'playing') this.hero.step(this.tick, this.seats);
+    if (this.phase === 'playing') this.explosives.step(this.tick);
 
     for (const s of this.seats.values()) {
       if (s.protect > 0) s.protect--;
@@ -337,9 +421,13 @@ export class Deathmatch extends Arena {
       return { pid: s.pid, name: s.name, kills: s.kills, deaths: s.deaths, points: st.points, bestStreak: st.bestStreak, shots: st.shots, hits: st.hits };
     }).sort(compareDmResults);
     this.powerups.reset(this.tick);
+    this.explosives.reset(this.tick);
     for (const seat of this.seats.values()) {
       seat.sim.dmPower = 0; seat.sim.dmPowerTicks = 0; seat.sim.dmShield = 0;
+      seat.sim.ex = 0;
+      clearKillStacks(seat);
     }
+    this.hero.clear(this.seats.values());
     this.phase = 'intermission';
     this.winner = winner?.name ?? '';
     this.ticksLeft = this.o.intermissionSeconds * TICK_RATE;
@@ -370,6 +458,8 @@ export class Deathmatch extends Arena {
     this.rotationWeapon = WeaponId.Rifle;
     this.rotationAt = this.tick + DM.rotationSeconds * TICK_RATE;
     this.powerups.reset(this.tick);
+    this.hero.reset(this.tick, this.seats.values());
+    this.explosives.reset(this.tick);
     this.dev.roundStart();
   }
 

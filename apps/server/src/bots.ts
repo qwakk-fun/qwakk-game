@@ -34,6 +34,8 @@ export const BOT_NAMES = [
 ];
 
 const TAU = Math.PI * 2;
+/** A visible hero is picked over other targets up to this much closer (m). */
+const HERO_PRIORITY_M = 30;
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
 const wrap = (a: number): number => a - TAU * Math.floor((a + Math.PI) / TAU);
 
@@ -268,7 +270,8 @@ export class BotBrain implements BotLike {
     for (const o of others) {
       // A spawn-protected duck blinks (public) and cannot be hurt: not worth a shot.
       if (!o.alive || o.protect) continue;
-      const d = Math.hypot(o.x - self.x, o.z - self.z);
+      // The caped hero (public) counts as much closer: a bot that sees it goes for it first.
+      const d = Math.hypot(o.x - self.x, o.z - self.z) - (o.hero ? HERO_PRIORITY_M : 0);
       if (d >= bestD) continue;
       if (!this.visible(self, o)) continue;
       best = o;

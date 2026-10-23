@@ -25,4 +25,6 @@ export interface BrBotContext {
   armorOf(seatId: string): Armor;
   /** The nearest knocked teammate within `range` meters (team modes), or null. Teammates always know where their own are. */
   downedMate(seatId: string, range: number): { id: string; x: number; y: number; z: number } | null;
+  /** Does this duck carry a gun? Ask only about a duck in sight: the gun in its wings is plain to see. */
+  holdsGun(seatId: string): boolean;
 }

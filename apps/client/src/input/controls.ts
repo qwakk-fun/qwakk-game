@@ -49,6 +49,8 @@ export class Controls {
   private deployLatch = false;
   private heal1Latch = false;
   private heal2Latch = false;
+  /** G went down since the last sample (a tap shorter than a tick still throws: down this step, up the next). */
+  private grenadeLatch = false;
   /** Weapon slot asked for since the last sample (-1 none). */
   private slotLatch = -1;
   /** Which slot the player is on, for the mouse wheel toggle. */
@@ -192,6 +194,11 @@ export class Controls {
     this.touchLatched |= bits;
   }
 
+  /** Touch: a slot by index (0 rifle, 1 pistol, 2 the rocket launcher), sent with the next fixed step. */
+  selectSlot(slot: number): void {
+    this.slotLatch = slot;
+  }
+
   /** Touch weapon swap: the other slot. */
   swapWeapon(): void {
     this.slotLatch = this.currentSlot === 0 ? 1 : 0;
@@ -220,6 +227,7 @@ export class Controls {
     this.fireHeld = this.aimHeld = this.fireLatch = this.jumpLatch = false;
     this.reloadLatch = this.useLatch = this.deployLatch = false;
     this.heal1Latch = this.heal2Latch = false;
+    this.grenadeLatch = false;
     this.slotLatch = -1;
     this.emit('scoreboard-off');
   }
@@ -250,6 +258,8 @@ export class Controls {
       if (code === 'KeyR' && live) this.reloadLatch = true;
       if (code === 'Digit1' && live) this.slotLatch = 0;
       if (code === 'Digit2' && live) this.slotLatch = 1;
+      if (code === 'Digit3' && live) this.slotLatch = 2;
+      if (code === 'KeyG' && live) this.grenadeLatch = true;
       if (code === 'KeyE' && live) this.useLatch = true;
       if (code === 'KeyF' && live) this.deployLatch = true;
       if (code === 'Digit4' && live) this.heal1Latch = true;
@@ -300,6 +310,8 @@ export class Controls {
     if (this.reloadLatch) buttons |= Button.Reload;
     if (this.slotLatch === 0) buttons |= Button.Slot1;
     if (this.slotLatch === 1) buttons |= Button.Slot2;
+    if (this.slotLatch === 2) buttons |= Button.Slot3;
+    if (k.has('KeyG') || this.grenadeLatch) buttons |= Button.Grenade;
     if (this.leftShoulder) buttons |= Button.ShoulderLeft;
     if (this.useLatch || k.has('KeyE')) buttons |= Button.Use;
     if (this.deployLatch || k.has('KeyF')) buttons |= Button.Deploy;
@@ -313,6 +325,7 @@ export class Controls {
     this.deployLatch = false;
     this.heal1Latch = false;
     this.heal2Latch = false;
+    this.grenadeLatch = false;
     return { mx, mz, buttons };
   }
 }

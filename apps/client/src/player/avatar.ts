@@ -25,6 +25,7 @@ import { clips, type ClipSet } from './animations.ts';
 import { cloneDuckGlb, createPlaceholderDuck, type DuckParts } from './duckModel.ts';
 import { rotateBoneWorld, twoBoneIK } from './ik.ts';
 import { attachPose, createWeapon, disposeWeapon, magTimeline, type WeaponInstance } from './weaponModel.ts';
+import { createLauncher, type LauncherInstance } from './launcherModel.ts';
 import { ReloadMag, type MagEvent } from './reloadMag.ts';
 import { createBackpackMesh, createGlider, createHelmetMesh, createVestMesh } from '../world/sainte/glider.ts';
 
@@ -315,6 +316,41 @@ export class Avatar {
       rig.mixer = mixer;
     }
     return rig;
+  }
+
+  /** The deathmatch rocket launcher (made on first use), shown in place of the rifle while `rocketOut`. */
+  private launcher: LauncherInstance | null = null;
+
+  /**
+   * Show the rocket launcher (the duck holds the rifle pose, see game.ts) or
+   * the rifle again. It rides the rifle's place, so it follows clip and
+   * procedural modes and art reloads alike.
+   */
+  setLauncher(on: boolean): void {
+    if (!on && !this.launcher) return;
+    const rifle = this.weapons[WeaponId.Rifle] as WeaponInstance;
+    const l = (this.launcher ??= createLauncher());
+    if (on === l.root.visible && l.root.parent === rifle.root) return;
+    if (l.root.parent !== rifle.root) {
+      rifle.root.add(l.root);
+      this.launcherHid = [];
+    }
+    if (on) {
+      this.launcherHid = rifle.root.children.filter((c) => c !== l.root && c.visible);
+      for (const c of this.launcherHid) c.visible = false;
+    } else {
+      for (const c of this.launcherHid) c.visible = true;
+      this.launcherHid = [];
+    }
+    l.root.visible = on;
+  }
+
+  /** The rifle parts the launcher hid (shown again when it goes away). */
+  private launcherHid: THREE.Object3D[] = [];
+
+  /** World position of the launcher's front end (only meaningful while it shows). */
+  launcherMuzzle(out: THREE.Vector3): THREE.Vector3 {
+    return this.launcher ? this.launcher.muzzle.getWorldPosition(out) : this.muzzleWorld(out);
   }
 
   /** A shot: kicks the gun and torso back for a moment. */

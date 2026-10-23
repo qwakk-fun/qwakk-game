@@ -21,6 +21,7 @@ import {
   DEFAULT_CHARACTER,
   KNOCK,
   pickBotCharacter,
+  isHero,
   type InputFrame,
   type PlayerSim,
   type ShotResult,
@@ -41,6 +42,8 @@ export interface BotTarget {
   protect: boolean;
   /** Respawn counter: a new life is a new target for a bot (fresh reaction time). */
   life: number;
+  /** Deathmatch: wears the hero cape (public: announced and drawn). Bots that see it go for it first. */
+  hero?: boolean;
 }
 
 /** What drives a bot seat: one input frame per tick, through the same path as a human's. */
@@ -161,6 +164,16 @@ export abstract class Arena {
   /** A duck died (hp reached 0). `killer` null: the zone. */
   protected abstract onKilled(killer: Seat | null, victim: Seat, weapon: number, head: boolean): void;
 
+  /** The shooter's side of the damage (deathmatch kill stacks); before the victim's armor. Default: unchanged. */
+  protected attackerDamage(_shooter: Seat, raw: number): number {
+    return raw;
+  }
+
+  /** A bot's input frame, after its brain and before the step (deathmatch: the hero's flight). Default: unchanged. */
+  protected botFrame(_seat: Seat, f: InputFrame): InputFrame {
+    return f;
+  }
+
   /** Damage after armor and other mode rules. Deathmatch: unchanged. */
   protected adjustDamage(_victim: Seat, raw: number, _head: boolean): number {
     return raw;
@@ -248,7 +261,7 @@ export abstract class Arena {
     if (!victim || !victim.sim.alive || victim.protect > 0 || seat.protect > 0 || !this.damageOn() || this.allies(seat, victim)) return;
     const head = r.outcome === ShotOutcome.Head;
     // Damage numbers are server only (the admin settings may change them): settings/weapons.ts.
-    const raw = damageAt(serverWeapon(shot.weapon), r.distance, head);
+    const raw = this.attackerDamage(seat, damageAt(serverWeapon(shot.weapon), r.distance, head));
     const down = victim.sim.down === 1;
     // A knocked duck has no armor left to speak of: its bleed meter takes the raw hit, scaled.
     const dmg = Math.min(victim.sim.hp, down ? raw * KNOCK.damageScale : this.adjustDamage(victim, raw, head));
@@ -351,13 +364,13 @@ export abstract class Arena {
     const view = this.botView;
     view.length = 0;
     for (const s of this.seats.values()) {
-      view.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, alive: s.sim.alive === 1 && s.sim.mode !== Mode.Plane, team: s.team, protect: s.protect > 0, life: s.life });
+      view.push({ id: s.id, x: s.sim.x, y: s.sim.y, z: s.sim.z, alive: s.sim.alive === 1 && s.sim.mode !== Mode.Plane, team: s.team, protect: s.protect > 0, life: s.life, hero: isHero(s.sim) });
     }
     for (const s of this.seats.values()) {
       if (!s.bot) continue;
       // Teammates are never targets.
       const others = view.filter((o) => o.id !== s.id && (s.team === 0 || o.team !== s.team));
-      this.applyInput(s, s.bot.think(s.sim, others, this.tick), this.now);
+      this.applyInput(s, this.botFrame(s, s.bot.think(s.sim, others, this.tick)), this.now);
     }
   }
 

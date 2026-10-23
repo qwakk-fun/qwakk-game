@@ -17,6 +17,7 @@ import {
   createSimWorld,
   initPhysics,
   mapDefHash,
+  MOVE,
   MOVE_QUERY_GROUPS,
   sanitizeInputFields,
   simSelfTestHashOn,
@@ -67,6 +68,37 @@ describe('Kavren map', () => {
     expect(a.def.shapes.length).toBeGreaterThan(1000);
     expect(a.extras.unknownKinds).toEqual([]);
     expect(a.extras.props.filter((p) => ['townhouse', 'farmhouse', 'house_ruined', 'barn'].includes(p.prop)).length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('the QoreChain Tower stands in the middle, its hall is open and its top has no walkable roof', () => {
+    const loaded = load();
+    const towers = loaded.extras.props.filter((p) => p.prop === 'qorechain_tower');
+    expect(towers.length).toBe(1);
+    const t = towers[0]!;
+    expect(Math.hypot(t.x, t.z)).toBeLessThan(20); // the middle of the 162 m arena
+    expect(loaded.extras.props.some((p) => p.prop === 'church')).toBe(false);
+    const sim = createSimWorld(loaded.def);
+    const R = sim.rapier;
+    // the hall: a clear floor under a ceiling, between the arcade and the core
+    for (const [dx, dz] of [[-4.5, -3.4], [4.5, 3.4], [-3.4, 4.5], [3.4, -4.5]] as const) {
+      const hit = sim.world.castRay(new R.Ray({ x: t.x + dx, y: t.y + 1.5, z: t.z + dz }, { x: 0, y: -1, z: 0 }), 5, true, undefined, MOVE_QUERY_GROUPS);
+      expect(hit && Math.abs(1.5 - hit.timeOfImpact - 0.15) < 0.05, `hall floor at (${dx}, ${dz})`).toBe(true);
+      const up = sim.world.castRay(new R.Ray({ x: t.x + dx, y: t.y + 1.5, z: t.z + dz }, { x: 0, y: 1, z: 0 }), 10, true, undefined, MOVE_QUERY_GROUPS);
+      expect(up && up.timeOfImpact > 3.5, `hall ceiling at (${dx}, ${dz})`).toBe(true);
+    }
+    // the top: no flat roof anywhere, only the crown's slopes, steeper than a duck can climb (MOVE.maxSlopeClimbDeg)
+    const flat: string[] = [];
+    const maxUp = Math.cos((MOVE.maxSlopeClimbDeg * Math.PI) / 180);
+    for (let dx = -7.75; dx <= 7.75; dx += 1.55) {
+      for (let dz = -7.75; dz <= 7.75; dz += 1.55) {
+        if (Math.abs(dx) < 0.5 && Math.abs(dz) < 0.5) continue; // the beacon mast on the apex
+        const hit = sim.world.castRayAndGetNormal(new R.Ray({ x: t.x + dx, y: t.y + 60, z: t.z + dz }, { x: 0, y: -1, z: 0 }), 60, true, undefined, MOVE_QUERY_GROUPS);
+        if (!hit) flat.push(`(${dx}, ${dz}): no crown`);
+        else if (hit.normal.y > maxUp) flat.push(`(${dx}, ${dz}): walkable top at y ${(t.y + 60 - hit.timeOfImpact).toFixed(2)}`);
+      }
+    }
+    sim.dispose();
+    expect(flat).toEqual([]);
   });
 
   it('terrainHeightAt matches the Rapier heightfield', () => {
@@ -165,8 +197,15 @@ describe('Kavren map', () => {
           const nx = -(bz - az) / len;
           const nz = (bx - ax) / len;
           const inside = ringSigned(ring, ex + nx * 8, ez + nz * 8) < 0 ? 1 : -1;
-          const sx = ex + nx * 8 * inside;
-          const sz = ez + nz * 8 * inside;
+          let sx = ex + nx * 8 * inside;
+          let sz = ez + nz * 8 * inside;
+          // Near a corner that point lies on the next edge's hedge (a duck spawned inside a collider proves
+          // nothing): move it toward the middle of the map until it is 4 m clear of the ring line.
+          for (let guard = 0; guard < 20 && ringSigned(ring, sx, sz) > -4; guard++) {
+            const d = Math.hypot(sx, sz) || 1;
+            sx -= (sx / d) * 0.5;
+            sz -= (sz / d) * 0.5;
+          }
           // run outward, leaning along the edge by `lean` radians
           const ox = -nx * inside;
           const oz = -nz * inside;

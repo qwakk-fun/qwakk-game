@@ -17,6 +17,7 @@ import { Callbacks, Client, Predict, type InputHandle, type Reconciler, type Roo
 import {
   BR,
   INTEREST,
+  lastExplosive,
   NET,
   PLAYER_SIM_FIELDS,
   ROOM,
@@ -47,7 +48,7 @@ export interface PredictionStats {
 export interface SessionHandlers {
   /** Another player's shot: shooter pid, weapon, outcome, muzzle and end points (m). */
   shots(list: { pid: number; weapon: number; outcome: number; from: [number, number, number]; to: [number, number, number] }[]): void;
-  hitConfirm(victimPid: number, damage: number, head: boolean, killed: boolean, knocked: boolean): void;
+  hitConfirm(victimPid: number, damage: number, head: boolean, killed: boolean, knocked: boolean, explosive?: boolean): void;
   /** Damage taken: world angle toward the attacker (null: the zone) and the amount. */
   damaged(angle: number | null, damage: number): void;
   /** `at` is null when the server did not tell us where (we could not see the victim). killerPid 0: the zone. */
@@ -71,6 +72,18 @@ export interface SessionHandlers {
   dmReward?(reward: DmReward): void;
   dmKillcam?(replay: DmKillcam): void;
   dmPower?(kind: number): void;
+  /** Caped hero news: DmHeroEvent, hero pid, the other pid (old hero for a take). */
+  dmHero?(event: number, heroPid: number, otherPid: number): void;
+  /** The coarse public hero ping: hero pid and its grid position (m). */
+  dmHeroPing?(heroPid: number, x: number, z: number): void;
+  /** Deathmatch explosives: a grenade or rocket we may draw (ownerPid 0: a resting grenade, thrower unknown). Meters, m/s. */
+  projectile?(id: number, kind: number, ownerPid: number, at: [number, number, number], vel: [number, number, number]): void;
+  /** An explosion (kind ExplosiveKind) and the projectile id it ends. */
+  boom?(id: number, kind: number, at: [number, number, number]): void;
+  /** We picked up the rocket launcher with this many rockets. */
+  dmRocket?(rockets: number): void;
+  /** The local sim threw a grenade or launched a rocket (live step only). `state` is the post-step state. */
+  localExplosive?(kind: number, state: PlayerSim, buttons: number): void;
 }
 
 export interface RemotePose {
@@ -85,6 +98,8 @@ export interface RemotePose {
   /** Movement mode (glider) and action (reload, equip, heal), from the pose entry. */
   fly: number;
   act: number;
+  /** 1 while it holds the deathmatch rocket launcher (pose entry). */
+  lnch: number;
 }
 
 const NEAR_DELAY = NET.interpDelayMs;
@@ -108,7 +123,7 @@ export class Session {
   /** Scratch frames: one for staging sends, one for the reconciler step. */
   private readonly sendFrame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
   private readonly stepFrame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
-  private readonly poseOut: RemotePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, far: false, fly: 0, act: 0 };
+  private readonly poseOut: RemotePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, far: false, fly: 0, act: 0, lnch: 0 };
   private readonly far = new Map<string, FarInterp>();
   /** Per player: which source was drawn last and the offset that hides a near/far switch. */
   private readonly blends = new Map<string, { far: boolean; ox: number; oy: number; oz: number; x: number; y: number; z: number; t: number }>();
@@ -216,7 +231,7 @@ export class Session {
         })),
       );
     });
-    this.room.onMessage(Msg.HitConfirm, (d: number[]) => handlers.hitConfirm(d[0] ?? 0, d[1] ?? 0, d[2] === 1, d[3] === 1, d[4] === 1));
+    this.room.onMessage(Msg.HitConfirm, (d: number[]) => handlers.hitConfirm(d[0] ?? 0, d[1] ?? 0, d[2] === 1, d[3] === 1, d[4] === 1, d[5] === 1));
     this.room.onMessage(Msg.Knock, (d: number[]) => handlers.knock(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1));
     this.room.onMessage(Msg.Damaged, (d: number[]) => handlers.damaged(d[2] === 1 ? null : (d[0] ?? 0) / 1000, d[1] ?? 0));
     this.room.onMessage(Msg.Kill, (d: number[]) => handlers.kill(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, d[3] === 1, d[4] === 1 ? [m(d[5] ?? 0), m(d[6] ?? 0), m(d[7] ?? 0)] : null));
@@ -234,6 +249,11 @@ export class Session {
     this.room.onMessage(Msg.DmKillcam, (replay: DmKillcam) => handlers.dmKillcam?.(replay));
     this.room.onMessage(Msg.DmReward, (reward: DmReward) => handlers.dmReward?.(reward));
     this.room.onMessage(Msg.DmPower, (kind: number) => handlers.dmPower?.(kind));
+    this.room.onMessage(Msg.DmHero, (d: number[]) => handlers.dmHero?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0));
+    this.room.onMessage(Msg.DmHeroPing, (d: number[]) => handlers.dmHeroPing?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0));
+    this.room.onMessage(Msg.Proj, (d: number[]) => handlers.projectile?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0, [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)], [m(d[6] ?? 0), m(d[7] ?? 0), m(d[8] ?? 0)]));
+    this.room.onMessage(Msg.Boom, (d: number[]) => handlers.boom?.(d[0] ?? 0, d[1] ?? 0, [m(d[2] ?? 0), m(d[3] ?? 0), m(d[4] ?? 0)]));
+    this.room.onMessage(Msg.DmRocket, (n: number) => handlers.dmRocket?.(typeof n === 'number' ? n : 0));
   }
 
   sendChat(text: string): void {
@@ -284,6 +304,7 @@ export class Session {
         const shot = stepPlayer(sim, s, frame, ctx.dt);
         // Effects only for live steps: a replay re-runs inputs whose shots were already shown.
         if (shot && !ctx.isReplay) this.handlers?.localShot(shot, s, frame.buttons);
+        if (lastExplosive.kind && !ctx.isReplay) this.handlers?.localExplosive?.(lastExplosive.kind, s, frame.buttons);
       },
     });
   }
@@ -356,6 +377,7 @@ export class Session {
       o.grounded = near.grounded === 1;
       o.fly = near.fly;
       o.act = near.act;
+      o.lnch = near.lnch;
       isFar = false;
     } else if (farInterp && !farInterp.empty) {
       const c = this.room.clock;
@@ -364,6 +386,7 @@ export class Session {
       o.grounded = fp?.grounded === 1;
       o.fly = fp?.fly ?? 0;
       o.act = fp?.act ?? 0;
+      o.lnch = fp?.lnch ?? 0;
       isFar = true;
     } else return null;
     o.far = isFar;

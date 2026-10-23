@@ -113,7 +113,7 @@ Open http://localhost:5173/game/ yourself; `npm run dev` never opens a browser a
 
 Use `npm run dev -- --host` for the client on the LAN. The optional `npm run dev -- --open` explicitly requests a Chrome preview with game and authenticated admin tabs using temporary credentials. The menu starts a battle royale or a deathmatch. In dev you can skip the menu with `?mode=br` or `?mode=dm`.
 
-- **Battle royale** (`br` rooms, up to 16 humans each): the menu lists every room live (name, ducks in, waiting / countdown / in progress). Join one, create one, or Quick Play (the open room with the most players, or a new one). You wait on the village square (damage off) with the room's roster on screen. Once 2 humans are in, a 30 s countdown starts (10 s when the room is full of humans); if they drop below 2 it goes back to waiting. When it ends, the room locks, bots fill the seats to 16 ducks and everyone boards the plane. Jump with F over land (or be thrown out before the coast), fall, open the glider (Space or F, or it opens by itself 45 m above the ground), glide about 3 m forward per meter down (W dives, S brakes), land, loot, survive the zone. The last duck standing wins; dead ducks watch their killer or any duck still alive.
+- **Battle royale** (`br` rooms, up to 16 humans each): the menu lists every room live (name, ducks in, waiting / countdown / in progress). Join one, create one, or Quick Play (the open room with the most players, or a new one). You wait on the village square (damage off) with the room's roster on screen. Once 2 humans are in, a 30 s countdown starts (10 s when the room is full of humans); if they drop below 2 it goes back to waiting. When it ends, the room locks, bots fill the seats to 16 ducks and everyone boards the plane, which flies over the first circle (shown from the start, 220 m). Jump with F over land (or be thrown out past the circle), fall, open the glider (Space or F, or it opens by itself 45 m above the ground), glide about 3 m forward per meter down (W dives, S brakes), land, loot, survive the zone (it closes about 5.5 minutes after the plane starts). The last duck standing wins; dead ducks watch their killer or any duck still alive.
 - **Parties**: Create party in the menu gives a 6 letter code and a share link (`https://play.qwakk.fun/?party=CODE`); friends open the link or type the code. Up to 4. The menu lists the members (name#tag, the leader, who is in a match). The leader picks a room (or Quick Play, or Deathmatch); once the leader is in, the members still in the menu follow into the same room. Members cannot start a match while in a party (leave it to play alone); when the leader leaves, the next member leads. Parties live in server memory (`apps/server/src/party/`): a private Colyseus room per party with the code as its id, joined by code only, with per-IP limits on creating parties and on joins by code. The party sends names and tags only, never player ids or tokens, and game rooms find a player's party by the player id from its verified session, never from a client message.
 - **Team modes** (battle royale): each room is Solo, Duo or Squad (16 ducks: 16 teams of 1, 8 of 2, 4 of 4), chosen by whoever creates it (the menu's mode picker) and shown in the room list. A party joins as one team: its first member to arrive takes a team with room for everyone who may follow and holds their seats for 30 s (`PARTY.reserveSeconds`). A party bigger than the room's teams, or a room with no team that fits it, is refused with a clear message, and the room list greys such rooms out. A duck on its own fills the fullest team with a free seat. Bots fill every empty seat. Teammates cannot hurt each other (shots pass through them), receive each other's poses and team state (nearby name tags, map and minimap dots, the team panel with health and state) and spectate each other first after death. At 0 health a duck with a standing teammate is knocked: it crawls (1 m/s), cannot shoot, aim, heal or jump, and bleeds out in 30 s; damage finishes it faster (x2, no armor). A teammate holding E within 2.2 m for 5 s revives it with 25 health. A team is out when nobody on it stands (its knocked ducks go with it); every member gets the team's place and the last team standing wins. Solo plays exactly as before (no knocks). Numbers in `KNOCK`, `PARTY` and `TEAM_SIZES` (`constants.ts`).
 - **Name tags**: small, faint names only within 12 m of the player, fading from 6 m to zero at 12 m. No self name or label boxes. Allies are green and keep nearby wall markers; enemies require a received pose and a clear camera line to the real head or chest. The distance limit applies to both allies and enemies; the team panel still identifies teammates at any range.
@@ -347,12 +347,22 @@ The constants stay the defaults: with nothing stored the server runs exactly as 
 | `dm.roundSeconds` | Deathmatch: Round time | 600 s | 60 to 3600 | next round |  |
 | `dm.intermissionSeconds` | Deathmatch: Break between rounds | 10 s | 3 to 60 | next round |  |
 | `dm.spawnProtectionSeconds` | Deathmatch: Spawn protection | 2 s | 0 to 10 | now |  |
+| `dm.killStacks` | Deathmatch: Kill stacks | on | on / off | now |  |
+| `dm.stackDamagePercent` | Deathmatch: Damage per kill stack | 6 % | 0 to 20 | now |  |
+| `dm.hero` | Deathmatch: Caped hero | on | on / off | now |  |
+| `dm.heroEverySeconds` | Deathmatch: Hero pick interval | 120 s | 30 to 900 | now |  |
+| `dm.heroHealth` | Deathmatch: Hero health | 200 hp | 100 to 250 | now (next hero) |  |
+| `dm.heroKillPoints` | Deathmatch: Hero takedown bonus | 300 points | 0 to 2000 | now |  |
+| `dm.heroHoldPoints` | Deathmatch: Hero points every 5 s | 10 points | 0 to 200 | now |  |
 | `br.maxRooms` | Battle royale: Rooms at once | 1 rooms | 0 to 8 | now | `QWAKK_BR_MAX_ROOMS` |
 | `br.minHumans` | Battle royale: Humans to start | 2 players | 1 to 16 | new rooms | `QWAKK_BR_MIN_HUMANS` |
 | `br.countdownSeconds` | Battle royale: Start countdown | 30 s | 5 to 120 | new rooms | `QWAKK_BR_COUNTDOWN` |
 | `br.mode.solo` | Battle royale: Solo rooms | on | on / off | now |  |
 | `br.mode.duo` | Battle royale: Duo rooms | on | on / off | now |  |
 | `br.mode.squad` | Battle royale: Squad rooms | on | on / off | now |  |
+| `br.zoneTimeScale` | Battle royale: Zone timing (every wait and shrink times this) | 1 x | 0.5 to 2 | new rooms |  |
+| `br.zoneDamageScale` | Battle royale: Zone damage (damage outside times this, rounded, at least 1 per second) | 1 x | 0.5 to 3 | new rooms |  |
+| `br.firstCircleRadius` | Battle royale: First circle radius (kept 20 m above the second circle) | 220 m | 160 to 380 | new rooms |  |
 | `weapons.rifle.damage` | Weapons: Rifle body damage | 24 hp | 1 to 100 | now |  |
 | `weapons.rifle.headMultiplier` | Weapons: Rifle headshot multiplier | 3.6 x | 1 to 6 | now |  |
 | `weapons.pistol.damage` | Weapons: Pistol body damage | 26 hp | 1 to 100 | now |  |
@@ -421,22 +431,21 @@ For manual local login, run `npm run admin:setup`, choose a password (4+ charact
 | Lobby | The menu's room list comes from the `lobby` room (Colyseus' built-in LobbyRoom with realtime listing on `br`, `apps/server/src/lobby.ts`). Each room's metadata is public: label, stage, humans, capacity, humans still needed, countdown seconds. Join by id, create, or Quick Play (joinOrCreate, most players first). Rooms in progress are listed but locked |
 | Waiting | On the village square, both guns, damage off, the room's roster (name#tag) and "waiting for N more" on screen. The countdown (`BR.countdownSeconds`, 30 s) starts once `BR.minHumans` (2) humans are in and resets when they drop below it; more humans can join during it, up to 16 (a full room starts in `BR.fullCountdownSeconds`, 10 s). Joins close 2 s before the end |
 | Lock | The room locks, bots fill to 16, loot is rolled, the zone is planned, everyone boards the plane with no gear |
-| Plane | One of the map's 8 flight paths (match seed mod 8), 180 m up at 55 m/s. F jumps (only over land); everyone still aboard is ejected 70 m before the last land point |
+| Plane | The map path (of 8) that passes closest to the first circle, picked by seed between the two best (a path whose start is right at the circle scores worse), 180 m up at 1.3 times the map's 55 m/s (about 72 m/s); the sea before the island is cut off (the path starts 60 m before the first land). F jumps (only over land); everyone still aboard is ejected at the first circle's far edge or 70 m before the last land point, whichever comes first, but not before 6 s (`DROP`, `plane.ts`); the server sends that time (`planeEnd`) |
 | Drop | Freefall (32 m/s down, W dives to 46 m/s, 10 m/s steering), then the glider: Space or F, or by itself 45 m above the terrain. Gliding: 13 m/s forward, 4.3 m/s down (about 1:3); W dives (19 / 7.5), S brakes (6 / 3) |
 | Loot | 634 loot points: each floor point holds an item 70% of the time; every crate on the map (149 today: small crates 2 items, large crates 3 one tier better, ammo boxes 2 ammo stacks) is always filled and starts closed; tables by tier (1 to 4), better in hot zones and upstairs; every gun comes with an ammo stack (next to it, or in the same crate) |
-| Zone | 7 phases (table below), final circle picked first from the map's weighted candidates, then grown outward so every circle contains the next and keeps at least 70% land |
+| Zone | 6 phases (table below), final circle picked first from the map's weighted candidates, then grown outward so every circle contains the next, keeps at least 70% land and, among the tries that do, holds the most loot spots (the populated part of the island). The first circle (220 m) is up from the start, while everyone is still in the plane. The zone fully closes 5.5 minutes after the plane starts; `br.zoneTimeScale`, `br.zoneDamageScale` and `br.firstCircleRadius` tune it live |
 | Teams | Duo and Squad rooms: teams of 2 or 4, parties on one team, knocked ducks, revives (see Run it). Placement is per team; the match ends when one team has someone standing |
 | End | The last duck standing wins; every duck gets a place (a duck that leaves mid-match is out with the place it had then; a winner who leaves the results screen stays the winner). Results go to the leaderboard through `recordMatch`, also when the last human leaves before the end (the room records the match as it stands). One identity holds at most one seat per room. The room closes 20 s later |
 
 | Phase | Wait (s) | Shrink (s) | End radius (m) | Damage per second outside |
 | --- | --- | --- | --- | --- |
-| 0 (drop and loot) | 90 | snap | 380 (shown at 60 s) | 0 |
-| 1 | 90 | 60 | 260 | 1 |
-| 2 | 60 | 45 | 170 | 2 |
-| 3 | 50 | 40 | 105 | 4 |
-| 4 | 40 | 30 | 60 | 7 |
-| 5 | 30 | 25 | 30 | 11 |
-| 6 | 20 | 20 | 0 | 18 |
+| 0 (drop and loot) | 50 | snap | 220 (shown from the start) | 0 |
+| 1 | 40 | 40 | 150 | 2 |
+| 2 | 35 | 35 | 95 | 4 |
+| 3 | 30 | 25 | 55 | 7 |
+| 4 | 20 | 20 | 25 | 12 |
+| 5 | 15 | 20 | 0 | 20 |
 
 All of it is in `constants.ts` (`BR`, `DROP`, `HEAL`, `ZONE`, `VIS`, `WATER`) and `items.ts` (`LOOT`, `PACK`, `ARMOR`, loot tables).
 
@@ -494,7 +503,7 @@ The terrain is textured from the ground paint (`world/sainte/groundMaterial.ts`,
 
 ### The deathmatch arena: Kavren
 
-`canard-quarter`, a compact village quarter from the same kit for the 32-duck deathmatch (`art/map/layout/gen_quarter.py`, renders in `art/map/renders/canard-quarter/`, details in `art/map/README.md`): a church square on a crossroads with five enterable houses, about 162 x 162 m inside a closed hedgerow ring, 1,542 colliders. `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`; `apps/server/test/canardQuarter.test.ts` checks it and its 48 `dmSpawns` (`[x, y, z, yaw]`, player yaw).
+`canard-quarter`, a compact village quarter from the same kit for the 24-duck deathmatch (`art/map/layout/gen_quarter.py`, renders in `art/map/renders/canard-quarter/`, details in `art/map/README.md`): the QoreChain Tower in the middle of the square on a crossroads (an open arcade hall under a lettered tower) with five enterable houses, about 162 x 162 m inside a closed hedgerow ring, 1,498 colliders. `npm run map:sync` copies it to `packages/shared/src/maps/canard-quarter/`; `apps/server/test/canardQuarter.test.ts` checks it and its 48 `dmSpawns` (`[x, y, z, yaw]`, player yaw).
 
 ### Anti-wallhack
 
@@ -508,7 +517,7 @@ The deathmatch map is one constant, `MATCH.mapId` in `packages/shared/src/consta
 
 Deathmatch bot skill lives in `DM_BOT` (`constants.ts`): a reaction of 14 to 24 ticks (about half a second) to a new target, a first aim error that settles slowly, a fresh error per burst, an aim point that trails a strafing target, weak recoil control, 2 to 5 shot bursts, an 80 m view and a 120 degree field of view. A duck back from a respawn is a new target (fresh reaction), and spawn-protected ducks are skipped. Battle royale bots keep their own numbers (`BR_SKILL`, unchanged). Deathmatch bots on map_v1 maps (`dmBot.ts`) fight with the deathmatch brain and walk navmesh paths between fights (`nav/navWalker.ts`): chase the last sighting, else roam between spawn points and random walkable spots inside the play area, pausing now and then. A bot that gives up a goal without getting anywhere (on a table, in a corner off the navmesh) walks off toward the most open direction first. On the greybox they keep the ray-steering brain.
 
-Battle royale bots run on a tiled recast navmesh built from the map colliders (`recast-navigation` 0.43.1, MIT): cell 0.2 m, about 64 s to build, cached in `apps/server/.navcache/` by map hash (under a second to load), built on a worker thread at server start when the cache is cold (bots steer directly until it is ready). They pick a landing spot by zone heat and tier along the plane's route, jump at the right moment, dive or glide there, loot what they see, heal when safe, rotate into the announced circle and fight with the deathmatch brain (same input path, same line-of-sight rules, softer skill: reaction 14 to 26 ticks, 50 m view range). In Duo and Squad they play on their team: teammates are never targets, a knocked bot stays put and waits, and a bot with a knocked teammate within 40 m walks to it and holds Use once no fight has been on for 2 s (the same Use input a player sends).
+Battle royale bots run on a tiled recast navmesh built from the map colliders (`recast-navigation` 0.43.1, MIT): cell 0.2 m, about 64 s to build, cached in `apps/server/.navcache/` by map hash (under a second to load), built on a worker thread at server start when the cache is cold (bots steer directly until it is ready). They pick a landing spot by zone heat and tier within 170 m of the plane's route, spread out from each other's spots (and pick again, favoring the inside of the first circle, once it is announced), jump as the plane passes it, dive in freefall straight at it and open the glider only when the spot is out of reach of a diving glide from where they are, then dive the glider and spiral over the spot instead of braking above it (a bot is on the ground about 9 s after it jumps). Unarmed, they run for a gun: no holding a spot, no early rotation, no running from unarmed ducks, far items only when they may hold a gun, and loot spots in order of distance (a spot that does not work out within 12 s is given up). Then they loot what they see, heal when safe, rotate into the announced circle and fight with the deathmatch brain (same input path, same line-of-sight rules, softer skill: reaction 14 to 26 ticks, 50 m view range). In Duo and Squad they play on their team: teammates are never targets, a knocked bot stays put and waits, and a bot with a knocked teammate within 40 m walks to it and holds Use once no fight has been on for 2 s (the same Use input a player sends).
 
 ## How the netcode works
 
@@ -647,32 +656,32 @@ A full match in the browser (`npm run perf:br`: one autopilot client aimed at th
 | Glide | 2.33 / 2.70 | 151 / 156 | 219k / 258k | 11.8 / 12 |
 | On foot | 2.03 / 3.00 | 118 / 147 | 217k / 264k | 4.3 / 12 |
 
-Measured after the detailed houses landed (27 houses with full interiors instead of 37 plain ones; the duck survived this run, so there is no watching stage). The same run before the change on the same machine: on foot 1.81 / 6.50 ms, 110 / 148 calls, 147k / 216k triangles; glide 1.99 / 2.30 ms, 135 / 141 calls, 183k / 218k triangles. `npm run perf:map` (16 ducks in the square) before and after: street 215 / 319 to 216 / 320 calls, 377k / 611k to 400k / 640k triangles, CPU 3.27 to 2.68 ms; church square turn 230 to 231 calls, 392k to 415k triangles. Draw calls do not change (same prop types, instanced per type and LOD); the houses add about 5 percent triangles inside 60 m.
+Measured after the detailed houses landed (27 houses with full interiors instead of 37 plain ones; the duck survived this run, so there is no watching stage). The same run before the change on the same machine: on foot 1.81 / 6.50 ms, 110 / 148 calls, 147k / 216k triangles; glide 1.99 / 2.30 ms, 135 / 141 calls, 183k / 218k triangles. `npm run perf:map` (16 ducks in the square) before and after: street 215 / 319 to 216 / 320 calls, 377k / 611k to 400k / 640k triangles, CPU 3.27 to 2.68 ms; village square turn 230 to 231 calls, 392k to 415k triangles. Draw calls do not change (same prop types, instanced per type and LOD); the houses add about 5 percent triangles inside 60 m.
 
 The map alone (`npm run perf:map`, no ducks) draws 83 to 117 calls and 104k to 159k triangles at 1.4 to 2.0 ms CPU per frame; the rest is ducks (about 9k triangles and 3 to 7 calls each near the camera). The glide over the village with ten gliders in view is the heaviest moment, a little over the 150-call target.
 
-Headless 16-bot matches (`apps/server/bench/brHeadless.ts`, the test in `apps/server/test/br.test.ts` runs seed 7):
+Headless 16-bot matches (`apps/server/bench/brHeadless.ts`, the test in `apps/server/test/br.test.ts` runs seed 7), after the faster tempo (220 m first circle, zone closed 5.5 minutes after the plane starts, the plane over the first circle) and the fast bot drop:
 
-| Seed | Duration (s) | Gun kills | Zone deaths | Pickups | Tick avg / p95 (ms) | ms per bot per tick |
-| --- | --- | --- | --- | --- | --- | --- |
-| 1 | 311 | 14 | 1 | 125 | 0.185 / 0.509 | 0.0116 |
-| 2 | 284 | 15 | 0 | 137 | 0.143 / 0.427 | 0.0089 |
-| 3 | 387 | 15 | 0 | 112 | 0.121 / 0.409 | 0.0076 |
-| 4 | 459 | 14 | 1 | 114 | 0.145 / 0.368 | 0.0090 |
-| 5 | 501 | 15 | 0 | 133 | 0.118 / 0.356 | 0.0074 |
-| 6 | 531 | 15 | 0 | 139 | 0.084 / 0.350 | 0.0053 |
-| 7 | 368 | 14 | 1 | 124 | 0.215 / 0.509 | 0.0134 |
-| 8 | 419 | 15 | 0 | 140 | 0.135 / 0.385 | 0.0084 |
+| Seed | Duration (s) | Last duck landed (s) | Gun kills | Zone deaths | Pickups | Tick avg / p95 (ms) | ms per bot per tick |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 212 | 23.5 | 15 | 0 | 98 | 0.185 / 0.647 | 0.0115 |
+| 2 | 151 | 25.0 | 15 | 0 | 91 | 0.206 / 0.508 | 0.0129 |
+| 3 | 273 | 25.5 | 13 | 2 | 104 | 0.235 / 0.542 | 0.0147 |
+| 4 | 263 | 20.5 | 15 | 0 | 93 | 0.127 / 0.444 | 0.0079 |
+| 5 | 249 | 23.5 | 15 | 0 | 84 | 0.143 / 0.486 | 0.0089 |
+| 6 | 146 | 26.5 | 15 | 0 | 89 | 0.227 / 0.492 | 0.0142 |
+| 7 | 151 | 23.0 | 15 | 0 | 82 | 0.199 / 0.576 | 0.0124 |
+| 8 | 208 | 22.5 | 15 | 0 | 90 | 0.129 / 0.384 | 0.0081 |
 
-Every match had exactly one winner and unique places 1 to 16, nobody landed in the sea. Bot thinking costs about 0.01 ms per bot per tick (the tick time includes all 16 sims).
+Durations and landings count from the room lock (3 s of boarding first). Every match had exactly one winner and unique places 1 to 16, nobody landed in the sea. Bot thinking costs about 0.01 ms per bot per tick (the tick time includes all 16 sims). Before the change (zone closed after 10 minutes, bots braking over their spot for 30 to 50 s): 284 to 531 s per match on the same seeds, the last duck down about 60 s after the lock. A bot is on the ground about 9 s after it jumps (at most 12 to 16 s, before: 33 to 41 s median, up to 50 s) and finds its first gun a median 4 to 11 s after landing (per run, 4 seeds in `apps/server/test/brDrop.test.ts`; before: 5 to 19 s).
 
 Server benchmark (`npm run bench:br`: 4 network clients plus 12 bots, 60 s after the drop):
 
 | Clients + bots | Tick avg / p95 / max (ms) | Patch avg / p95 (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Up per client (KB/s) | Enemy poses received / enemies in the world | Visibility pairs / rays per second |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 4 + 12 | 1.323 / 6.144 / 9.03 | 0.114 / 0.352 | 5.8 | 151 | 2.05 | 0.57 | 8.7 / 8.9 | 578 / 5409 |
+| 4 + 12 | 0.921 / 1.876 / 13.60 | 0.107 / 0.354 | 4.8 | 339 | 2.71 | 0.56 | 7.8 / 12.3 | 493 / 2560 |
 
-The row above is after the detailed houses (6,137 colliders instead of 6,702). The same benchmark just before the change on the same machine: 2.205 / 5.417 / 7.44 ms tick, 9.1 percent CPU, 1.73 KB/s down, 2.4 / 10.0 poses, 600 / 3,696 visibility pairs and rays per second. Bench runs vary with how the bots meet: this run's ducks fought in the open more (8.7 of 8.9 enemies in sight on average), hence more poses and rays.
+The row above is after the faster tempo and the fast bot drop (the ducks are on the ground and fighting inside the 220 m circle for the whole minute, hence more poses received and more bandwidth). Two more runs on the same machine, with other work running on it: 1.707 / 4.072 / 23.26 and 1.977 / 4.949 / 29.25 ms tick (8.6 and 10.4 percent CPU, 2.74 and 2.25 KB/s down); the max is a single outlier tick, the headless matches above never go past 3.3 ms in a tick. The row before it: 1.323 / 6.144 / 9.03 ms tick, 5.8 percent CPU, 2.05 KB/s down, 8.7 / 8.9 poses, 578 / 5,409 visibility pairs and rays per second. That one was after the detailed houses (6,137 colliders instead of 6,702). The same benchmark just before the change on the same machine: 2.205 / 5.417 / 7.44 ms tick, 9.1 percent CPU, 1.73 KB/s down, 2.4 / 10.0 poses, 600 / 3,696 visibility pairs and rays per second. Bench runs vary with how the bots meet: that run's ducks fought in the open more (8.7 of 8.9 enemies in sight on average), hence more poses and rays.
 
 Team modes (`npm run bench:br -- 4 60 T`, the 4 clients fill teams together, same machine, one run each after the party and team change):
 
@@ -739,7 +748,6 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 - The inventory screen has no drag and drop; every action is a button.
 - The anti-wallhack culling has no field-of-view test (a fast 180 degree turn would show pop-in), and a duck you cannot see can still be heard (direction only). Bushes do not count as walls for the culling (a duck in a bush is sent; it is hidden by the bush itself).
 - LOD switches on props are hard cuts; far hedgerows look chunky from the plane.
-- The zone timer text for the first circle uses the default timings (wrong when `QWAKK_ZONE_SCALE` is set for tests).
 - Going back to the menu and starting a new game keeps a few GPU buffers of the previous one (the scene is replaced, not every geometry is disposed).
 - The shot effects of other players use their drawn gun as the start point, so a tracer can start a few centimeters off the server's line.
 - Crouched ducks' heads reach 1.30 m but the crouched movement capsule is 1.15 m, so under a low overhang the head can clip into the geometry (the hitbox still follows the visual head).

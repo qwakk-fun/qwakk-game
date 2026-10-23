@@ -1,0 +1,23 @@
+/* Deathmatch explosives: grenade and rocket counts above the ammo, the pickup toast, explosive hit markers and kill feed icons. */
+.ex-hud { position: absolute; right: 24px; bottom: 98px; display: grid; gap: 4px; justify-items: end; pointer-events: none; color: #fff8e7; font-size: 13px; }
+.ex-hud[hidden] { display: none; }
+.ex-row { display: flex; align-items: center; gap: 5px; padding: 3px 8px; border-radius: 8px; background: rgba(21, 22, 25, 0.55); }
+.ex-row.none { opacity: 0.45; }
+.ex-row.rocket.out { outline: 1px solid #ff8a3d; }
+.ex-key { min-width: 16px; padding: 0 4px; border: 1px solid #fff6; border-radius: 4px; font-size: 11px; text-align: center; color: #c9c6bc; }
+.ex-n { min-width: 12px; font-weight: 700; color: #ffd43b; }
+.ex-nade { position: relative; width: 11px; height: 11px; border-radius: 50%; background: #6d8f3c; box-shadow: inset 0 -3px 0 #4b6427, 0 0 0 1px #151619; }
+.ex-nade::after { content: ''; position: absolute; left: 1px; right: 1px; top: 4px; height: 2px; background: #ffd43b; }
+.ex-rkt { width: 16px; height: 6px; border-radius: 3px 6px 6px 3px; background: linear-gradient(90deg, #e9e4d6 70%, #ff8a3d 70%); box-shadow: 0 0 0 1px #151619; }
+.ex-toast { position: absolute; top: 28%; left: 50%; transform: translateX(-50%); display: grid; gap: 4px; padding: 10px 22px; border-radius: 10px; background: #151619e6; border: 1px solid #ff8a3d; text-align: center; pointer-events: none; animation: ex-in 180ms ease-out; }
+.ex-toast[hidden] { display: none; }
+.ex-toast strong { font-size: 19px; color: #ff8a3d; }
+.ex-toast span { font-size: 13px; color: #ffe0a0; }
+.ghud-marker.blast .ghud-m { background: #ff8a3d; height: 14px; width: 4px; }
+.ghud-feedrow .ic { display: inline-block; align-self: center; }
+.ghud-feedrow .ic.grenade { width: 10px; height: 10px; border-radius: 50%; background: #6d8f3c; box-shadow: 0 0 0 1px #151619, inset 0 -3px 0 #4b6427; }
+.ghud-feedrow .ic.rocket { width: 16px; height: 6px; border-radius: 3px 6px 6px 3px; background: linear-gradient(90deg, #e9e4d6 70%, #ff8a3d 70%); box-shadow: 0 0 0 1px #151619; }
+body.touch-ui .ex-hud { display: none; }
+.dm-replaying .ex-hud, .dm-replaying .ex-toast, .dm-intermission .ex-hud { visibility: hidden; }
+@keyframes ex-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translateX(-50%); } }
+@media (prefers-reduced-motion: reduce) { .ex-toast { animation: none; } }

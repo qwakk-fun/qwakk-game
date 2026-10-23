@@ -20,6 +20,22 @@ export function dmMaxHumans(): number {
   return settings.num('dm.maxHumans');
 }
 
+/** Caped hero rules, read when a hero is picked or made and at round start. */
+export function dmHeroRules(): { on: boolean; everySeconds: number; health: number; killPoints: number; holdPoints: number } {
+  return {
+    on: settings.bool('dm.hero'),
+    everySeconds: settings.num('dm.heroEverySeconds'),
+    health: settings.num('dm.heroHealth'),
+    killPoints: settings.num('dm.heroKillPoints'),
+    holdPoints: settings.num('dm.heroHoldPoints'),
+  };
+}
+
+/** Kill stacks on or off, read at each kill. */
+export function dmKillStacksOn(): boolean {
+  return settings.bool('dm.killStacks');
+}
+
 /** Spawn protection in ticks, read at every deathmatch spawn. */
 export function spawnProtectTicks(): number {
   return Math.round(settings.num('dm.spawnProtectionSeconds') * TICK_RATE);
@@ -36,6 +52,11 @@ export function brMaxRooms(): number {
 
 export function brStartRules(): { minHumans: number; countdownSeconds: number } {
   return { minHumans: settings.num('br.minHumans'), countdownSeconds: settings.num('br.countdownSeconds') };
+}
+
+/** Battle royale zone tempo, read when a room is created (its match keeps it). */
+export function brZoneRules(): { zoneTimeScale: number; zoneDamageScale: number; firstCircleRadius: number } {
+  return { zoneTimeScale: settings.num('br.zoneTimeScale'), zoneDamageScale: settings.num('br.zoneDamageScale'), firstCircleRadius: settings.num('br.firstCircleRadius') };
 }
 
 /** Battle royale team sizes players may open right now. */

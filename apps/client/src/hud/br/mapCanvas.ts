@@ -8,7 +8,7 @@ import type { MapDef, MapV1Extras } from '@qwakk/shared';
 import { GROUND_COLORS } from '../../world/sainte/terrain.ts';
 
 const SEA = [47, 167, 201];
-const BUILDINGS = new Set(['farmhouse', 'townhouse', 'house_ruined', 'church', 'barn', 'lighthouse', 'bunker_pillbox', 'bridge_stone']);
+const BUILDINGS = new Set(['farmhouse', 'townhouse', 'house_ruined', 'qorechain_tower', 'barn', 'lighthouse', 'bunker_pillbox', 'bridge_stone']);
 
 export interface MapOverlay {
   /** Duck position and heading (yaw, three.js convention). */
@@ -81,7 +81,7 @@ export function renderMapImage(def: MapDef, ground: Uint8Array, extras: MapV1Ext
   g.fillStyle = 'rgba(70, 62, 55, 0.85)';
   for (const p of extras.props) {
     if (!BUILDINGS.has(p.prop)) continue;
-    const s = (p.prop === 'church' ? 11 : 8) * k;
+    const s = (p.prop === 'qorechain_tower' ? 16 : 8) * k;
     g.save();
     g.translate(toPx(p.x), toPx(p.z));
     g.rotate(-p.rotY);

@@ -35,10 +35,12 @@ const aimed = (s: PlayerSim): PlayerSim => ({ ...s, aim: ADS.inTicks });
 
 describe('aim down sights: input', () => {
   it('the Aim button survives sanitizing; bits above it are masked off', () => {
-    const f = sanitizeInput({ seq: 1, tick: 0, mx: 0, mz: 0, buttons: Button.Aim | Button.Fire | (1 << 14) | (1 << 20), yaw: 0, pitch: 0 });
+    // Bits 14 and 15 are the deathmatch grenade and rocket slot; everything above Slot3 is masked off.
+    const f = sanitizeInput({ seq: 1, tick: 0, mx: 0, mz: 0, buttons: Button.Aim | Button.Fire | (1 << 16) | (1 << 20), yaw: 0, pitch: 0 });
     expect(f?.buttons).toBe(Button.Aim | Button.Fire);
     expect(ALL_BUTTONS & Button.Aim).toBe(Button.Aim);
-    expect(ALL_BUTTONS >> 14).toBe(0);
+    expect(ALL_BUTTONS & (Button.Grenade | Button.Slot3)).toBe(Button.Grenade | Button.Slot3);
+    expect(ALL_BUTTONS >> 16).toBe(0);
     const g = { mx: 0, mz: 0, buttons: -1, yaw: 0, pitch: 0 };
     sanitizeInputFields(g);
     expect(g.buttons).toBe(ALL_BUTTONS);

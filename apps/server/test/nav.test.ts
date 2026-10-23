@@ -4,7 +4,7 @@ import { exportNavMesh } from 'recast-navigation';
 import { hullTriangles } from '../src/nav/geometry.ts';
 import { BotNav } from '../src/nav/botNav.ts';
 import { buildNavMesh, initNav } from '../src/nav/navmesh.ts';
-import { loadSainteCanard } from '../src/maps.ts';
+import { loadMapV1, loadSainteCanard } from '../src/maps.ts';
 
 beforeAll(async () => {
   await initPhysics();
@@ -53,6 +53,51 @@ describe('bot navmesh on Yelova', () => {
     for (const p of pts) {
       const g = groundHeightAt(sim, p.x, p.y + 1.5, p.z);
       expect(Math.abs(g - p.y)).toBeLessThan(0.8);
+    }
+    sim.dispose();
+  }, 120_000);
+});
+
+describe('bot navmesh on Kavren', () => {
+  it('routes bots around and through the QoreChain Tower in the middle of the square, never through its core', () => {
+    const map = loadMapV1('canard-quarter');
+    const tower = map.loaded!.extras.props.find((p) => p.prop === 'qorechain_tower')!;
+    expect(tower).toBeDefined();
+    const nav = new BotNav(buildNavMesh(map.def, [tower.x - 45, tower.z - 45, tower.x + 45, tower.z + 45]));
+    const sim = createSimWorld(map.def);
+    // the core (4 x 4 m) and the arcade piers: no path segment may cross the solid parts (the arches,
+    // 3 m wide at -4.5, 0 and 4.5 m along every face, are the way in)
+    const inCore = (p: { x: number; z: number }) => Math.abs(p.x - tower.x) < 2.2 && Math.abs(p.z - tower.z) < 2.2;
+    const inWall = (p: { x: number; z: number }) => {
+      const ax = Math.abs(p.x - tower.x);
+      const az = Math.abs(p.z - tower.z);
+      const along = ax > az ? az : ax;
+      return Math.max(ax, az) > 7.3 && Math.max(ax, az) < 8.1 && ![0, 4.5].some((c) => Math.abs(along - c) < 1.5);
+    };
+    const legs: [number, number, number, number][] = [
+      [0, 14, 0, -14], // south of the tower to north of it
+      [-11, 0, 10.5, 0], // west to east (the tank wreck stands at +14)
+      [-4.5, 14, 4.5, 3.4], // from the street into the hall, to the corridor behind the core
+    ];
+    for (const [ax, az, bx, bz] of legs) {
+      const a = { x: tower.x + ax, y: tower.y + 0.2, z: tower.z + az };
+      const b = { x: tower.x + bx, y: tower.y + 0.2, z: tower.z + bz };
+      const path = nav.path(a, b);
+      expect(path, `no path ${JSON.stringify([ax, az, bx, bz])}`).not.toBeNull();
+      const pts = path!;
+      const end = pts[pts.length - 1]!;
+      expect(Math.hypot(end.x - b.x, end.z - b.z), `leg ${JSON.stringify([ax, az, bx, bz])} ends at (${end.x.toFixed(2)}, ${end.y.toFixed(2)}, ${end.z.toFixed(2)})`).toBeLessThan(1.5);
+      for (let i = 1; i < pts.length; i++) {
+        const p = pts[i - 1]!;
+        const q = pts[i]!;
+        for (let k = 0; k <= 10; k++) {
+          const m = { x: p.x + ((q.x - p.x) * k) / 10, z: p.z + ((q.z - p.z) * k) / 10 };
+          expect(inCore(m) || inWall(m), `path ${JSON.stringify([ax, az, bx, bz])} crosses the tower at (${m.x.toFixed(1)}, ${m.z.toFixed(1)})`).toBe(false);
+        }
+        // probe from 0.8 m up: a standing capsule from higher would start inside an arch top over a corner in an arch
+        const g = groundHeightAt(sim, q.x, q.y + 0.8, q.z);
+        expect(Math.abs(g - q.y), `corner (${q.x.toFixed(2)}, ${q.y.toFixed(2)}, ${q.z.toFixed(2)}) ground ${g.toFixed(2)}`).toBeLessThan(0.8);
+      }
     }
     sim.dispose();
   }, 120_000);

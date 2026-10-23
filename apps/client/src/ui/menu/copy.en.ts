@@ -115,6 +115,8 @@ export const EN = {
       prev: 'Prev',
       deploy: 'Jump out',
       glider: 'Glide',
+      grenade: 'Nade',
+      rocket: 'Rocket',
     },
     /** Prompt key names on touch (the HUD shows these instead of keyboard keys; empty: the big button on screen says it). */
     keys: { E: 'Use', F: '', Space: '', 'W / S': 'Stick', I: 'Bag' } as Record<string, string>,

@@ -11,7 +11,7 @@ import { t as translate } from './i18n/game.ts';
  * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { Act, actionOf, aimBlend, Button, COMBAT, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
+import { Act, actionOf, aimBlend, Button, COMBAT, exLauncher, exNades, exRockets, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
 import { TpsCamera } from './camera/tpsCamera.ts';
@@ -19,6 +19,8 @@ import { config, DEVTOOLS } from './config.ts';
 import { Effects } from './fx/effects.ts';
 import type { Autopilot } from './game/autopilot.ts';
 import { DmClient } from './game/dmClient.ts';
+import type { BuffDuck } from './game/dmBuffsView.ts';
+import { ExplosivesClient } from './game/explosivesClient.ts';
 import { BrClient } from './game/brClient.ts';
 import { CombatFeedback } from './game/combatFeedback.ts';
 import { FrameTimer, MotionProbe } from './game/metrics.ts';
@@ -83,6 +85,8 @@ export class Game {
   private readonly combat: CombatFeedback;
   readonly br: BrClient | null;
   readonly dm: DmClient | null;
+  /** Deathmatch grenades, rockets and blasts (null in the battle royale). */
+  readonly explosives: ExplosivesClient | null;
   /** Faint names over nearby ducks and the team panel. */
   readonly tags: NameTags;
   private readonly teamPanel: TeamPanel;
@@ -109,6 +113,8 @@ export class Game {
   /** Clips and weapons are in (models load from then on), unless `?duck=placeholder`. */
   private modelsOn = false;
   private showBoard = false;
+  /** The explosives drawn were dropped for this intermission (dropped once per round end). */
+  private explosivesOver = false;
   private crouchBlend = 0;
   private spectateIndex = 0;
   private lastLife = -1;
@@ -175,6 +181,13 @@ export class Game {
       remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
       myPosition: () => this.myPos,
     });
+    this.explosives = isBr
+      ? null
+      : new ExplosivesClient({
+          session, sim, scene, effects: this.fx, sound: this.sound, cam: this.cam, controls: this.controls, hudRoot: this.ghud.element,
+          groundAt: (x, _y, z) => world.groundAt(x, z),
+          views: { localAvatar: this.localAvatar, remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null, myPosition: () => this.myPos },
+        });
 
     this.chat = new ChatPanel(app, this.controls, (text) => session.sendChat(text), () => {
       if (config.spectate || this.br?.resultOpen) return false;
@@ -214,7 +227,16 @@ export class Game {
         dmKillcam: (replay) => this.dm?.killcam(replay),
         dmReward: (reward) => this.dm?.reward(reward),
         dmPower: (kind) => this.dm?.power(kind),
-        shotHint: (weapon, angle, loud) => this.br?.shotHint(weapon, angle, loud, this.myPos),
+        dmHero: (event, heroPid, otherPid) => this.dm?.heroEvent(event, heroPid, otherPid),
+        dmHeroPing: (heroPid, x, z) => this.dm?.heroPing(heroPid, x, z),
+        projectile: (id, kind, owner, at, vel) => this.explosives?.projectile(id, kind, owner, at, vel),
+        boom: (id, kind, at) => this.explosives?.boom(id, kind, at),
+        dmRocket: (rockets) => this.explosives?.rocketPicked(rockets),
+        localExplosive: (kind, state, buttons) => this.explosives?.localExplosive(kind, state, buttons),
+        shotHint: (weapon, angle, loud) => {
+          this.br?.shotHint(weapon, angle, loud, this.myPos);
+          this.explosives?.hint(weapon, angle, loud);
+        },
         picked: (kind, amount) => this.br?.picked(kind, amount),
         denied: (reason, kind) => this.br?.denied(reason, kind),
         result: (placement, total, kills, damage, survivedMs, teamSize) => {
@@ -318,6 +340,7 @@ export class Game {
     this.ctx.renderer.domElement.removeEventListener('mousedown', this.onSpectatorClick);
     this.br?.dispose();
     this.dm?.dispose();
+    this.explosives?.dispose();
     this.tags.dispose();
     this.teamPanel.dispose();
     this.ghud.dispose();
@@ -402,7 +425,10 @@ export class Game {
       p.alive = alive;
       // Knocked: no gun up, crawling low.
       p.down = st.down === 1;
-      p.weapon = mine.armed && !p.down ? st.weapon : 2;
+      // The rocket launcher rides the rifle's place in the hands (Avatar.setLauncher).
+      const launcher = exLauncher(st) === 1;
+      p.weapon = mine.armed && !p.down ? (launcher ? 0 : st.weapon) : 2;
+      this.localAvatar.setLauncher(launcher && !p.down);
       p.act = actionOf(st as never);
       p.fly = mode;
       p.vest = mine.vest;
@@ -457,7 +483,8 @@ export class Game {
       a.grounded = p.grounded;
       a.alive = s.alive === 1;
       a.down = down;
-      a.weapon = s.armed && !down ? s.weapon : 2;
+      a.weapon = s.armed && !down ? (p.lnch ? 0 : s.weapon) : 2;
+      r.avatar.setLauncher(p.lnch === 1 && !down);
       a.act = p.act;
       a.aim = undefined;
       a.fly = p.fly;
@@ -473,6 +500,8 @@ export class Game {
     }
 
     this.dm?.frame(now);
+    if (this.dm) this.dm.buffs(dt, this.buffDucks(), this.ctx.camera);
+    this.explosives?.frame(dt, now);
     this.tags.update(this.ctx.camera, this.dm?.replay.active ? [] : tags, this.myPos);
     this.br?.frame(dt, this.myPos);
     const replaying = this.dm?.replay.active ? this.dm.replay.draw(now, this.ctx.camera, [[session.sessionId, this.localAvatar], ...[...this.remotes].map(([id, r]): [string, Avatar] => [id, r.avatar])], dt) : false;
@@ -480,8 +509,10 @@ export class Game {
     this.fx.update(dt, this.ctx.camera);
     this.sound.listen(this.ctx.camera);
     const restoreEffects = replaying ? this.fx.hideForReplay() : null;
+    const restoreExplosives = replaying ? (this.explosives?.hideForReplay() ?? null) : null;
     this.ctx.renderer.render(this.ctx.scene, this.ctx.camera);
     restoreEffects?.();
+    restoreExplosives?.();
     this.dm?.replay.restoreCamera();
     this.updateGameHud(dt);
 
@@ -492,6 +523,25 @@ export class Game {
       this.renderHud();
     }
     this.timer.cpuSample(performance.now() - t0);
+  }
+
+  private readonly buffList: BuffDuck[] = [];
+
+  /** Ducks for the deathmatch aura and cape (each rides its avatar, hidden with it). */
+  private buffDucks(): BuffDuck[] {
+    const list = this.buffList;
+    list.length = 0;
+    const me = this.session.me;
+    const mine = this.session.mine;
+    if (me && mine) list.push({ id: this.session.sessionId, avatar: this.localAvatar, state: mine, grounded: me.state.grounded === 1, local: true });
+    const st = this.session.room.state;
+    for (const [id, r] of this.remotes) {
+      // The pose entry's flag (session.pose() interpolates and keeps blend state: called once per frame above).
+      const near = st.poses.get(id);
+      const pose = near && !(near.x === 0 && near.y === 0 && near.z === 0) ? near : st.farPoses.get(id);
+      list.push({ id, avatar: r.avatar, state: r.state, grounded: (pose?.grounded ?? 1) === 1, local: false });
+    }
+    return list;
   }
 
   /** Spectator camera: follow a living duck (click to switch). */
@@ -515,11 +565,12 @@ export class Game {
     if (me && mine) {
       const s = me.state;
       const w = weaponStats(s.weapon);
-      g.health(s.hp, COMBAT.maxHp);
+      g.health(s.hp, this.dm?.maxHp(mine) ?? COMBAT.maxHp);
       const armed = mine.armed === 1;
       const mag = s.weapon === 0 ? s.mag0 : s.mag1;
       const res = s.weapon === 0 ? s.res0 : s.res1;
-      if (armed) g.ammoInfo(translate(w.name), mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
+      if (exLauncher(s)) g.ammoInfo(translate('Rocket launcher'), exRockets(s), 0, 0);
+      else if (armed) g.ammoInfo(translate(w.name), mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
       else g.ammoInfo('Unarmed', 0, 0, 0);
       g.crosshair(inaccuracy(w, s as never, Math.floor(s.spray)), this.ctx.camera.fov, window.innerHeight);
       g.protection(mine.protect === 1);
@@ -544,8 +595,10 @@ export class Game {
     }
     g.round(st.timeLeft, mine?.kills ?? 0, st.scoreLimit, leader, Math.max(0, leaderKills));
     const intermission = st.phase === MatchPhase.Intermission;
+    if (intermission && !this.explosivesOver) this.explosives?.roundOver();
+    this.explosivesOver = intermission;
     g.scoreboard(this.showBoard ? rows : null);
-    this.dm?.hudFrame();
+    this.dm?.hudFrame(this.controls.yaw);
     const esc = (t: string) => t.replace(/[&<>"]/g, (c) => `&#${c.charCodeAt(0)};`);
     if (intermission && this.dm) {
       g.message(null);
@@ -574,6 +627,9 @@ export class Game {
     f.armed = mine?.armed === 1;
     const other = s && s.weapon === 0 ? 1 : 0;
     f.otherWeapon = s && mine?.armed === 1 && hasWeapon(s as never, other) ? translate(weaponStats(other).name) : '';
+    f.nades = s ? exNades(s) : 0;
+    f.rockets = s ? exRockets(s) : 0;
+    f.rocketOut = s ? exLauncher(s) === 1 : false;
     if (this.br) Object.assign(f, this.br.touchState());
     else {
       f.promptKey = '';
@@ -651,6 +707,7 @@ export class Game {
       },
       camera: this.cam,
       tags: this.tags,
+      explosives: this.explosives,
     };
   }
 }

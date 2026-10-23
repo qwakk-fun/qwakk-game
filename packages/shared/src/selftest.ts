@@ -8,6 +8,8 @@ import { Button, sanitizeInputFields, type InputFrame } from './input.ts';
 import { generateMap, type MapDef } from './map.ts';
 import { createSimWorld } from './physics.ts';
 import { createPlayerSim, PLAYER_SIM_FIELDS, stepPlayer } from './sim.ts';
+import { setHero, setKillStacks } from './dmBuffs.ts';
+import { HERO_FLIGHT } from './constants.ts';
 
 export function simSelfTestHash(seed = 1337, ticks = 600): string {
   return simSelfTestHashOn(generateMap(seed), ticks);
@@ -40,12 +42,22 @@ export function simSelfTestHashOn(map: MapDef, ticks = 600): string {
   const sim = createSimWorld(map);
   const rng = createRng(4242);
   const players = sim.map.spawns.slice(0, 6).map(([x, y, z]) => createPlayerSim(x, y, z));
+  // Deathmatch buffs: kill stacks on one duck, the caped hero (flight) on two.
+  const heroes = new Set(players.slice(4));
+  if (players[3]) setKillStacks(players[3], 3);
+  for (const p of heroes) {
+    setHero(p, true);
+    setKillStacks(p, 1);
+    p.dmEnergy = HERO_FLIGHT.energyTicks;
+  }
   const frame: InputFrame = { seq: 0, tick: 0, mx: 0, mz: 0, buttons: 0, yaw: 0, pitch: 0 };
   for (let t = 0; t < ticks; t++) {
     for (const p of players) {
       frame.mx = rng() * 2 - 1;
       frame.mz = rng() * 2 - 1;
       frame.buttons = rng() < 0.1 ? Button.Jump : rng() < 0.3 ? Button.Sprint : 0;
+      // Heroes hold Jump in runs (take off, climb, hover, glide), so flight is covered too.
+      if (heroes.has(p) && t % 100 < 45) frame.buttons |= Button.Jump;
       // Aim down sights in runs (slower moves, ramp state), so the scenario covers it too.
       if (t % 90 < 40) frame.buttons |= Button.Aim;
       frame.yaw = p.yaw + (rng() - 0.5) * 0.2;

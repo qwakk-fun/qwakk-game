@@ -86,8 +86,11 @@ PLAZA = (22, -208, 58, -176)
 
 # Buildings: (prop, x, z, facing). Hand placed so streets read and doors face the street. Fewer but richer
 # houses (27, was 37): each type has a full interior (art/map/blender/house_*.py).
+# The big stone house at the head of the square (a walled garden behind it): it keeps 5 of its 10 loot spots
+# (two of them upstairs, +1 tier), the count of the 5-spot landmark that stood here.
+SQUARE_HOUSE = ("farmhouse", 40, -216.5, FACE_S)
 BUILDINGS = [
-    ("church", 40, -221.3, FACE_S),
+    SQUARE_HOUSE,
     ("townhouse", 22, -251, FACE_E), ("farmhouse", 59, -252, FACE_W),
     ("townhouse", 8, -226, FACE_E), ("farmhouse", 8, -208, FACE_E), ("house_ruined", 8, -170, FACE_E),
     ("townhouse", 72, -208, FACE_W), ("townhouse", 72, -170, FACE_W),
@@ -105,8 +108,11 @@ BUILDINGS = [
     ("townhouse", 226, 254, FACE_S), ("farmhouse", 252, 262, FACE_W), ("barn", 258, 294, FACE_W),
     ("house_ruined", -262, 232, FACE_S),
 ]
+# Loot spots kept on a building (indices into its manifest loot list), by (prop, x, z).
+LOOT_KEEP = {SQUARE_HOUSE[:3]: (0, 2, 4, 6, 8)}
 # Lots that held a plain house in the first layout: kitchen gardens and one bombed-out plot.
 LOTS = [
+    ("garden", 40, -230.5, FACE_N),
     ("garden", 8, -152, FACE_E), ("garden", 72, -226, FACE_W), ("bombed", 72, -152, FACE_W), ("garden", -16, -204, FACE_S),
     ("bombed", -16, -175, FACE_N), ("garden", 116, -198, FACE_S), ("garden", 96, -166, FACE_N), ("garden", 53, -116, FACE_W),
     ("garden", -150, 80, FACE_N), ("bombed", 224, 290, FACE_N),
@@ -403,10 +409,13 @@ def generate():
 
     # ======== phase A: what flattens or dents the terrain
     for prop, x, z, yaw in BUILDINGS:
-        g.pad_for(prop, x, z, yaw, margin=3.0 if prop != "church" else 4.0, falloff=12.0)
+        g.pad_for(prop, x, z, yaw, margin=3.0, falloff=12.0)
     g.pads.append({"x": (PLAZA[0] + PLAZA[2]) / 2, "z": (PLAZA[1] + PLAZA[3]) / 2, "hx": (PLAZA[2] - PLAZA[0]) / 2,
                    "hz": (PLAZA[3] - PLAZA[1]) / 2, "yaw": 0.0, "falloff": 14.0, "y": None})
     g.pads.append({"x": 20, "z": 60, "hx": 18, "hz": 18, "yaw": 0.0, "falloff": 16.0, "y": None})
+    # the house at the head of the square: its pad again after the square's, so the square's falloff does not
+    # dip the ground in front of its door (a later pad wins inside its rectangle)
+    g.pad_for(*SQUARE_HOUSE, margin=3.0, falloff=8.0)
     for bx, bz, yaw in BRIDGES:
         _, bed = T.river_info(bx, bz)
         for s in (-1, 1):
@@ -448,10 +457,15 @@ def generate():
     for p in g.pads:
         pad_y[(round(p["x"], 2), round(p["z"], 2))] = p["y"]
     for prop, x, z, yaw in BUILDINGS:
-        fp = g.footprint(prop, x, z, yaw, margin=3.0 if prop != "church" else 4.0)
+        fp = g.footprint(prop, x, z, yaw, margin=3.0)
         y = pad_y[(round(fp[0], 2), round(fp[1], 2))]
+        n0 = len(g.loot)
         ok = g.place(prop, x, z, yaw, y=y, check=(), margin=0.0)
         assert ok, prop
+        keep = LOOT_KEEP.get((prop, x, z))
+        if keep is not None:
+            spots = g.loot[n0:]
+            g.loot[n0:] = [spots[i] for i in keep]
         # a 2.5 m yard around every building: nothing scattered later (hedges, crates, walls) blocks a door
         g.solid.add(g.footprint(prop, x, z, yaw, margin=2.5))
     for bx, bz, yaw in BRIDGES:

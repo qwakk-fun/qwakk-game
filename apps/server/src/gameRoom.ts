@@ -16,6 +16,7 @@ import {
   createSimWorld,
   hasWeapon,
   emptyInput,
+  exLauncher,
   initPhysics,
   INTEREST,
   Mode,
@@ -499,8 +500,10 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
             f.yaw = seat.sim.yaw;
             f.pitch = seat.sim.pitch;
           }
-          const once = Button.Fire | Button.Reload | Button.Slot1 | Button.Slot2 | Button.Use | Button.Heal1 | Button.Heal2 | Button.Deploy;
+          const once = Button.Fire | Button.Reload | Button.Slot1 | Button.Slot2 | Button.Slot3 | Button.Use | Button.Heal1 | Button.Heal2 | Button.Deploy;
           f.buttons = kind === 'repeat' ? ns.frame.buttons & ~once : 0;
+          // The grenade throws on release: a stand-in holds that button exactly where the last step had it, so it never throws.
+          f.buttons = (f.buttons & ~Button.Grenade) | (seat.sim.prevButtons & Button.Grenade);
           m.applyInput(seat, f, m.standInViewTime(seat));
         },
       );
@@ -737,7 +740,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   }
 }
 
-function writePose(p: Pose, s: { x: number; y: number; z: number; yaw: number; pitch: number; crouch: number; grounded: number; mode: number }, act: number): void {
+function writePose(p: Pose, s: { x: number; y: number; z: number; yaw: number; pitch: number; crouch: number; grounded: number; mode: number; ex: number }, act: number): void {
   // Quantized fields store their dequantized value, so compare in that domain via assignment only on change.
   p.x = s.x;
   p.y = s.y;
@@ -748,4 +751,6 @@ function writePose(p: Pose, s: { x: number; y: number; z: number; yaw: number; p
   if (p.grounded !== s.grounded) p.grounded = s.grounded;
   if (p.fly !== s.mode) p.fly = s.mode;
   if (p.act !== act) p.act = act;
+  const lnch = exLauncher(s);
+  if (p.lnch !== lnch) p.lnch = lnch;
 }

@@ -174,6 +174,53 @@ export class Sound {
     notes.forEach((hz, i) => this.tone(this.master!, this.ctx!.currentTime + i * 0.085, 'sine', hz, hz, 0.16, 0.12));
   }
 
+  /** Deathmatch kill stack gained: a quick rising pair, a step higher per stack (1 to 5). */
+  stackUp(stacks: number): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    const base = 440 * Math.pow(2, (Math.min(5, stacks) * 2) / 12);
+    this.tone(this.master, t, 'triangle', base, base * 1.5, 0.14, 0.16);
+    this.tone(this.master, t + 0.07, 'sine', base * 1.5, base * 2, 0.18, 0.12);
+    if (stacks >= 5) this.noiseBurst(this.master, t, 0.3, 9000, 2500, 0.08, 2);
+  }
+
+  /** Caped hero announced: a short brass-like fanfare (louder when it is you). */
+  heroFanfare(mine: boolean): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    const g = mine ? 0.2 : 0.11;
+    [392, 523, 659, 784].forEach((hz, i) => {
+      this.tone(this.master!, t + i * 0.09, 'sawtooth', hz, hz, i === 3 ? 0.5 : 0.12, g * 0.6);
+      this.tone(this.master!, t + i * 0.09, 'triangle', hz * 2, hz * 2, i === 3 ? 0.5 : 0.12, g * 0.5);
+    });
+  }
+
+  /** A hero takes off: an upward whoosh, in 3D. */
+  heroTakeOff(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.noiseBurst(dest, t, 0.45, 600, 5000, 0.35, 3);
+    this.tone(dest, t, 'sine', 180, 520, 0.3, 0.14);
+  }
+
+  /** A hero lands: a soft thump and a puff, in 3D. */
+  heroLand(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 120, 50, 0.18, 0.35);
+    this.noiseBurst(dest, t, 0.25, 2500, 300, 0.25, 1);
+  }
+
+  /** The hero compass updated: a faint blip. */
+  heroPing(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    this.tone(this.master, this.ctx.currentTime, 'sine', 1320, 1320, 0.09, 0.05);
+  }
+
   /** Hit marker tick. */
   hit(): void {
     if (!this.ready || !this.ctx || !this.master) return;
@@ -263,6 +310,80 @@ export class Sound {
     const t = this.ctx.currentTime;
     this.tone(out, t, 'square', 240, 220, 0.06, 0.06);
     this.tone(out, t + 0.08, 'square', 180, 160, 0.08, 0.06);
+  }
+
+  /**
+   * An explosion: a low sine thump with a pitch drop, a wide noise burst
+   * sweeping down, and a crackle tail. `distance` (m) dulls and delays nothing
+   * (the panner does the level); far blasts lose their top end.
+   */
+  explosion(at?: THREE.Vector3, distance = 0): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    const top = distance > 60 ? 900 : distance > 25 ? 2200 : 5000;
+    this.tone(dest, t, 'sine', 95, 28, 0.9, 1.0);
+    this.tone(dest, t, 'triangle', 60, 22, 0.6, 0.5);
+    this.noiseBurst(dest, t, 0.8, top, 80, 1.1, 0.6);
+    this.noiseBurst(dest, t + 0.05, 1.3, top * 0.5, 60, 0.45, 0.4);
+    for (let i = 0; i < 5; i++) this.noiseBurst(dest, t + 0.12 + Math.random() * 0.5, 0.06, 3000, 900, 0.12, 2);
+  }
+
+  /** A rocket leaving the launcher: a hollow pop and a rising rushing hiss. */
+  rocketLaunch(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 180, 60, 0.18, 0.6);
+    this.rush(dest, t, 0.7, 400, 2600, 0.5);
+  }
+
+  /** A rocket rushing past close by. */
+  rocketWhoosh(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (dest) this.rush(dest, this.ctx.currentTime, 0.45, 2400, 500, 0.45);
+  }
+
+  /** Band-passed noise whose center sweeps from f0 to f1 (whooshes). */
+  private rush(dest: AudioNode, t: number, dur: number, f0: number, f1: number, gain: number): void {
+    const ctx = this.ctx as Ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.Q.value = 1.4;
+    filt.frequency.setValueAtTime(f0, t);
+    filt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.3);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt).connect(g).connect(dest);
+    src.start(t, Math.random() * 0.4, dur + 0.05);
+  }
+
+  /** A grenade throw: a short cloth whoosh (and a pin click for our own). */
+  grenadeThrow(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    if (!at) this.tone(dest, t, 'square', 3200, 2600, 0.025, 0.08);
+    this.rush(dest, t + 0.03, 0.22, 900, 2400, 0.25);
+  }
+
+  /** A grenade bouncing: a small metallic tick, louder for a harder bounce (0..1). */
+  grenadeTick(at?: THREE.Vector3, strength = 1): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    const k = Math.max(0.15, Math.min(1, strength));
+    this.tone(dest, t, 'triangle', 2100 + Math.random() * 300, 1500, 0.07, 0.22 * k);
+    this.noiseBurst(dest, t, 0.04, 6000, 2000, 0.14 * k, 3);
   }
 
   /** Winning: a little rising quack fanfare. */
