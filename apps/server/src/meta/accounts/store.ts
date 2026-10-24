@@ -26,7 +26,7 @@ interface CharacterRow {
   look: number;
   level: number;
   xp: string | number;
-  /** Hunt Season personal best on Pond Keep (left join raid_keep_bests; null without a run). */
+  /** Hunt Season personal best of the push (v3) (left join raid_push_bests; null without a run). */
   best_wave?: number | null;
   best_ms?: number | null;
   raid_runs?: number | null;
@@ -94,14 +94,14 @@ export async function deleteSession(db: Db, sessionId: string): Promise<void> {
 export async function listCharacters(db: Db, accountId: string): Promise<CharacterView[]> {
   const rows = await db<CharacterRow[]>`
     select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins
-    from players p left join raid_keep_bests b on b.player_id = p.id where p.account_id = ${accountId} order by p.slot`;
+    from players p left join raid_push_bests b on b.player_id = p.id where p.account_id = ${accountId} order by p.slot`;
   return rows.map(toCharacter);
 }
 
 export async function characterOf(db: Db, accountId: string, playerId: string): Promise<CharacterView | null> {
   const [r] = await db<CharacterRow[]>`
     select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins
-    from players p left join raid_keep_bests b on b.player_id = p.id where p.id = ${playerId} and p.account_id = ${accountId}`;
+    from players p left join raid_push_bests b on b.player_id = p.id where p.id = ${playerId} and p.account_id = ${accountId}`;
   return r ? toCharacter(r) : null;
 }
 

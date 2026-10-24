@@ -17,12 +17,11 @@
  * meta layer), never from anything a client says.
  */
 import { ServerError, type Client } from '@colyseus/core';
-import { BridgeState, ExplosiveKind, PARTY, RAID, RaidStage, TICK_RATE, raidXp, type InputFrame } from '@qwakk/shared';
-import { DmPickup, GameMode, Hunter, MatchPhase, Msg, RaidCannon, RaidEvent, RaidTrap, type PlayerState } from '@qwakk/shared/net';
+import { BridgeState, ExplosiveKind, HunterFx, PARTY, RAID, RaidStage, TICK_RATE, raidXp, type InputFrame } from '@qwakk/shared';
+import { DmPickup, GameMode, Hunter, MatchPhase, Msg, RaidCannon, RaidEvent, RaidTarget, RaidTrap, type PlayerState } from '@qwakk/shared/net';
 import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
 import type { BotLike, Seat } from './arena.ts';
 import { angleMilli, cm, GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
-import { ExplosivesNet } from './dmExplosivesNet.ts';
 import { loadMapV1, type ServerMap } from './maps.ts';
 import { recordRaid, type RaidRunResult } from './meta/index.ts';
 import type { BotNav } from './nav/botNav.ts';
@@ -58,7 +57,6 @@ export class RaidRoom extends GameRoom<Raid> {
   private startedAt = Date.now();
   private recorded = false;
   private closeTimer: NodeJS.Timeout | null = null;
-  private explosivesNet: ExplosivesNet | null = null;
   /** Seats held for a party leader's friends on their way in: party id to seats and the time they expire. */
   private readonly held = new Map<string, { seats: number; until: number }>();
   /** Throttles for the core and gate hit events (ms). */
@@ -74,6 +72,11 @@ export class RaidRoom extends GameRoom<Raid> {
     return false;
   }
 
+  /** Hunt Season ducks carry the katana: the skill buttons (Dash, Quack, Storm) are theirs. */
+  protected override allowSkills(): boolean {
+    return true;
+  }
+
   /** Nobody connected: nothing to simulate (the room disposes once its last client is gone). */
   protected override idleWhenEmpty(): boolean {
     return true;
@@ -82,19 +85,12 @@ export class RaidRoom extends GameRoom<Raid> {
   protected createMatch(options: RaidRoomOptions): Raid {
     this.state.mode = GameMode.Raid;
     this.state.phase = MatchPhase.Warmup;
-    this.state.raid.waves = RAID.waves;
+    this.state.raid.waves = RAID.objectives;
     const rules: RaidRules = { ...raidRules(), ...(options.rules ?? {}) };
     this.state.raid.coreMax = rules.coreHp;
     this.state.raid.coreHp = rules.coreHp;
     this.state.raid.gateMax = rules.gateHp;
     this.state.raid.gateHp = rules.gateHp;
-    const net = new ExplosivesNet({
-      viewers: () => this.clients,
-      viewpoint: (id) => this.viewpointOf(id),
-      sees: () => true,
-      seesSpot: () => true,
-    });
-    this.explosivesNet = net;
     const send = (seat: Seat, type: string, msg: unknown): void => this.clients.getById(seat.id)?.send(type, msg);
     return new Raid(
       this.sim,
@@ -139,11 +135,13 @@ export class RaidRoom extends GameRoom<Raid> {
         trapped: (seat) => this.broadcast(Msg.RaidEvent, [RaidEvent.Trapped, seat.pid, 0]),
         offer: (seat, cards, deadline) => send(seat, Msg.RaidOffer, cards ? [Math.round(deadline), ...cards.flat()] : []),
         self: (seat) => this.sendSelf(seat),
-        waveStart: (wave, boss) => {
-          this.broadcast(Msg.RaidEvent, [RaidEvent.WaveStart, wave, boss ? 1 : 0]);
+        goalStart: (index, goal) => {
+          this.broadcast(Msg.RaidEvent, [RaidEvent.GoalStart, index, goal]);
           for (const s of this.match.seats.values()) this.sendSelf(s);
         },
-        waveClear: (wave) => this.broadcast(Msg.RaidEvent, [RaidEvent.WaveClear, wave, 0]),
+        goalClear: (index) => this.broadcast(Msg.RaidEvent, [RaidEvent.GoalClear, index, 0]),
+        targetDone: (t) => this.broadcast(Msg.RaidEvent, [RaidEvent.TargetDone, t.kind, 0]),
+        streak: (seat, n) => send(seat, Msg.RaidEvent, [RaidEvent.Streak, n, 0]),
         decoyLaunched: (d) => {
           const f = d.flight;
           this.broadcast(Msg.Proj, [d.id, ExplosiveKind.Decoy, 0, cm(f.x), cm(f.y), cm(f.z), cm(f.vx), cm(f.vy), cm(f.vz)]);
@@ -152,12 +150,6 @@ export class RaidRoom extends GameRoom<Raid> {
         dropTaken: (seat, kind) => send(seat, Msg.Picked, [100 + kind, 1]),
         started: () => this.onStarted(),
         ended: () => this.onEnded(),
-        explosives: {
-          launched: (f, owner) => net.launched(f, owner),
-          rested: (f) => net.rested(f),
-          boom: (b) => net.boom(b),
-          rocketPicked: (seat, rockets) => send(seat, Msg.DmRocket, rockets),
-        },
       },
     );
   }
@@ -173,7 +165,28 @@ export class RaidRoom extends GameRoom<Raid> {
         const m = msg as { op?: unknown; wave?: unknown };
         // Screenshots: one hunter of a kind (`wave` carries the kind) 8 m in front of the asking duck.
         const seat = this.match.seats.get(client.sessionId);
-        if (m.op === 'spawn' && seat && typeof m.wave === 'number' && m.wave >= 1 && m.wave <= 6) {
+        // v3: a minion pack (`wave` minions, Beaters and Recruits) charging the asking duck from 9 m ahead; its Blade Storm meter full;
+        // the duck moved to 6 m short of the objective's marker; the packs off (screenshots).
+        if (m.op === 'pack' && seat && typeof m.wave === 'number') return this.match.packAt(seat, Math.max(1, Math.min(16, Math.floor(m.wave))));
+        if (m.op === 'meter' && seat) return this.match.fillMeter(seat);
+        // The performance check: `wave` minions and elites in a ring 14 to 24 m around the duck, past the live cap (the four-duck peak on one client).
+        if (m.op === 'horde' && seat) return this.match.hordeAround(seat, Math.max(1, Math.min(60, Math.floor(typeof m.wave === 'number' ? m.wave : 40))));
+        if (m.op === 'tpgoal' && seat) return this.match.moveToGoal(seat, typeof m.wave === 'number' ? m.wave : 6);
+        // The objective from scratch: its count back to 0 and the hunters left from earlier test packs gone.
+        if (m.op === 'resetgoal') {
+          this.match.push.done = 0;
+          this.match.hunts.scatter();
+          return;
+        }
+        if (m.op === 'freeze') {
+          this.match.push.frozen = m.wave === 1;
+          return;
+        }
+        if (m.op === 'quiet') {
+          this.match.push.quiet = m.wave === 1;
+          return;
+        }
+        if (m.op === 'spawn' && seat && typeof m.wave === 'number' && m.wave >= 1 && m.wave <= 8) {
           const n = this.match.hunts.hunters.size;
           const side = ((n % 5) - 2) * 2.2;
           const fx = -Math.sin(seat.sim.yaw);
@@ -192,8 +205,8 @@ export class RaidRoom extends GameRoom<Raid> {
         else if (m.op === 'clear') this.match.defeatWave();
         else if (m.op === 'start') this.match.start();
         else if (m.op === 'break') this.match.endBreakNow();
-        // The benchmark: ducks take no damage, so a full wave keeps running.
-        else if (m.op === 'hold') this.match.hold = true;
+        // The benchmark: ducks take no damage, so a full objective keeps running (`wave` 2: back to normal).
+        else if (m.op === 'hold') this.match.hold = m.wave !== 2;
       });
     }
     await super.onCreate(options);
@@ -286,8 +299,8 @@ export class RaidRoom extends GameRoom<Raid> {
     const d = this.match.ducks.get(seat.id);
     if (!client || !d) return;
     const st = d.stats;
-    const xp = raidXp({ wavesCleared: d.wavesCleared, firstWave: d.firstWave, kills: d.kills, bossKills: d.bossKills, revives: d.revives, won: false });
-    client.send(Msg.RaidSelf, [st.maxHp, Math.round((st.damage - 1) * 100), Math.round((1 - st.taken) * 100), st.regenPerSecond, Math.round((1 - st.reviveTime) * 100), Math.round((st.headshot - 1) * 100), st.lifesteal, d.kills, xp, ...d.upgrades.list()]);
+    const xp = raidXp({ wavesCleared: d.wavesCleared, firstWave: d.firstWave, kills: d.kills, minionKills: d.minionKills, comboXp: d.comboXp, bossKills: d.bossKills, revives: d.revives, won: false });
+    client.send(Msg.RaidSelf, [st.maxHp, Math.round((st.damage - 1) * 100), Math.round((1 - st.taken) * 100), st.regenPerSecond, Math.round((1 - st.reviveTime) * 100), Math.round((st.crit - 1) * 100), st.lifesteal, d.kills + d.minionKills, xp, ...d.upgrades.list()]);
   }
 
   /**
@@ -310,8 +323,9 @@ export class RaidRoom extends GameRoom<Raid> {
       if (d.seatId.startsWith('duckbot-')) continue;
       // A duck that left before the end keeps the XP for what it did while it was there, but not the win.
       const stayed = won && !d.left;
-      const xp = raidXp({ wavesCleared: d.wavesCleared, firstWave: d.firstWave, kills: d.kills, bossKills: d.bossKills, revives: d.revives, won: stayed });
-      const row = { playerId, name: d.name, wavesCleared: d.wavesCleared, kills: d.kills, bossKills: d.bossKills, revives: d.revives, xp, won: stayed };
+      const comboXp = Math.round(d.comboXp);
+      const xp = raidXp({ wavesCleared: d.wavesCleared, firstWave: d.firstWave, kills: d.kills, minionKills: d.minionKills, comboXp, bossKills: d.bossKills, revives: d.revives, won: stayed });
+      const row = { playerId, name: d.name, wavesCleared: d.wavesCleared, kills: d.kills, minionKills: d.minionKills, comboXp, bossKills: d.bossKills, revives: d.revives, xp, won: stayed };
       players.push(row);
       bySeat.set(d.seatId, row);
     }
@@ -324,7 +338,7 @@ export class RaidRoom extends GameRoom<Raid> {
         const client = this.clients.getById(seatId);
         if (!client) continue;
         const g = row.playerId ? granted?.get(row.playerId) : undefined;
-        client.send(Msg.RaidEnd, [reason, row.wavesCleared, row.kills, row.bossKills, row.revives, row.xp, g?.xpBefore ?? -1, g?.xpAfter ?? -1, g?.levelBefore ?? 0, g?.levelAfter ?? 0, runMs, g?.bestWave ?? 0, g?.bestMs ?? 0, g?.newBest ? 1 : 0, g ? 1 : failed ? 2 : 0]);
+        client.send(Msg.RaidEnd, [reason, row.wavesCleared, row.kills + row.minionKills, row.bossKills, row.revives, row.xp, g?.xpBefore ?? -1, g?.xpAfter ?? -1, g?.levelBefore ?? 0, g?.levelAfter ?? 0, runMs, g?.bestWave ?? 0, g?.bestMs ?? 0, g?.newBest ? 1 : 0, g ? 1 : failed ? 2 : 0]);
       }
     };
     sendEnd(null);
@@ -348,10 +362,19 @@ export class RaidRoom extends GameRoom<Raid> {
     const ends = Math.round(m.stageEndsMs);
     if (r.ends === undefined || Math.abs(r.ends - ends) > 40) r.ends = ends;
     const waveAt = Math.max(0, Math.round(m.nowMs - ((m.currentTick - m.waveStartTick) / TICK_RATE) * 1000));
-    if (r.waveAt === undefined || (m.stage === RaidStage.Wave && Math.abs(r.waveAt - waveAt) > 40)) r.waveAt = waveAt;
+    if (r.waveAt === undefined || (m.stage === RaidStage.Fight && Math.abs(r.waveAt - waveAt) > 40)) r.waveAt = waveAt;
     this.writeKeep();
-    const left = m.hunts.left;
+    const left = m.hunts.alive;
     if (r.left !== left) r.left = left;
+    const p = m.push;
+    if (r.goal !== p.goal) r.goal = p.goal;
+    if (r.gx === undefined || Math.abs(r.gx - p.rally.x) > 0.05) r.gx = p.rally.x;
+    if (r.gz === undefined || Math.abs(r.gz - p.rally.z) > 0.05) r.gz = p.rally.z;
+    if (r.gDone !== p.done) r.gDone = p.done;
+    if (r.gNeed !== p.need) r.gNeed = p.need;
+    this.writeTargets();
+    // Each duck's hits this tick (damage numbers, the combo, the storm meter): to that duck only.
+    m.blade.flush((id, data) => this.clients.getById(id)?.send(Msg.RaidHits, data), (id) => m.ducks.get(id)?.meter ?? 0);
     const boss = m.hunts.boss;
     const bossHp = boss ? Math.ceil(Math.max(0, boss.hp)) : 0;
     if (r.bossHp !== bossHp) r.bossHp = bossHp;
@@ -362,7 +385,6 @@ export class RaidRoom extends GameRoom<Raid> {
     this.writeHunters();
     this.writeTraps();
     this.writeDrops();
-    this.writeRocket();
   }
 
   /** The core, the gate, the drawbridge and the cannons (server times in ms since the room started, like `ends`). */
@@ -422,6 +444,8 @@ export class RaidRoom extends GameRoom<Raid> {
       e.yaw = h.yaw;
       e.pitch = h.pitch;
       if (e.act !== h.act) e.act = h.act;
+      const fx = h.elite ? HunterFx.Elite : 0;
+      if (e.fx !== fx) e.fx = fx;
       const hp = Math.max(0, Math.min(255, Math.ceil((Math.max(0, h.hp) / Math.max(1, h.maxHp)) * 255)));
       if (e.hp !== hp) e.hp = hp;
     }
@@ -448,12 +472,23 @@ export class RaidRoom extends GameRoom<Raid> {
     for (const d of drops.values()) if (!map.has(d.id)) map.set(d.id, new DmPickup({ kind: d.kind, x: d.x, y: d.y, z: d.z }));
   }
 
-  /** The boss wave's rocket launcher pickup, drawn by the deathmatch explosives view. */
-  private writeRocket(): void {
-    const st = this.state;
-    const p = this.match.explosives.rocket;
-    for (const id of st.dmRockets.keys()) if (p?.id !== id) st.dmRockets.delete(id);
-    if (p && !st.dmRockets.has(p.id)) st.dmRockets.set(p.id, new DmPickup({ kind: 0, x: p.x, y: p.y, z: p.z }));
+  /** The objective markers (crates, towers, the camp): added when the objective starts, gone with it. */
+  private writeTargets(): void {
+    const map = this.state.raidTargets;
+    const ts = this.match.push.targets;
+    for (const id of [...map.keys()]) if (!ts.has(id) || this.match.stage !== RaidStage.Fight) map.delete(id);
+    if (this.match.stage !== RaidStage.Fight) return;
+    for (const t of ts.values()) {
+      let e = map.get(t.id);
+      if (!e) {
+        e = new RaidTarget({ kind: t.kind, x: t.x, y: t.y, z: t.z, hp: 255, done: 0 });
+        map.set(t.id, e);
+      }
+      const hp = t.maxHp > 0 ? Math.max(0, Math.min(255, Math.ceil((t.hp / t.maxHp) * 255))) : 255;
+      if (e.hp !== hp) e.hp = hp;
+      const done = t.done ? 1 : 0;
+      if (e.done !== done) e.done = done;
+    }
   }
 
   protected override writeSeatExtras(seat: Seat, st: PlayerState): void {

@@ -27,9 +27,9 @@ export async function keepNav(): Promise<BotNav> {
 const quiet = (): RaidEvents => {
   const no = (): void => undefined;
   return {
-    shot: no, hit: no, damaged: no, kill: no, knock: no, started: no, ended: no, waveStart: no, waveClear: no, offer: no, self: no, hurtFrom: no,
+    shot: no, hit: no, damaged: no, kill: no, knock: no, started: no, ended: no, offer: no, self: no, hurtFrom: no,
     hunterHit: no, hunterDown: no, hunterShot: no, whistle: no, coreHit: no, coreRepaired: no, gateHit: no, gateBroken: no, gateFixed: no, bridge: no, splash: no,
-    leverDenied: no, overheat: no, loafLaunched: no, loafBoom: no, trapped: no, decoyLaunched: no, decoyBoom: no, dropTaken: no,
+    leverDenied: no, overheat: no, loafLaunched: no, loafBoom: no, trapped: no, decoyLaunched: no, decoyBoom: no, dropTaken: no, goalStart: no, goalClear: no, targetDone: no, streak: no,
   };
 };
 
@@ -61,6 +61,8 @@ export function wallGuardSpots(sim: SimWorld, g: KeepGeometry, n: number): { x: 
 
 export interface HeadlessRaid {
   raid: Raid;
+  /** The run's physics world (tests). */
+  sim: SimWorld;
   /** Run `seconds` of game time; returns tick times (ms) and the most hunters alive. */
   run(seconds: number, until?: (r: Raid) => boolean): { times: number[]; maxAlive: number; ticks: number };
 }
@@ -71,12 +73,13 @@ export async function headlessRaid(opts: { ducks: number; rules?: Partial<RaidRu
   const map = loadMapV1(RAID.mapId);
   const sim = createSimWorld(map.def);
   const raid = new Raid(sim, { map, nav: () => botNav, rules: { ...DEFAULT_RAID_RULES, ...(opts.rules ?? {}) }, secret: 7 }, { ...quiet(), ...(opts.events ?? {}) });
-  // Guard spots on the wall walk by the gate.
-  for (const spot of wallGuardSpots(sim, raid.geometry, opts.ducks)) raid.addBotDuck(new RaidDuckBot(sim, () => botNav, spot));
+  // v3: katana bots that push to the objective in play (its public marker).
+  for (let i = 0; i < opts.ducks; i++) raid.addBotDuck(new RaidDuckBot(sim, () => botNav, () => raid.push.rally));
   let t = 0;
   const step = 1000 / TICK_RATE;
   return {
     raid,
+    sim,
     run(seconds, until) {
       const times: number[] = [];
       let maxAlive = 0;

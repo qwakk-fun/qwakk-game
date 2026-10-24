@@ -39,7 +39,8 @@ export class ResultCard {
       lines.length = 0;
       const mode = s.mode ?? lastMode;
       if (mode === 'raid') {
-        won = (s.waves ?? 0) >= 15;
+        // Hunt Season v3: four objectives (RAID.objectives; the menu keeps clear of the game bundle).
+        won = (s.waves ?? 0) >= 4;
         headline = won ? R.raidWon : R.raidEnded;
         if (s.waves !== undefined) lines.push(R.raidHeld(s.waves));
         if (s.kills !== undefined) lines.push(R.kills(s.kills));

@@ -14,18 +14,23 @@ import type { HunterArt } from './hunterAssets.ts';
 
 export interface HunterLook {
   readonly object: THREE.Object3D;
-  update(dt: number, act: number, speed: number, pitch: number, camDist: number): void;
+  /** `onScreen`: inside the camera's view (off screen it animates at a much lower rate). */
+  update(dt: number, act: number, speed: number, pitch: number, camDist: number, onScreen?: boolean): void;
   /** A hit landed (a short flinch). */
   hit(): void;
+  /** Hit-stop: the clips hold still for a moment (a katana cut landed; feel only). */
+  stop(seconds: number): void;
   /** Where its shots start (world). */
   muzzle(out: THREE.Vector3): THREE.Vector3;
   /** The point above its head (health bar). */
   headTop(out: THREE.Vector3): THREE.Vector3;
+  /** Back to a fresh standing pose, to be used again for a new hunter of the same kind (the pool). */
+  reset(): void;
   dispose(): void;
 }
 
 const BLAZE = 0xff6a13;
-const CAMO: Record<number, number> = { [HunterKind.Rifleman]: 0x5d6b3d, [HunterKind.Trapper]: 0x6b5236, [HunterKind.Decoy]: 0x4f6a52, [HunterKind.Boss]: 0x5a3b2a, [HunterKind.Dog]: 0xb07a3c, [HunterKind.Sniper]: 0x3f5a2c };
+const CAMO: Record<number, number> = { [HunterKind.Rifleman]: 0x5d6b3d, [HunterKind.Trapper]: 0x6b5236, [HunterKind.Decoy]: 0x4f6a52, [HunterKind.Boss]: 0x5a3b2a, [HunterKind.Dog]: 0xb07a3c, [HunterKind.Sniper]: 0x3f5a2c, [HunterKind.Beater]: 0x7a5a3a, [HunterKind.Recruit]: 0x8a8a52 };
 
 /** The sniper's ghillie hood: a tuft of leafy blobs over the head (it wears the rifleman's body). */
 function ghillie(scale = 1): THREE.Group {
@@ -54,6 +59,8 @@ class GreyboxHunter implements HunterLook {
   private flinch = 0;
   private fire = 0;
   private lastAct = -1;
+  private launch = 0;
+  private swingT = 0;
 
   constructor(kind: number) {
     this.kind = kind;
@@ -62,7 +69,7 @@ class GreyboxHunter implements HunterLook {
     const skin = toonMaterial(0xe8b48f);
     const dark = toonMaterial(0x2a2a2e);
     const dog = kind === HunterKind.Dog;
-    const s = kind === HunterKind.Boss ? 1.24 : 1;
+    const s = kind === HunterKind.Boss ? 1.24 : kind === HunterKind.Recruit ? 0.72 : 1;
     if (dog) {
       const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.2, 0.55, 4, 10), camo);
       torso.rotation.x = Math.PI / 2;
@@ -92,7 +99,8 @@ class GreyboxHunter implements HunterLook {
       this.hat.add(cap, brim);
       if (kind === HunterKind.Sniper) this.hat.add(ghillie());
       this.hat.position.y = 1.72 * s;
-      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, kind === HunterKind.Boss ? 1.1 : 0.95), dark);
+      const minion = kind === HunterKind.Beater || kind === HunterKind.Recruit;
+      const barrel = new THREE.Mesh(minion ? new THREE.BoxGeometry(0.1, 0.1, 0.7) : new THREE.BoxGeometry(0.07, 0.08, kind === HunterKind.Boss ? 1.1 : 0.95), minion ? toonMaterial(0x8b5a2b) : dark);
       barrel.position.z = -0.4;
       this.gun.add(barrel);
       this.gun.position.set(0.22 * s, 1.25 * s, -0.15);
@@ -114,19 +122,34 @@ class GreyboxHunter implements HunterLook {
     this.flinch = Math.max(0, this.flinch - dt * 5);
     const down = act === HunterAct.Down;
     this.fall = down ? Math.min(1, this.fall + dt * 2.2) : 0;
-    const moving = act === HunterAct.Walk || act === HunterAct.Run;
-    this.body.position.y = moving ? Math.abs(Math.sin(this.t * 5)) * 0.06 : 0;
-    // Falls over backwards (a toony plank), the hat pops off and lands in front.
-    this.body.rotation.x = this.kind === HunterKind.Dog ? 0 : this.fall * (Math.PI / 2.1) + this.flinch * 0.15;
+    const moving = act === HunterAct.Walk || act === HunterAct.Run || act === HunterAct.Charge;
+    this.launch = act === HunterAct.Launched ? this.launch + dt : 0;
+    const air = this.launch > 0 ? Math.max(0, Math.sin(Math.min(1, this.launch / 0.75) * Math.PI)) * 0.9 : 0;
+    this.body.position.y = (moving ? Math.abs(Math.sin(this.t * 5)) * 0.06 : 0) + air;
+    // Falls over backwards (a toony plank), the hat pops off and lands in front; a launch flips it back too.
+    const tumble = this.launch > 0 ? Math.min(1, this.launch / 0.6) * (Math.PI / 2.2) : act === HunterAct.Stagger ? 0.35 : 0;
+    this.body.rotation.x = this.kind === HunterKind.Dog ? 0 : this.fall * (Math.PI / 2.1) + this.flinch * 0.15 + tumble;
     this.body.rotation.z = this.kind === HunterKind.Dog ? this.fall * Math.PI : 0;
     this.hat.position.z = -this.fall * 1.2;
     this.hat.position.y = (this.kind === HunterKind.Boss ? 2.13 : 1.72) + Math.sin(Math.min(1, this.fall) * Math.PI) * 0.8;
     const aiming = act === HunterAct.Aim || act === HunterAct.Fire;
-    this.gun.rotation.x = aiming ? pitch + this.fire * 0.25 : act === HunterAct.Reload ? 0.9 : act === HunterAct.Hammer ? Math.sin(this.t * 8) * 0.8 - 0.6 : -0.6;
+    this.gun.rotation.x = aiming ? pitch + this.fire * 0.25 : act === HunterAct.Reload ? 0.9 : act === HunterAct.Hammer ? Math.sin(this.t * 8) * 0.8 - 0.6 : act === HunterAct.Swing ? 1.2 - Math.min(1, this.swingT * 2.6) * 2.4 : -0.6;
+    this.swingT = act === HunterAct.Swing ? this.swingT + dt : 0;
   }
 
   hit(): void {
     this.flinch = 1;
+  }
+
+  stop(): void {}
+
+  reset(): void {
+    this.fall = 0;
+    this.flinch = 0;
+    this.fire = 0;
+    this.launch = 0;
+    this.swingT = 0;
+    this.lastAct = -1;
   }
 
   muzzle(out: THREE.Vector3): THREE.Vector3 {
@@ -172,6 +195,9 @@ class ModelHunter implements HunterLook {
   private readonly weights = new Map<THREE.AnimationAction, number>();
   private readonly lods: THREE.Object3D[][] = [[], [], []];
   private readonly lodUntil: number[];
+  /** Each LOD mesh's parent (meshes off show are taken out of the graph) and the LOD on show (-1: none yet). */
+  private readonly lodParent = new Map<THREE.Object3D, THREE.Object3D>();
+  private lod = -1;
   private readonly spine: THREE.Object3D | null;
   private readonly muzzleNode: THREE.Object3D | null;
   private readonly topNode: THREE.Object3D | null;
@@ -203,7 +229,10 @@ class ModelHunter implements HunterLook {
     this.lodUntil = art.manifest.lods.until.map((d) => d * (phone ? 0.6 : 1));
     model.traverse((o) => {
       const m = /^LOD(\d)/.exec(o.name);
-      if (m && (o as THREE.Mesh).isMesh) this.lods[Number(m[1])]?.push(o);
+      if (m && (o as THREE.Mesh).isMesh) {
+        this.lods[Number(m[1])]?.push(o);
+        if (o.parent) this.lodParent.set(o, o.parent);
+      }
     });
     this.spine = model.getObjectByName('Spine2') ?? null;
     this.muzzleNode = model.getObjectByName('Muzzle') ?? model.getObjectByName('Head') ?? null;
@@ -232,7 +261,7 @@ class ModelHunter implements HunterLook {
     if (!clip) return null;
     const use = part && !this.dog ? splitClip(clip, this.upperBones)[part as 'lower' | 'upper'] : clip;
     a = this.mixer.clipAction(use);
-    const once = /^(Fire|Reload|Throw|Hit|Defeat|Bite|Whistle)$/.test(clipName);
+    const once = /^(Fire|Reload|Throw|Hit|Defeat|Bite|Whistle|Bonk|Stagger|Launched|Get_Up|Taunt)$/.test(clipName);
     if (once) {
       a.setLoop(THREE.LoopOnce, 1);
       a.clampWhenFinished = true;
@@ -261,7 +290,7 @@ class ModelHunter implements HunterLook {
     this.upper = upper;
   }
 
-  update(dt: number, act: number, speed: number, pitch: number, camDist: number): void {
+  update(dt: number, act: number, speed: number, pitch: number, camDist: number, onScreen = true): void {
     const changed = act !== this.lastAct;
     this.lastAct = act;
     let base = this.base;
@@ -269,6 +298,29 @@ class ModelHunter implements HunterLook {
     let restart = false;
     const move = speed > 0.2 ? (speed > 2.6 ? 'Run' : 'Walk') : 'Idle';
     switch (act) {
+      case HunterAct.Swing:
+        base = this.clips.has('Bonk') ? 'Bonk' : move;
+        upper = this.clips.has('Bonk') ? '' : 'Fire';
+        restart = changed;
+        break;
+      case HunterAct.Charge:
+        base = this.clips.has('Charge') ? 'Charge' : 'Run';
+        upper = '';
+        break;
+      case HunterAct.Stagger:
+        base = this.clips.has('Stagger') ? 'Stagger' : move;
+        upper = '';
+        restart = changed;
+        break;
+      case HunterAct.Launched: {
+        // Knocked off its feet: the launch, then getting up for whatever is left of it.
+        const l = this.actions.get('Launched@lower') ?? this.actions.get('Launched');
+        const up = !changed && l && !l.isRunning() && this.clips.has('Get_Up');
+        base = up ? 'Get_Up' : this.clips.has('Launched') ? 'Launched' : move;
+        upper = '';
+        restart = changed || (!!up && base !== this.base);
+        break;
+      }
       case HunterAct.Down:
         base = 'Defeat';
         upper = '';
@@ -313,27 +365,77 @@ class ModelHunter implements HunterLook {
         upper = '';
     }
     if (restart || base !== this.base || upper !== this.upper) this.play(base, upper, restart);
-    // Clip speed follows the ground speed (authored 1.4 m/s walk, 3.6 run; the dog 4.5).
-    const authored = this.dog ? 4.5 : base === 'Run' ? 3.6 : 1.4;
+    // Clip speed follows the ground speed (authored 1.4 m/s walk, 3.6 run, 4.2 the minions' charge; the dog 4.5).
+    const authored = this.dog ? 4.5 : base === 'Run' ? 3.6 : base === 'Charge' ? 4.2 : 1.4;
     for (const [key, a] of this.actions) {
       const target = this.weights.get(a) ?? 0;
       const w = a.getEffectiveWeight();
       a.setEffectiveWeight(w + (target - w) * Math.min(1, dt * 12));
-      if (key.startsWith('Walk') || key.startsWith('Run')) a.timeScale = Math.max(0.4, speed / authored);
+      if (key.startsWith('Walk') || key.startsWith('Run') || key.startsWith('Charge')) a.timeScale = Math.max(0.4, speed / authored);
     }
-    this.mixer.update(dt);
+    // Hit-stop: hold the pose a moment when a katana cut lands.
+    // Far hunters animate at a lower rate (every 2nd frame past the first LOD, every 4th past the second), ones off screen every 8th
+    // (their shadows may still show): a horde costs less, nobody can tell.
+    this.mixDt += dt;
+    const every = !onScreen ? 8 : camDist < (this.lodUntil[0] ?? 18) ? 1 : camDist < (this.lodUntil[1] ?? 40) ? 2 : 4;
+    let posed = false;
+    if (this.stopFor > 0) {
+      this.stopFor = Math.max(0, this.stopFor - dt);
+      this.mixDt = 0;
+    } else if (++this.mixFrame % every === 0 || changed) {
+      this.mixer.update(this.mixDt);
+      this.mixDt = 0;
+      posed = true;
+    }
     this.flinch = Math.max(0, this.flinch - dt * 6);
     // Aim pitch: the whole upper body (hands on the gun) turns about the model's x axis; negative raises the muzzle.
-    if (this.spine && (act === HunterAct.Aim || act === HunterAct.Fire)) this.spine.rotateX(-pitch * 0.9);
-    if (this.spine && this.flinch > 0) this.spine.rotateX(this.flinch * 0.2);
+    // Only on a frame the mixer posed the skeleton: on the others the bone keeps last frame's turn, and turning it again
+    // stacked the pitch two to four times on far hunters (their aim jerked at every mixer update).
+    if (posed && this.spine && (act === HunterAct.Aim || act === HunterAct.Fire)) this.spine.rotateX(-pitch * 0.9);
+    if (posed && this.spine && this.flinch > 0) this.spine.rotateX(this.flinch * 0.2);
     let lod = 2;
     if (camDist < (this.lodUntil[0] ?? 18)) lod = 0;
     else if (camDist < (this.lodUntil[1] ?? 40)) lod = 1;
-    this.lods.forEach((list, i) => list.forEach((o) => (o.visible = i === lod)));
+    if (lod !== this.lod) {
+      // Only the LOD on show stays in the scene graph (hidden ones would still cost their matrix updates every frame),
+      // and the far one goes without its outline hull (half the draws of a distant horde).
+      this.lod = lod;
+      this.lods.forEach((list, i) => {
+        for (const o of list) {
+          const hull = o.name.endsWith('-outline');
+          const want = i === lod && !(hull && lod === 2);
+          if (want && !o.parent) this.lodParent.get(o)?.add(o);
+          else if (!want && o.parent) o.removeFromParent();
+        }
+      });
+    }
   }
 
   hit(): void {
     this.flinch = 1;
+  }
+
+  private stopFor = 0;
+  private mixDt = 0;
+  private mixFrame = Math.floor(Math.random() * 4);
+
+  stop(seconds: number): void {
+    this.stopFor = Math.max(this.stopFor, seconds);
+  }
+
+  reset(): void {
+    this.mixer.stopAllAction();
+    for (const a of this.actions.values()) a.setEffectiveWeight(0);
+    this.weights.clear();
+    this.actions.clear();
+    this.lastAct = -1;
+    this.base = '';
+    this.upper = '';
+    this.flinch = 0;
+    this.stopFor = 0;
+    this.mixDt = 0;
+    this.object.position.set(0, -1000, 0);
+    this.play('Idle', 'Idle');
   }
 
   muzzle(out: THREE.Vector3): THREE.Vector3 {

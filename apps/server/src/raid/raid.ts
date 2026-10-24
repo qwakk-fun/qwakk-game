@@ -1,37 +1,46 @@
 /**
  * Hunt Season rules on top of the shared combat core (arena.ts), on Pond
- * Keep (the duck castle on a pond island):
+ * Keep (the duck castle on a pond island). v3, the push: every duck carries
+ * a katana (its swings, dash, quack and storm are in the shared sim; the
+ * hits are decided here, blade.ts) and a pistol, and the run is a string of
+ * objectives across the field (push.ts):
  *
  *   lobby  ducks gather in the courtyard (no damage); the first one starts
  *          a short countdown, later ones add a few seconds, a full room
  *          starts soon; at zero the room locks
- *   wave   the director sends the wave's hunters (hunts.ts) from the
- *          trenches; they go for the gate, then the QoreChain core. The
- *          ducks fight from the walls, man the bread cannons, pull the
- *          drawbridge lever and repair the gate (keepWorld.ts). Knocked
- *          ducks crawl and bleed (the battle royale knock, revive by holding
- *          Use); the dead wait for the break
- *   break  every duck picks one of three upgrades (a timer picks at random),
- *          the fallen come back, then the next wave
- *   won / lost  after wave 10, or when the core falls or no duck stands
+ *   fight  an objective is in play (the trench, the crates, the towers, the
+ *          Big Hunter's camp); packs of minions with elites charge the
+ *          ducks. The castle (gate, drawbridge, cannons) is the start and
+ *          the fallback. Knocked ducks crawl and bleed (the battle royale
+ *          knock, revive by holding Use); the dead wait for the break
+ *   break  the objective is taken, the rest of the hunters flee; every duck
+ *          picks one of three cards (a timer picks at random), the fallen
+ *          come back beside a friend, then the next objective
+ *   won / lost  after the camp falls, or when no duck stands
  *
  * Every duck is on team 1: no friendly fire, always in each other's view.
  * Headless and network free like the other modes; the room mirrors it into
  * the schema and sends the messages. Server only.
  */
 import {
+  armBlade,
+  BladeEvent,
   BODY,
   BridgeState,
   Button,
   COMBAT,
   createPlayerSim,
   damageAt,
+  dashImmune,
   exMan,
   groundHeightAt,
+  hasHeadroom,
+  PLAYER_QUERY_GROUPS,
   HunterKind,
-  isBossWave,
   isUpgradeId,
   KNOCK,
+  lastBlade,
+  hasBladeEvent,
   leverInReach,
   Mode,
   nudgePlayer,
@@ -41,8 +50,8 @@ import {
   RaidStage,
   rollOffer,
   setMan,
-  setNades,
   setRoot,
+  setStormMeter,
   TICK_RATE,
   Upgrade,
   WeaponId,
@@ -54,13 +63,14 @@ import {
   type SimWorld,
   type UpgradeId,
 } from '@qwakk/shared';
-import { KillWeapon, LeverDenied, RaidDrop } from '@qwakk/shared/net';
+import { KillWeapon, LeverDenied, RaidDrop, RaidKillHow } from '@qwakk/shared/net';
 import { Arena, KILL_BLEED, type ArenaEvents, type ArenaOptions, type BotLike, type BotTarget, type Seat } from '../arena.ts';
-import { DmExplosives, type ExplosiveEvents } from '../dmExplosives.ts';
 import type { ServerMap } from '../maps.ts';
 import type { BotNav } from '../nav/botNav.ts';
-import { rocketPickupRules, serverWeapon, type BlastRules } from '../settings/index.ts';
+import { serverWeapon } from '../settings/index.ts';
+import { BladeWorld } from './blade.ts';
 import { HuntWorld, type DecoyState } from './hunts.ts';
+import { PushDirector, type PushTarget } from './push.ts';
 import type { HunterAgent } from './hunter.ts';
 import type { ShotTrace } from './gun.ts';
 import { KeepWorld, type Loaf } from './keepWorld.ts';
@@ -75,23 +85,36 @@ export interface RaidDuck {
   name: string;
   upgrades: DuckUpgrades;
   stats: DuckStats;
+  /** Hunters bagged that are not minions (elites, snipers, dogs). */
   kills: number;
+  /** Minions bagged (Beaters, Recruits). */
+  minionKills: number;
+  /** The combo's XP bonus, added up kill by kill (blade.ts; capped by the shared formula). */
+  comboXp: number;
+  /** The Blade Storm meter as the server counts it (0 to 100). */
+  meter: number;
   bossKills: number;
   revives: number;
+  /** Objectives cleared while the duck was in the run (the database's waves). */
   wavesCleared: number;
   firstWave: number;
   left: boolean;
   hurtTick: number;
   offer: { cards: UpgradeId[]; picked: boolean } | null;
-  /** A lone duck's second wind: knocked with nobody to revive it, it may get up by itself once a wave (hold Use). */
+  /** A lone duck's second wind: knocked with nobody to revive it, it may get up by itself once an objective (hold Use). */
   secondWind: number;
 }
 
 export interface RaidEvents extends ArenaEvents {
   started(): void;
   ended(reason: number): void;
-  waveStart(wave: number, boss: boolean): void;
-  waveClear(wave: number): void;
+  /** An objective starts (its 1-based number and Goal), is taken. */
+  goalStart(index: number, goal: number): void;
+  goalClear(index: number): void;
+  /** An objective marker was taken (a crate smashed, a tower's snipers down). */
+  targetDone(t: PushTarget): void;
+  /** Kills in quick succession by one duck (a call-out). */
+  streak(seat: Seat, kills: number): void;
   /** Cards for a duck ([id, value] pairs), or null to close them. */
   offer(seat: Seat, cards: [number, number][] | null, deadlineMs: number): void;
   /** A duck's own run numbers changed (upgrades, max health, kills). */
@@ -122,7 +145,6 @@ export interface RaidEvents extends ArenaEvents {
   decoyLaunched(d: DecoyState): void;
   decoyBoom(d: DecoyState, x: number, y: number, z: number): void;
   dropTaken(seat: Seat, kind: number): void;
-  explosives?: ExplosiveEvents;
 }
 
 export interface RaidOptions extends ArenaOptions {
@@ -147,8 +169,9 @@ export class Raid extends Arena {
   endTicks = 0;
   endReason = 0;
   startTick = 0;
-  /** Tick the last wave was cleared (the personal best time). */
+  /** Tick the last objective was taken (the personal best time). */
   lastClearTick = 0;
+  /** Tick the objective in play started (the HUD's timer). */
   waveStartTick = 0;
   /** Hunters bagged by the whole team. */
   teamKills = 0;
@@ -158,7 +181,10 @@ export class Raid extends Arena {
   hold = false;
   readonly ducks = new Map<string, RaidDuck>();
   readonly hunts: HuntWorld;
-  readonly explosives: DmExplosives;
+  /** The objectives and the packs. */
+  readonly push: PushDirector;
+  /** The katana's hits (the sim says when a swing lands; this decides what it cut). */
+  readonly blade: BladeWorld;
   /** The keep's moving parts: core, gate, drawbridge, cannons and loaves. */
   readonly keep: KeepWorld;
   readonly geometry: KeepGeometry;
@@ -170,6 +196,8 @@ export class Raid extends Arena {
   private readonly duckView: DuckTarget[] = [];
   /** Each duck's buttons of its last step (Use presses: the lever). */
   private readonly lastButtons = new Map<string, number>();
+  /** Where each duck stood before its step (a dash's path). */
+  private readonly stepFrom = new Map<string, { x: number; z: number }>();
 
   constructor(sim: SimWorld, options: RaidOptions, events: RaidEvents) {
     super(sim, options, events);
@@ -180,15 +208,34 @@ export class Raid extends Arena {
     if (!g) throw new Error(`Hunt Season needs a castle map: ${options.map.def.id} has no raid markup`);
     this.geometry = g;
     this.spawnPts = duckSpawns(g);
-    this.explosives = new DmExplosives(sim, this);
-    this.explosives.timedPickups = false;
-    if (events.explosives) this.explosives.events = events.explosives;
     this.keep = new KeepWorld(sim, g, options.rules, this.keepEvents());
     this.hunts = new HuntWorld(this.huntHost(), g, hunterSpawns(sim, g));
+    this.push = new PushDirector(sim, g, this.hunts, options.rules, options.nav, {
+      started: (i, goal) => this.rev.goalStart(i, goal),
+      cleared: (i) => this.rev.goalClear(i),
+      targetDone: (t) => this.rev.targetDone(t),
+    });
+    this.blade = new BladeWorld({
+      sim,
+      rules: options.rules,
+      hunts: this.hunts,
+      duck: (id) => this.ducks.get(id),
+      crates: () => (this.stage === RaidStage.Fight ? this.push.crateTargets() : []),
+      hitCrate: (id, dmg, by) => this.hitCrate(id, dmg, by),
+      live: () => this.stage === RaidStage.Fight,
+      maxHp: (seat) => this.maxHpOf(seat),
+      streak: (seat, n) => this.rev.streak(seat, n),
+    });
   }
 
   get coreHp(): number {
     return this.keep.coreHp;
+  }
+
+  override beginTick(tick: number, nowMs: number): void {
+    super.beginTick(tick, nowMs);
+    this.blade.beginTick(tick);
+    this.hunts.setTick(tick);
   }
 
   get coreMax(): number {
@@ -210,7 +257,7 @@ export class Raid extends Arena {
   addDuck(id: string, name: string, character?: number, bot: BotLike | null = null): Seat | null {
     if (this.stage !== RaidStage.Lobby || this.seats.has(id) || this.seats.size >= RAID.maxDucks) return null;
     const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0), 1, character);
-    const d: RaidDuck = { seatId: id, name, upgrades: new DuckUpgrades(), stats: duckStats(new DuckUpgrades(), this.rules.upgrade), kills: 0, bossKills: 0, revives: 0, wavesCleared: 0, firstWave: 1, left: false, hurtTick: 0, offer: null, secondWind: 0 };
+    const d: RaidDuck = { seatId: id, name, upgrades: new DuckUpgrades(), stats: duckStats(new DuckUpgrades(), this.rules.upgrade), kills: 0, minionKills: 0, comboXp: 0, meter: 0, bossKills: 0, revives: 0, wavesCleared: 0, firstWave: 1, left: false, hurtTick: 0, offer: null, secondWind: 0 };
     this.ducks.set(id, d);
     this.spawnDuck(seat, 1);
     const lobby = Math.max(1, Math.round(this.rules.lobbySeconds * TICK_RATE));
@@ -252,14 +299,27 @@ export class Raid extends Arena {
     this.seats.delete(id);
     this.keep.duckLeft(id);
     this.lastButtons.delete(id);
-    if (this.stage === RaidStage.Wave) this.checkFail();
+    this.stepFrom.delete(id);
+    this.blade.forget(id);
+    if (this.stage === RaidStage.Fight) this.checkFail();
   }
 
-  /** On its feet at a spawn in the courtyard, with `share` of its full health. */
-  private spawnDuck(seat: Seat, share: number): void {
+  /**
+   * On its feet with `share` of its full health, the katana in hand: at a
+   * spawn in the courtyard, or (`near`) beside a friend still standing.
+   */
+  private spawnDuck(seat: Seat, share: number, near: Seat | null = null): void {
     const n = this.spawnPts.length;
-    const p = this.spawnPts[(seat.pid - 1 + n) % n] ?? this.spawnPts[0]!;
-    const y = groundHeightAt(this.sim, p.x, p.y + 0.3, p.z);
+    let p = this.spawnPts[(seat.pid - 1 + n) % n] ?? this.spawnPts[0]!;
+    let y = NaN;
+    if (near) {
+      const spot = this.besideFriend(seat, near.sim);
+      if (spot) {
+        p = spot;
+        y = spot.y;
+      }
+    }
+    if (!(y === y)) y = groundHeightAt(this.sim, p.x, p.y + 0.3, p.z);
     const fresh = createPlayerSim(p.x, y, p.z, p.yaw);
     const ex = seat.sim.ex;
     const buff = seat.sim.dmBuff;
@@ -268,7 +328,10 @@ export class Raid extends Arena {
     // The keep's bits stay (the drawbridge closed); a fresh duck mans nothing.
     seat.sim.dmBuff = buff;
     setMan(seat.sim, 0);
+    setRoot(seat.sim, 0);
     const d = this.ducks.get(seat.id);
+    // Hunt Season v3: the katana in hand and the pistol, no rifle or grenades (raid/blade.ts); the storm meter carries on.
+    armBlade(seat.sim, d?.meter ?? 0);
     seat.sim.hp = Math.max(1, Math.round((d?.stats.maxHp ?? COMBAT.maxHp) * share));
     seat.protect = 0;
     seat.respawnAt = -1;
@@ -281,6 +344,41 @@ export class Raid extends Arena {
     seat.bot?.respawned(seat.sim);
   }
 
+  /**
+   * A free spot beside a friend for a duck coming back at a break: a few
+   * offsets around it (its usual place in the line first), each on ground
+   * within a step of the friend's, with room for a standing duck's capsule
+   * and no wall between them (never inside a wall, a tree or across a
+   * parapet); the friend's own spot last (ducks do not collide in the sim).
+   * Null when even that does not fit (then a courtyard spawn).
+   */
+  besideFriend(seat: Seat, a: { x: number; y: number; z: number; yaw: number }): { x: number; y: number; z: number; yaw: number } | null {
+    const side = ((seat.pid % 4) - 1.5) * 1.6;
+    // (right, back) offsets in the friend's frame: right is (cos yaw, -sin yaw), back is (sin yaw, cos yaw).
+    const tries: readonly (readonly [number, number])[] = [[side, 0], [-side, 0], [0, 1.4], [0, -1.4], [1, 1], [-1, 1], [0.8, 0], [-0.8, 0], [0, 0]];
+    const cy = Math.cos(a.yaw);
+    const sy = Math.sin(a.yaw);
+    for (const [r, b] of tries) {
+      const x = a.x + cy * r + sy * b;
+      const z = a.z - sy * r + cy * b;
+      const y = groundHeightAt(this.sim, x, a.y + 0.6, z);
+      if (!(Math.abs(y - a.y) < 0.8)) continue;
+      if (!hasHeadroom(this.sim, x, y, z)) continue;
+      // Ground under its middle too, not only under the capsule's rim (the edge of a merlon or a ledge).
+      const under = this.sim.world.castRay(new this.sim.rapier.Ray({ x, y: y + 0.5, z }, { x: 0, y: -1, z: 0 }), 0.8, true, undefined, PLAYER_QUERY_GROUPS);
+      if (!under) continue;
+      const dx = x - a.x;
+      const dz = z - a.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.05) {
+        const hit = this.sim.world.castRay(new this.sim.rapier.Ray({ x: a.x, y: a.y + 0.9, z: a.z }, { x: dx / dist, y: 0, z: dz / dist }), dist + 0.35, true, undefined, PLAYER_QUERY_GROUPS);
+        if (hit) continue;
+      }
+      return { x, y, z, yaw: a.yaw };
+    }
+    return null;
+  }
+
   maxHpOf(seat: Seat): number {
     return this.ducks.get(seat.id)?.stats.maxHp ?? COMBAT.maxHp;
   }
@@ -288,24 +386,31 @@ export class Raid extends Arena {
   // ---- arena hooks --------------------------------------------------------------
 
   protected damageOn(): boolean {
-    return this.stage === RaidStage.Wave;
+    return this.stage === RaidStage.Fight;
   }
 
   protected override canKnock(victim: Seat): boolean {
-    return this.stage === RaidStage.Wave && victim.sim.mode === Mode.Ground;
+    return this.stage === RaidStage.Fight && victim.sim.mode === Mode.Ground;
   }
 
   protected override extraTargets(_shooter: Seat, viewTime: number): HitTarget[] {
-    return this.hunts.targets(viewTime);
+    const t = this.hunts.targets(viewTime);
+    return this.stage === RaidStage.Fight ? t.concat(this.push.crateTargets()) : t;
   }
 
-  /** A duck's bullet hit a hunter or a trap: the server's damage numbers, the duck's upgrades. */
+  /** A duck's bullet (the pistol) hit a hunter, a trap or a crate: the server's damage numbers, the duck's cards. */
   protected override hitOther(shooter: Seat, r: ShotResult, weapon: number): void {
     const head = r.outcome === 3;
-    const st = this.ducks.get(shooter.id)?.stats;
-    const raw = damageAt(serverWeapon(weapon), r.distance, head) * (st?.damage ?? 1) * (head ? (st?.headshot ?? 1) : 1);
+    const d = this.ducks.get(shooter.id);
+    const raw = damageAt(serverWeapon(weapon), r.distance, head) * (d?.stats.damage ?? 1);
     if (r.targetId.startsWith('t')) {
       this.hunts.hurtTrap(r.targetId, raw);
+      return;
+    }
+    if (r.targetId.startsWith('c')) {
+      const t = this.push.targets.get(r.targetId);
+      const broke = this.hitCrate(r.targetId, raw, shooter);
+      if (d && t) this.blade.bulletHit(shooter, d, Math.round(raw), broke, false, t.x, t.y + 0.8, t.z, true);
       return;
     }
     const h = this.hunts.hunters.get(r.targetId);
@@ -314,15 +419,38 @@ export class Raid extends Arena {
     shooter.dealt += Math.round(dmg);
     const killed = this.hunts.hurt(h.id, raw, shooter.id, head, shooter.sim.x, shooter.sim.z);
     this.rev.hunterHit(shooter, h, Math.round(dmg), head, killed, false);
+    if (d) this.blade.bulletHit(shooter, d, Math.round(dmg), killed, h.elite, h.x, h.y + 1.4, h.z);
+  }
+
+  /** A cut or a bullet on a supply crate. */
+  private hitCrate(id: string, dmg: number, _by: Seat): boolean {
+    if (this.stage !== RaidStage.Fight) return false;
+    return this.push.hitCrate(id, dmg);
+  }
+
+  protected override beforeStep(seat: Seat): void {
+    let p = this.stepFrom.get(seat.id);
+    if (!p) this.stepFrom.set(seat.id, (p = { x: 0, z: 0 }));
+    p.x = seat.sim.x;
+    p.z = seat.sim.z;
   }
 
   /**
-   * After a duck's step: a manning duck holding Fire fires its cannon (the
-   * server owns the loaves); otherwise a Use press at the lever pulls it,
-   * holding Use revives a knocked friend in reach, or else repairs the gate.
+   * After a duck's step: what its katana did (blade.ts: the swing that
+   * landed this step, swept at the step's lag compensated view time); then a
+   * manning duck holding Fire fires its cannon (the server owns the loaves);
+   * otherwise a Use press at the lever pulls it, holding Use revives a
+   * knocked friend in reach, or else repairs the gate.
    */
-  protected override afterStep(seat: Seat, f: InputFrame): void {
-    this.explosives.afterStep(seat, this.stage === RaidStage.Wave);
+  protected override afterStep(seat: Seat, f: InputFrame, viewTime: number): void {
+    if (lastBlade.n > 0) {
+      if (hasBladeEvent(BladeEvent.StormStart)) {
+        const d = this.ducks.get(seat.id);
+        if (d) this.blade.stormStarted(seat.id, d);
+      }
+      const from = this.stepFrom.get(seat.id) ?? seat.sim;
+      for (let i = 0; i < lastBlade.n; i++) this.blade.afterStep(seat, viewTime, from.x, from.z, lastBlade.kind[i]!, lastBlade.step[i]!, lastBlade.charge[i]!);
+    }
     const prev = this.lastButtons.get(seat.id) ?? 0;
     this.lastButtons.set(seat.id, f.buttons);
     const s = seat.sim;
@@ -393,7 +521,9 @@ export class Raid extends Arena {
   /** Damage to a duck from a hunter, a trap or a decoy (armor upgrade, the knock, the bleed meter). */
   hurtDuck(id: string, amount: number, fromX: number, fromZ: number, kind: number, head: boolean): void {
     const seat = this.seats.get(id);
-    if (!seat || !seat.sim.alive || this.stage !== RaidStage.Wave || this.hold) return;
+    if (!seat || !seat.sim.alive || this.stage !== RaidStage.Fight || this.hold) return;
+    // The dash's first ticks: nothing touches the duck (shared raid/blade.ts dashImmune).
+    if (dashImmune(seat.sim)) return;
     const d = this.ducks.get(id);
     const down = seat.sim.down === 1;
     const dmg = Math.min(seat.sim.hp, Math.max(1, Math.round(amount * (d?.stats.taken ?? 1) * (down ? KNOCK.damageScale : 1))));
@@ -409,42 +539,6 @@ export class Raid extends Arena {
     this.checkFail();
   }
 
-  /** A duck's own grenade or rocket (its self share): the same path as other damage to it. */
-  explosionDamage(_attacker: Seat | null, victim: Seat, amount: number, weapon: number, x: number, z: number): void {
-    if (!victim.sim.alive || this.stage !== RaidStage.Wave) return;
-    const d = this.ducks.get(victim.id);
-    const down = victim.sim.down === 1;
-    const dmg = Math.min(victim.sim.hp, Math.round(amount * (d?.stats.taken ?? 1) * (down ? KNOCK.damageScale : 1)));
-    if (dmg <= 0) return;
-    victim.sim.hp -= dmg;
-    this.rev.hurtFrom(victim, dmg, x, z);
-    if (victim.sim.hp > 0) return;
-    if (down) this.kill(null, victim, weapon, false);
-    else this.knock(null, victim, weapon, false);
-    this.checkFail();
-  }
-
-  /** Hunters a rocket can hit on the way (current positions). */
-  rocketTargets(): HitTarget[] {
-    return this.stage === RaidStage.Wave ? this.hunts.current() : [];
-  }
-
-  /** A duck's blast hurts hunters (the thrower's damage upgrade applies; ducks are never hurt by a friend's blast). */
-  blastOthers(attacker: Seat | null, x: number, y: number, z: number, r: BlastRules, kind: number, directId: string | null): void {
-    if (this.stage !== RaidStage.Wave) return;
-    const mult = attacker ? (this.ducks.get(attacker.id)?.stats.damage ?? 1) : 1;
-    const direct = kind === 2 ? (r as BlastRules & { directDamage?: number }).directDamage ?? 0 : 0;
-    const before = new Map([...this.hunts.hunters.values()].filter((h) => h.downTicks === 0).map((h) => [h.id, h.hp] as const));
-    this.hunts.blast(x, y, z, r.blastRadius, r.innerRadius, r.edgeScale, r.damage * mult, attacker?.id ?? null, directId, direct * mult);
-    if (!attacker) return;
-    for (const [id, hp] of before) {
-      const h = this.hunts.hunters.get(id);
-      if (!h || h.hp === hp) continue;
-      this.rev.hunterHit(attacker, h, Math.round(hp - Math.max(0, h.hp)), false, h.downTicks > 0, true);
-      attacker.dealt += Math.round(hp - Math.max(0, h.hp));
-    }
-  }
-
   protected onKilled(_killer: Seat | null, victim: Seat): void {
     // Out until the next break.
     victim.respawnAt = -1;
@@ -452,10 +546,9 @@ export class Raid extends Arena {
     for (const o of this.seats.values()) if (o.reviveOf === victim.id) o.reviveOf = null;
   }
 
-  /** Nobody standing, or the core down: the run is lost. */
+  /** Nobody standing: the run is lost (v3: the core no longer ends a run). */
   private checkFail(): void {
-    if (this.stage !== RaidStage.Wave) return;
-    if (this.keep.coreHp <= 0) return this.end(RaidEndReason.CoreFell);
+    if (this.stage !== RaidStage.Fight) return;
     let standing = 0;
     for (const s of this.seats.values()) if (s.sim.alive && (!s.sim.down || this.canSelfRevive(s))) standing++;
     if (standing === 0) this.end(RaidEndReason.AllDown);
@@ -473,7 +566,7 @@ export class Raid extends Arena {
     const s = seat.sim;
     // Second wind: a lone knocked duck holds Use to get up by itself (once a wave).
     if (s.down === 1 && this.canSelfRevive(seat)) {
-      if ((f.buttons & Button.Use) === 0 || this.stage !== RaidStage.Wave) {
+      if ((f.buttons & Button.Use) === 0 || this.stage !== RaidStage.Fight) {
         seat.reviveOf = null;
         seat.reviveTicks = 0;
         return;
@@ -488,7 +581,7 @@ export class Raid extends Arena {
       this.rev.revived?.(seat, seat);
       return;
     }
-    const holding = (f.buttons & Button.Use) !== 0 && (f.buttons & Button.Fire) === 0 && s.alive === 1 && s.down === 0 && s.mode === Mode.Ground && this.stage === RaidStage.Wave;
+    const holding = (f.buttons & Button.Use) !== 0 && (f.buttons & Button.Fire) === 0 && s.alive === 1 && s.down === 0 && s.mode === Mode.Ground && this.stage === RaidStage.Fight;
     let target = holding && seat.reviveOf ? (this.seats.get(seat.reviveOf) ?? null) : null;
     if (target && !this.inReviveReach(seat, target)) target = null;
     if (!target && holding) {
@@ -546,7 +639,7 @@ export class Raid extends Arena {
 
   // ---- stages --------------------------------------------------------------------
 
-  /** End of the lobby: lock, and the first wave goes. */
+  /** End of the lobby: lock, and the first objective goes. */
   start(): void {
     if (this.stage !== RaidStage.Lobby) return;
     this.rollSecret();
@@ -557,59 +650,56 @@ export class Raid extends Arena {
       s.dealt = 0;
     }
     this.rev.started();
-    this.beginWave(1);
+    this.beginObjective(1);
   }
 
-  private beginWave(w: number): void {
-    this.stage = RaidStage.Wave;
+  /** Objective `w` (1-based) in play: its markers and placed hunters (push.ts), the packs start coming. */
+  private beginObjective(w: number): void {
+    this.stage = RaidStage.Fight;
     this.wave = w;
     this.stageTicks = 0;
     this.waveStartTick = this.tick;
-    this.hunts.startWave(w, Math.max(1, this.seats.size), this.tick);
     for (const s of this.seats.values()) {
       const d = this.ducks.get(s.id);
-      setNades(s.sim, RAID.grenadesPerWave + (d?.stats.extraGrenades ?? 0));
       if (d) d.secondWind = this.seats.size === 1 ? 1 : 0;
     }
-    if (isBossWave(w) && rocketPickupRules().rockets > 0) {
-      const p = this.spawnPts[this.spawnPts.length - 1] ?? this.spawnPts[0];
-      if (p) this.explosives.placeRocket(p.x, groundHeightAt(this.sim, p.x, p.y + 0.3, p.z) + 0.8, p.z, this.tick, 90);
-    }
-    this.rev.waveStart(w, isBossWave(w));
+    this.push.start(w, Math.max(1, this.seats.size), this.tick);
   }
 
-  private clearWave(): void {
+  /** The objective is taken: the rest of the hunters flee; the last one wins the run, else a break. */
+  private clearObjective(): void {
     const w = this.wave;
     this.lastClearTick = this.tick;
     for (const s of this.seats.values()) {
       const d = this.ducks.get(s.id);
       if (d) d.wavesCleared++;
     }
-    this.rev.waveClear(w);
-    if (w >= RAID.waves) return this.end(RaidEndReason.Won);
+    this.hunts.scatter();
+    this.rev.goalClear(w);
+    if (w >= RAID.objectives) return this.end(RaidEndReason.Won);
     this.beginBreak();
   }
 
   private beginBreak(): void {
     this.stage = RaidStage.Break;
     this.stageTicks = Math.max(1, Math.round(this.rules.breakSeconds * TICK_RATE));
-    this.explosives.reset(this.tick);
     this.keep.breakRepair();
     const deadline = this.now + (this.stageTicks / TICK_RATE) * 1000;
+    const standing = [...this.seats.values()].filter((s) => s.sim.alive && !s.sim.down);
     for (const s of this.seats.values()) {
       const d = this.ducks.get(s.id);
       if (!d) continue;
       const max = d.stats.maxHp;
-      if (!s.sim.alive) this.spawnDuck(s, 0.6);
+      // The fallen come back beside a friend still standing (the push goes on from there), else in the castle.
+      if (!s.sim.alive) this.spawnDuck(s, 0.6, standing.find((o) => o !== s) ?? null);
       else if (s.sim.down) {
         this.revive(s);
         s.sim.hp = Math.round(max * 0.5);
       } else s.sim.hp = Math.min(max, s.sim.hp + max * 0.25);
-      // Fresh ammo for the next wave.
-      s.sim.res0 = weaponStats(WeaponId.Rifle).reserve;
+      // Fresh pistol ammo for the next objective.
       s.sim.res1 = weaponStats(WeaponId.Pistol).reserve;
       setRoot(s.sim, 0);
-      const cards = rollOffer(Math.random, { maxed: d.upgrades.maxed(), coreHurt: this.keep.coreHp < this.keep.coreMax - 1 });
+      const cards = rollOffer(Math.random, { maxed: d.upgrades.maxed(), team: this.seats.size > 1 });
       d.offer = { cards, picked: false };
       this.rev.offer(s, cards.map((id) => [id, upgradeValue(id, this.rules.upgrade)]), deadline);
     }
@@ -633,10 +723,6 @@ export class Raid extends Arena {
     d.upgrades.add(id);
     d.stats = duckStats(d.upgrades, this.rules.upgrade);
     if (d.stats.maxHp > before && seat.sim.alive) seat.sim.hp = Math.min(d.stats.maxHp, seat.sim.hp + (d.stats.maxHp - before));
-    if (id === Upgrade.Repair) {
-      this.keep.repairCore(this.rules.upgrade.repair);
-      this.rev.coreRepaired();
-    }
     this.rev.offer(seat, null, 0);
     this.rev.self(seat);
   }
@@ -648,7 +734,7 @@ export class Raid extends Arena {
       if (d?.offer && !d.offer.picked && d.offer.cards.length > 0) this.apply(s, d, d.offer.cards[Math.floor(Math.random() * d.offer.cards.length)]!);
       if (d) d.offer = null;
     }
-    this.beginWave(this.wave + 1);
+    this.beginObjective(this.wave + 1);
   }
 
   private end(reason: number): void {
@@ -666,7 +752,7 @@ export class Raid extends Arena {
     const seats = [...this.seats.values()];
     this.keep.step(this.tick, seats);
     this.keep.syncManning(seats);
-    this.keep.stepLoaves(this.stage === RaidStage.Wave ? this.hunts.current() : []);
+    this.keep.stepLoaves(this.stage === RaidStage.Fight ? this.hunts.current() : []);
   }
 
   /** End of a tick: the stage clock, bot ducks, the keep, hunters, drops, regen, the bleed, the lag history. */
@@ -674,21 +760,20 @@ export class Raid extends Arena {
     if (this.stage === RaidStage.Lobby) {
       for (const s of this.seats.values()) {
         if (s.sim.y < -30 || !s.sim.alive) this.spawnDuck(s, 1);
-        if (s.sim.res0 < 60) s.sim.res0 = weaponStats(WeaponId.Rifle).reserve;
         if (s.sim.res1 < 24) s.sim.res1 = weaponStats(WeaponId.Pistol).reserve;
       }
       this.thinkDucks();
       this.stepKeep();
       if (this.stageTicks > 0 && --this.stageTicks === 0) this.start();
-    } else if (this.stage === RaidStage.Wave) {
+    } else if (this.stage === RaidStage.Fight) {
       this.thinkDucks();
       this.stepKeep();
+      this.push.step(this.tick);
       this.hunts.step(this.tick, this.now, true);
-      this.explosives.step(this.tick);
       this.hunts.stepDrops(this.tick, (id, kind) => this.takeDrop(id, kind));
       this.regen();
       this.bleed();
-      if (this.stage === RaidStage.Wave && this.hunts.cleared) this.clearWave();
+      if (this.stage === RaidStage.Fight && this.push.complete) this.clearObjective();
     } else if (this.stage === RaidStage.Break) {
       this.thinkDucks();
       this.stepKeep();
@@ -714,10 +799,9 @@ export class Raid extends Arena {
       if (s.hp >= max) return false;
       s.hp = Math.min(max, s.hp + this.rules.healAmount);
     } else {
-      const rifle = weaponStats(WeaponId.Rifle);
+      // The pistol's reserve only: a katana duck's rifle slot holds its blade state (raid/blade.ts).
       const pistol = weaponStats(WeaponId.Pistol);
-      if (s.res0 >= rifle.reserve && s.res1 >= pistol.reserve) return false;
-      s.res0 = Math.min(rifle.reserve, s.res0 + rifle.magSize * 1.5);
+      if (s.res1 >= pistol.reserve) return false;
       s.res1 = Math.min(pistol.reserve, s.res1 + pistol.magSize * 2);
     }
     this.rev.dropTaken(seat, kind);
@@ -741,7 +825,7 @@ export class Raid extends Arena {
         this.kill(null, s, KILL_BLEED, false);
         this.checkFail();
       }
-      if (this.stage !== RaidStage.Wave) return;
+      if (this.stage !== RaidStage.Fight) return;
     }
   }
 
@@ -771,10 +855,10 @@ export class Raid extends Arena {
       bridgeDown: () => this.keep.bridgeDown,
       gateOpen: () => this.keep.gateBroken,
       damageGate: (amount: number) => {
-        if (this.stage === RaidStage.Wave) this.keep.damageGate(amount);
+        if (this.stage === RaidStage.Fight) this.keep.damageGate(amount);
       },
       damageCore: (amount: number) => {
-        if (this.stage !== RaidStage.Wave) return;
+        if (this.stage !== RaidStage.Fight) return;
         this.keep.damageCore(amount);
         if (this.keep.coreHp <= 0) this.checkFail();
       },
@@ -783,14 +867,12 @@ export class Raid extends Arena {
         this.teamKills++;
         const killer = killerId ? (this.seats.get(killerId) ?? null) : null;
         const kd = killerId ? this.ducks.get(killerId) : undefined;
-        // A boss's whistled helpers give no kill XP (the lifesteal still works).
-        if (kd && !h.helper) kd.kills++;
-        if (kd) {
-          if (killer) {
-            if (!h.helper) killer.kills++;
-            if (killer.sim.alive && !killer.sim.down && kd.stats.lifesteal > 0) killer.sim.hp = Math.min(kd.stats.maxHp, killer.sim.hp + kd.stats.lifesteal);
-          }
+        // XP counts (minions apart, a boss's whistled helpers give none), the combo bonus, the storm meter, streaks: blade.ts.
+        if (kd && killer) {
+          this.blade.onKill(killer, kd, h);
+          if (!h.helper) killer.kills++;
         }
+        this.push.hunterDown(h);
         // Boss XP only for a real defeat by a duck (never for one that left without a killer).
         if (h.kind === HunterKind.Boss && killerId) for (const id of h.hurtBy) {
           const d = this.ducks.get(id);
@@ -800,6 +882,7 @@ export class Raid extends Arena {
         if (killer) this.rev.self(killer);
       },
       whistle: (h: HunterAgent) => this.rev.whistle(h),
+      swingHit: (h: HunterAgent, id: string) => this.hurtDuck(id, (h.kind === HunterKind.Beater ? this.rules.blade.beaterDamage : this.rules.blade.recruitDamage) * this.rules.hunterDamageScale, h.x, h.z, h.kind, false),
       decoyLaunched: (d: DecoyState) => this.rev.decoyLaunched(d),
       decoyBoom: (d: DecoyState, x: number, y: number, z: number) => this.rev.decoyBoom(d, x, y, z),
     };
@@ -825,7 +908,7 @@ export class Raid extends Arena {
       loafLaunched: (l: Loaf) => this.rev.loafLaunched(l, this.seats.get(l.owner) ?? null),
       loafBoom: (l: Loaf, x: number, y: number, z: number, hitId: string) => {
         this.rev.loafBoom(l, x, y, z);
-        if (this.stage !== RaidStage.Wave) return;
+        if (this.stage !== RaidStage.Fight) return;
         const owner = this.seats.get(l.owner) ?? null;
         const r = this.rules.cannon;
         const mult = this.ducks.get(l.owner)?.stats.damage ?? 1;
@@ -865,14 +948,66 @@ export class Raid extends Arena {
     if (this.stage === RaidStage.Lobby) this.start();
     if (this.over) return;
     this.hunts.clear();
-    this.beginWave(Math.max(1, Math.min(RAID.waves, Math.floor(wave))));
+    this.beginObjective(Math.max(1, Math.min(RAID.objectives, Math.floor(wave))));
   }
 
-  /** Tests and the e2e (test hooks): beat every hunter of this wave now (the wave then clears as usual). */
+  /** Tests and the e2e (test hooks): take the objective in play now (it then clears as usual). */
   defeatWave(): void {
-    if (this.stage !== RaidStage.Wave) return;
-    const by = [...this.seats.values()].find((s) => !s.bot)?.id ?? null;
-    this.hunts.defeatAll(by);
+    if (this.stage !== RaidStage.Fight) return;
+    this.push.completeNow();
+  }
+
+  /** Tests and the e2e (test hooks): fill a duck's Blade Storm meter. */
+  fillMeter(seat: Seat): void {
+    const d = this.ducks.get(seat.id);
+    if (!d) return;
+    d.meter = 100;
+    setStormMeter(seat.sim, 100);
+  }
+
+  /** Tests and the e2e (test hooks): move a duck to `short` meters before the objective's marker (on the way from the drawbridge), facing it. */
+  moveToGoal(seat: Seat, short: number): void {
+    const r = this.push.rally;
+    const b = this.geometry.bridge;
+    const g = { x: b.x + b.dx * (b.len + 3), z: b.z + b.dz * (b.len + 3) };
+    const dx = g.x - r.x;
+    const dz = g.z - r.z;
+    const d = Math.hypot(dx, dz) || 1;
+    const x = r.x + (dx / d) * Math.min(short, d);
+    const z = r.z + (dz / d) * Math.min(short, d);
+    const nav = this.o.nav();
+    const p = nav?.closest({ x, y: r.y + 1, z }, { x: 3, y: 6, z: 3 }) ?? { x, y: r.y, z };
+    const s = seat.sim;
+    s.x = p.x;
+    s.z = p.z;
+    s.y = groundHeightAt(this.sim, p.x, p.y + 2, p.z);
+    s.vx = 0;
+    s.vy = 0;
+    s.vz = 0;
+    s.yaw = Math.atan2(-(r.x - p.x), -(r.z - p.z));
+    setMan(s, 0);
+  }
+
+  /** Tests and the performance check (test hooks): `n` hunters in packs around a duck (a fifth of them elites), past the live cap. */
+  hordeAround(seat: Seat, n: number): void {
+    const me = { x: seat.sim.x, y: seat.sim.y, z: seat.sim.z };
+    const kinds = [HunterKind.Beater, HunterKind.Recruit, HunterKind.Beater, HunterKind.Recruit, HunterKind.Rifleman];
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      const r = 14 + (i % 3) * 5;
+      const at = { x: me.x + Math.cos(a) * r, y: me.y, z: me.z + Math.sin(a) * r };
+      this.hunts.spawnGroup(kinds[i % kinds.length]!, 1, at, me, 0, true);
+    }
+  }
+
+  /** Tests and the e2e (test hooks): a pack of `n` minions (and its elites) a few meters in front of a duck, charging it. */
+  packAt(seat: Seat, n: number, dist = 9): void {
+    const fx = -Math.sin(seat.sim.yaw);
+    const fz = -Math.cos(seat.sim.yaw);
+    const at = { x: seat.sim.x + fx * dist, y: seat.sim.y, z: seat.sim.z + fz * dist };
+    const me = { x: seat.sim.x, y: seat.sim.y, z: seat.sim.z };
+    const pack = this.hunts.spawnGroup(HunterKind.Beater, Math.ceil(n / 2), at, me, 1.0).concat(this.hunts.spawnGroup(HunterKind.Recruit, Math.floor(n / 2), { x: at.x + fz, y: at.y, z: at.z - fx }, me, 1.0));
+    for (const h of pack) h.yaw = Math.atan2(fx, fz);
   }
 
   /**

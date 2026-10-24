@@ -5,7 +5,7 @@
  *   bursts and strafe. It reads only what the player sees (drawn positions,
  *   world ray casts), like the server bots.
  */
-import { aimOrigin, Button, Mode, MOVE_QUERY_GROUPS, SIGHT_QUERY_GROUPS, weaponStats, type PlayerSim, type SimWorld } from '@qwakk/shared';
+import { aimOrigin, Button, dashTimer, isBladeDuck, Mode, MOVE_QUERY_GROUPS, quackTimer, SIGHT_QUERY_GROUPS, STORM, stormMeter, WeaponId, weaponStats, type PlayerSim, type SimWorld } from '@qwakk/shared';
 import type { BrAutopilotView } from './brClient.ts';
 
 export interface SeenDuck {
@@ -59,9 +59,11 @@ export class Autopilot {
    * a knocked friend close by (hold E), else hold a spot inside the gate
    * (the hunters come through it once it breaks).
    */
-  raid(me: PlayerSim, view: { yaw: number; pitch: number }, v: { hunters: readonly SeenDuck[]; knocked: { x: number; z: number } | null; home: { x: number; z: number }; core: { x: number; z: number; r: number } }): { mx: number; mz: number; buttons: number } {
+  raid(me: PlayerSim, view: { yaw: number; pitch: number }, v: { hunters: readonly SeenDuck[]; knocked: { x: number; z: number } | null; home: { x: number; z: number }; core: { x: number; z: number; r: number }; rally?: { x: number; z: number } | null; crates?: { x: number; z: number }[]; gate?: { x: number; z: number; nx: number; nz: number } | null }): { mx: number; mz: number; buttons: number } {
     // Knocked and alone: the second wind (hold E).
     if (me.down) return { mx: 0, mz: 0, buttons: Button.Use };
+    // v3: a katana duck cuts its way to the objective.
+    if (isBladeDuck(me)) return this.blade(me, view, v.hunters, v.rally ?? null, v.crates ?? [], v.knocked, v.gate ?? null, v.core);
     if (v.knocked && Math.hypot(v.knocked.x - me.x, v.knocked.z - me.z) < 18) {
       const near = v.hunters.some((h) => Math.hypot(h.x - me.x, h.z - me.z) < 12);
       if (!near) {
@@ -75,6 +77,100 @@ export class Autopilot {
     }
     // Nobody in sight: hold the spot inside the gate, going round the core's plinth rather than over it.
     return this.fight(me, view, v.hunters, this.aroundCore(me, v.home, v.core));
+  }
+
+  private holdT = 0;
+  private stuckT = 0;
+  private lastXZ = { x: 0, z: 0 };
+
+  /**
+   * Hunt Season v3 with the katana: run at the nearest hunter in sight
+   * (within 30 m), cut with taps of Fire (light combos), hold for a heavy
+   * spin into a crowd, dash to close in, quack when surrounded, let the
+   * Blade Storm go when it is full; snipers far up a tower get the pistol.
+   * With nobody near: to the next supply crate (it hits it too) or the
+   * objective's marker.
+   */
+  private blade(me: PlayerSim, view: { yaw: number; pitch: number }, hunters: readonly SeenDuck[], rally: { x: number; z: number } | null, crates: { x: number; z: number }[], knocked: { x: number; z: number } | null, gate: { x: number; z: number; nx: number; nz: number } | null, core: { x: number; z: number; r: number }): { mx: number; mz: number; buttons: number } {
+    this.t++;
+    let best: SeenDuck | null = null;
+    let bestD = 30;
+    let near = 0;
+    for (const h of hunters) {
+      const d = Math.hypot(h.x - me.x, h.z - me.z);
+      if (d < 3.4) near++;
+      if (d >= bestD || Math.abs(h.y - me.y) > 3.5) continue;
+      if (d > 3) {
+        const o = { x: me.x, y: me.y + 1.2, z: me.z };
+        const tx = h.x - o.x;
+        const ty = h.y + 1 - o.y;
+        const tz = h.z - o.z;
+        const len = Math.hypot(tx, ty, tz);
+        const hit = this.sim.world.castRay(new this.sim.rapier.Ray(o, { x: tx / len, y: ty / len, z: tz / len }), len, true, undefined, SIGHT_QUERY_GROUPS);
+        if (hit && hit.timeOfImpact < len - 0.6) continue;
+      }
+      best = h;
+      bestD = d;
+    }
+    // A sniper high up a tower: the pistol (2), else the katana (1).
+    const high = best && best.y - me.y > 3;
+    let buttons = 0;
+    if (high && me.weapon === WeaponId.Katana && this.t % 10 === 0) buttons |= Button.Slot2;
+    if (!high && me.weapon !== WeaponId.Katana && this.t % 10 === 0) buttons |= Button.Slot1;
+    let goal: { x: number; z: number } | null = best;
+    if (!best) {
+      // A friend down close by: revive it.
+      if (knocked && Math.hypot(knocked.x - me.x, knocked.z - me.z) < 12) {
+        goal = knocked;
+        if (Math.hypot(knocked.x - me.x, knocked.z - me.z) < 1.4) return { mx: 0, mz: 0, buttons: Button.Use };
+      } else {
+        let c: { x: number; z: number } | null = null;
+        for (const k of crates) if (!c || Math.hypot(k.x - me.x, k.z - me.z) < Math.hypot(c.x - me.x, c.z - me.z)) c = k;
+        goal = c ?? rally;
+      }
+    }
+    if (!goal) return { mx: 0, mz: 0, buttons };
+    // Out of the castle (or back in): through the gate and over the drawbridge, never at a wall.
+    if (gate) {
+      const across = (p: { x: number; z: number }): number => (p.x - gate.x) * gate.nx + (p.z - gate.z) * gate.nz;
+      const along = (p: { x: number; z: number }): number => (p.x - gate.x) * -gate.nz + (p.z - gate.z) * gate.nx;
+      const inside = Math.abs(me.x - core.x) < 18 && Math.abs(me.z - core.z) < 18 && across(me) < 0;
+      const goalOut = across(goal) > 0 || Math.abs(goal.x - core.x) > 18 || Math.abs(goal.z - core.z) > 18;
+      const inGateway = Math.abs(along(me)) < 3 && across(me) > -4 && across(me) < 19;
+      if (goalOut && inside && !inGateway) goal = { x: gate.x - gate.nx * 3, z: gate.z - gate.nz * 3 };
+      else if (goalOut && inGateway) goal = { x: gate.x + gate.nx * 21, z: gate.z + gate.nz * 21 };
+      else if (!goalOut && !inside && across(me) > 0 && !inGateway) goal = { x: gate.x + gate.nx * 20, z: gate.z + gate.nz * 20 };
+    }
+    const d = Math.hypot(goal.x - me.x, goal.z - me.z);
+    const want = Math.atan2(-(goal.x - me.x), -(goal.z - me.z));
+    const dy = ((want - view.yaw + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    view.yaw += Math.max(-0.3, Math.min(0.3, dy));
+    view.pitch = high ? Math.max(-0.3, Math.min(0.6, Math.atan2((best!.y + 1.2) - (me.y + 1.5), d))) : -0.12;
+    // Stuck against something for a while: hop.
+    if (this.t % 30 === 0) {
+      this.stuckT = Math.hypot(me.x - this.lastXZ.x, me.z - this.lastXZ.z) < 0.6 && d > 3 ? this.stuckT + 1 : 0;
+      this.lastXZ = { x: me.x, z: me.z };
+    }
+    const hop = this.stuckT > 0 && this.t % 30 === 15 ? Button.Jump : 0;
+    const crateNear = !best && crates.some((k) => Math.hypot(k.x - me.x, k.z - me.z) < 2.6);
+    if (high && me.weapon === WeaponId.Pistol) {
+      // Pistol: stand, aim, tap.
+      return { mx: 0, mz: d > 60 ? 1 : 0, buttons: buttons | (Math.abs(dy) < 0.05 && this.t % 6 === 0 ? Button.Fire : 0) };
+    }
+    if (!best && !crateNear) return { mx: 0, mz: d > 4 ? 1 : 0, buttons: buttons | hop | (d > 12 ? Button.Sprint : 0) | (d > 14 && dashTimer(me) === 0 && this.t % 45 === 0 ? Button.Dash : 0) };
+    // In the fight (or at a crate).
+    if (best && bestD > 4 && bestD < 9 && dashTimer(me) === 0 && Math.abs(dy) < 0.3) buttons |= Button.Dash;
+    if (near >= 4 && quackTimer(me) === 0) buttons |= Button.Quack;
+    if (near >= 2 && stormMeter(me) >= STORM.meterFull) buttons |= Button.Storm;
+    const reach = crateNear ? 2.6 : 2.4;
+    if ((best ? bestD : 0) < reach + 0.6) {
+      if (near >= 3 && this.holdT === 0 && this.t % 50 === 0) this.holdT = 34;
+      if (this.holdT > 0) {
+        this.holdT--;
+        buttons |= Button.Fire;
+      } else if (this.t % 3 === 0) buttons |= Button.Fire;
+    }
+    return { mx: 0, mz: best && bestD > 1.6 ? 1 : 0, buttons: buttons | hop };
   }
 
   /** The home spot, or a point beside the core first when the straight way runs over its plinth. */

@@ -8,9 +8,16 @@ import { SPAWN_PROTECTION, TICK_RATE } from './constants.ts';
 export const WeaponId = {
   Rifle: 0,
   Pistol: 1,
+  /**
+   * Hunt Season only: the duck's katana (raid/blade.ts). Not a gun: it has no
+   * entry in WEAPONS and never steps the gun's state machine; the deathmatch
+   * and the battle royale never hand it out.
+   */
+  Katana: 2,
 } as const;
 export type WeaponId = (typeof WeaponId)[keyof typeof WeaponId];
 
+/** Guns in WEAPONS (the katana is not one). */
 export const WEAPON_COUNT = 2;
 
 const deg = (d: number): number => (d * 3.141592653589793) / 180;

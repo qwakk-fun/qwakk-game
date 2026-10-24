@@ -1,24 +1,27 @@
 /**
- * Hunt Season upgrades, server side: what each card does to a duck. Every
- * number is server only (RaidRules.upgrade, admin settings) and nothing here
- * changes what the client simulates: damage, armor, health, regen, lifesteal,
- * revive speed and headshot damage are applied by the server's damage path,
- * an extra grenade is a count the server sets at wave start.
+ * Hunt Season upgrades (v3, melee builds), server side: what each card does
+ * to a duck. Every number is server only (RaidRules.upgrade, admin settings)
+ * and nothing here changes what the client simulates: damage, reach, crits,
+ * health, armor, regen, lifesteal, bleed, the chain, the storm meter and
+ * revive speed are applied by the server's hit path (raid/blade.ts).
  */
 import { COMBAT, Upgrade, type UpgradeId } from '@qwakk/shared';
 import type { RaidRules } from './rules.ts';
 
-/** Most times one duck can take each card in a run (the core repair kit: any time the core is hurt). */
+/** Most times one duck can take each card in a run. */
 export const UPGRADE_MAX: Record<UpgradeId, number> = {
   [Upgrade.Damage]: 5,
   [Upgrade.MaxHealth]: 5,
   [Upgrade.Armor]: 4,
   [Upgrade.Regen]: 4,
-  [Upgrade.Grenade]: 3,
+  [Upgrade.Reach]: 3,
   [Upgrade.Revive]: 2,
-  [Upgrade.Headshot]: 3,
+  [Upgrade.Crit]: 3,
   [Upgrade.Lifesteal]: 3,
-  [Upgrade.Repair]: 99,
+  [Upgrade.Storm]: 3,
+  [Upgrade.Bleed]: 3,
+  [Upgrade.Chain]: 2,
+  [Upgrade.Finisher]: 3,
 };
 
 /** A duck's upgrades in this run: how many of each card it took. */
@@ -50,27 +53,42 @@ export class DuckUpgrades {
 
 export interface DuckStats {
   maxHp: number;
-  /** Outgoing damage multiplier, headshot multiplier on top, incoming damage multiplier. */
+  /** Outgoing damage multiplier, incoming damage multiplier. */
   damage: number;
-  headshot: number;
   taken: number;
   regenPerSecond: number;
   /** Revive time multiplier for this duck as the reviver (0.5 is twice as fast). */
   reviveTime: number;
+  /** The katana's reach multiplier (the server's sweep only). */
+  reach: number;
+  /** Extra crit multiplier on top of the rules' crit (1: none). */
+  crit: number;
+  /** Health back per landed cut. */
   lifesteal: number;
-  extraGrenades: number;
+  /** Blade Storm meter gain multiplier. */
+  storm: number;
+  /** Bleed damage per second after a cut (0: none). */
+  bleedDps: number;
+  /** Share of a heavy spin's damage that chains to more hunters (0: none). */
+  chain: number;
+  /** The third cut's damage multiplier. */
+  finisher: number;
 }
 
 export function duckStats(u: DuckUpgrades, r: RaidRules['upgrade']): DuckStats {
   return {
     maxHp: Math.min(250, COMBAT.maxHp + r.maxHealth * u.count(Upgrade.MaxHealth)),
     damage: 1 + (r.damagePercent / 100) * u.count(Upgrade.Damage),
-    headshot: 1 + (r.headshotPercent / 100) * u.count(Upgrade.Headshot),
     taken: Math.max(0.3, 1 - (r.armorPercent / 100) * u.count(Upgrade.Armor)),
     regenPerSecond: r.regenPerSecond * u.count(Upgrade.Regen),
     reviveTime: Math.max(0.25, 1 - (r.revivePercent / 100) * u.count(Upgrade.Revive)),
+    reach: 1 + (r.reachPercent / 100) * u.count(Upgrade.Reach),
+    crit: 1 + (r.critPercent / 100) * u.count(Upgrade.Crit),
     lifesteal: r.lifesteal * u.count(Upgrade.Lifesteal),
-    extraGrenades: u.count(Upgrade.Grenade),
+    storm: 1 + (r.stormPercent / 100) * u.count(Upgrade.Storm),
+    bleedDps: r.bleedDps * u.count(Upgrade.Bleed),
+    chain: Math.min(1, (r.chainPercent / 100) * u.count(Upgrade.Chain)),
+    finisher: 1 + (r.finisherPercent / 100) * u.count(Upgrade.Finisher),
   };
 }
 
@@ -81,10 +99,13 @@ export function upgradeValue(id: UpgradeId, r: RaidRules['upgrade']): number {
     case Upgrade.MaxHealth: return r.maxHealth;
     case Upgrade.Armor: return r.armorPercent;
     case Upgrade.Regen: return Math.round(r.regenPerSecond * 10) / 10;
-    case Upgrade.Grenade: return 1;
+    case Upgrade.Reach: return r.reachPercent;
     case Upgrade.Revive: return r.revivePercent;
-    case Upgrade.Headshot: return r.headshotPercent;
+    case Upgrade.Crit: return r.critPercent;
     case Upgrade.Lifesteal: return r.lifesteal;
-    case Upgrade.Repair: return r.repair;
+    case Upgrade.Storm: return r.stormPercent;
+    case Upgrade.Bleed: return r.bleedDps;
+    case Upgrade.Chain: return r.chainPercent;
+    case Upgrade.Finisher: return r.finisherPercent;
   }
 }

@@ -11,7 +11,7 @@ import { t as translate } from './i18n/game.ts';
  * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { Act, actionOf, aimBlend, Button, COMBAT, exLauncher, exNades, exRockets, ExplosiveKind, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
+import { Act, actionOf, aimBlend, bladeOut, Button, COMBAT, DASH, dashTimer, heldNades, heldRockets, launcherUp, ExplosiveKind, hasWeapon, inaccuracy, isBladeDuck, Mode, QUACK, quackTimer, SPAWN_PROTECTION, STORM, stormLeft, stormMeter, WeaponId, weaponStats } from '@qwakk/shared';
 import { KillWeapon } from '@qwakk/shared/net';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
@@ -189,6 +189,11 @@ export class Game {
     this.raid = isRaid
       ? new RaidClient({ session, sim, scene, camera: ctx.camera, cam: this.cam, sound: this.sound, ghud: this.ghud, fx: this.fx, touch: hasTouch(), exit: (summary: RaidSummary) => opts.exit('ended', summary) })
       : null;
+    // Hunt Season: our duck carries the katana (first, so the feel's hit-stop finds it); Shift, Q and F are its skills.
+    if (this.raid) {
+      this.raid.equip(this.localAvatar);
+      this.controls.skills = true;
+    }
 
     this.combat = new CombatFeedback(session, sim, this.fx, this.sound, this.ghud, this.cam, {
       localAvatar: this.localAvatar,
@@ -261,6 +266,8 @@ export class Game {
           this.chat.close(false);
           this.raid?.ended(data);
         },
+        raidHits: (data) => this.raid?.hits(data),
+        localBlade: (kind, step, charge, state) => this.raid?.localBlade(kind, step, charge, state),
         shotHint: (weapon, angle, loud) => {
           this.br?.shotHint(weapon, angle, loud, this.myPos);
           this.explosives?.hint(weapon, angle, loud);
@@ -287,11 +294,14 @@ export class Game {
         avatar.onMagEvent = (e, at) => this.sound.magClick(e, at);
         this.dress(avatar, state.character);
         scene.add(avatar.object);
+        this.raid?.equip(avatar);
         this.remotes.set(id, { state, avatar, motion: new MotionProbe(), lastAct: 0 });
       },
       (id) => {
         const r = this.remotes.get(id);
         if (r) {
+          this.raid?.unequip(r.avatar);
+          this.raid?.feel.forget(id);
           r.avatar.dispose();
           this.wears.delete(r.avatar);
         }
@@ -464,10 +474,13 @@ export class Game {
       // Knocked: no gun up, crawling low.
       p.down = st.down === 1;
       // The rocket launcher rides the rifle's place in the hands (Avatar.setLauncher).
-      const launcher = exLauncher(st) === 1;
+      const launcher = launcherUp(st as never) === 1;
       p.weapon = mine.armed && !p.down ? (launcher ? 0 : st.weapon) : 2;
       this.localAvatar.setLauncher(launcher && !p.down);
       p.act = actionOf(st as never);
+      // Hunt Season: the katana (in hand, or on the back while the pistol is out).
+      p.katana = isBladeDuck(st as never);
+      p.holdingKatana = bladeOut(st as never);
       p.fly = mode;
       p.vest = mine.vest;
       p.helmet = mine.helmet;
@@ -526,6 +539,9 @@ export class Game {
       a.weapon = s.armed && !down ? (p.lnch ? 0 : s.weapon) : 2;
       r.avatar.setLauncher(p.lnch === 1 && !down);
       a.act = p.act;
+      a.katana = this.raid !== null;
+      a.holdingKatana = this.raid !== null && p.act >= Act.Katana;
+      if (this.raid) this.raid.feel.remote(id, p.act, p.x, p.y, p.z, p.yaw, dt);
       a.aim = undefined;
       a.fly = p.fly;
       a.vest = s.vest;
@@ -613,10 +629,13 @@ export class Game {
       const armed = mine.armed === 1;
       const mag = s.weapon === 0 ? s.mag0 : s.mag1;
       const res = s.weapon === 0 ? s.res0 : s.res1;
-      if (exLauncher(s)) g.ammoInfo(translate('Rocket launcher'), exRockets(s), 0, 0);
+      const katana = s.weapon === WeaponId.Katana && isBladeDuck(s as never);
+      if (katana) g.ammoInfo(translate('Katana'), -1, -1, 0);
+      else if (launcherUp(s as never)) g.ammoInfo(translate('Rocket launcher'), heldRockets(s as never), 0, 0);
       else if (armed) g.ammoInfo(translate(w.name), mag, res, s.reload > 0 ? 1 - s.reload / w.reloadTicks : 0);
       else g.ammoInfo('Unarmed', 0, 0, 0);
-      g.crosshair(inaccuracy(w, s as never, Math.floor(s.spray)), this.ctx.camera.fov, window.innerHeight);
+      // The katana aims with the body: a small, steady reticle.
+      g.crosshair(katana ? 0.004 : inaccuracy(w, s as never, Math.floor(s.spray)), this.ctx.camera.fov, window.innerHeight);
       g.protection(mine.protect === 1);
       g.crosshairVisible(mine.alive === 1 && s.mode === Mode.Ground && s.down === 0);
       g.knocked(s.down === 1 && mine.alive === 1);
@@ -681,9 +700,12 @@ export class Game {
     f.armed = mine?.armed === 1;
     const other = s && s.weapon === 0 ? 1 : 0;
     f.otherWeapon = s && mine?.armed === 1 && hasWeapon(s as never, other) ? translate(weaponStats(other).name) : '';
-    f.nades = s ? exNades(s) : 0;
-    f.rockets = s ? exRockets(s) : 0;
-    f.rocketOut = s ? exLauncher(s) === 1 : false;
+    const blade = !!s && isBladeDuck(s as never);
+    f.nades = s && !blade ? heldNades(s as never) : 0;
+    f.rockets = s && !blade ? heldRockets(s as never) : 0;
+    f.rocketOut = s && !blade ? launcherUp(s as never) === 1 : false;
+    f.skills = blade && s ? { dash: dashTimer(s) / DASH.cooldown, quack: quackTimer(s) / QUACK.cooldown, storm: stormLeft(s as never) > 0 ? 0 : 1 - stormMeter(s as never) / STORM.meterFull, katana: s.weapon === WeaponId.Katana } : undefined;
+    if (blade && s) f.otherWeapon = translate(s.weapon === WeaponId.Katana ? 'Pistol' : 'Katana');
     if (this.br) Object.assign(f, this.br.touchState());
     else {
       f.promptKey = this.raid?.touchPrompt() ?? '';

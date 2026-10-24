@@ -17,13 +17,15 @@ import {
   createSimWorld,
   hasWeapon,
   emptyInput,
-  exLauncher,
+  launcherUp,
   initPhysics,
   INTEREST,
   Mode,
   NET,
   PLAYER_SIM_FIELDS,
   sanitizeInputFields,
+  SKILL_BUTTONS,
+  bladeOut,
   DT,
   TICK_RATE,
   VIS,
@@ -136,7 +138,11 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
 
   override inputs = this.defineInput(PlayerInput, {
     bufferMaxSize: NET.maxInputBuffer,
-    sanitize: (f) => sanitizeInputFields(f),
+    sanitize: (f) => {
+      sanitizeInputFields(f);
+      // The Hunt Season skill buttons mean nothing anywhere else: masked off at the door.
+      if (!this.allowSkills()) f.buttons &= ~SKILL_BUTTONS;
+    },
     // Advertised to clients in the join handshake: they predict at exactly this dt.
     stepSeconds: DT,
   });
@@ -282,6 +288,11 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
     if (options.statsMs && options.statsMs > 0) {
       this.stats.start(options.statsMs, (s) => console.log(`[stats] ${JSON.stringify({ ...s, ...this.extraStats() })}`));
     }
+  }
+
+  /** Hunt Season only: inputs may carry the katana's skill buttons (Dash, Quack, Storm). */
+  protected allowSkills(): boolean {
+    return false;
   }
 
   /** May the tick loop sleep while no client is connected (the match holds no seats)? */
@@ -510,10 +521,12 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
             f.yaw = seat.sim.yaw;
             f.pitch = seat.sim.pitch;
           }
-          const once = Button.Fire | Button.Reload | Button.Slot1 | Button.Slot2 | Button.Slot3 | Button.Use | Button.Heal1 | Button.Heal2 | Button.Deploy;
+          const once = Button.Fire | Button.Reload | Button.Slot1 | Button.Slot2 | Button.Slot3 | Button.Use | Button.Heal1 | Button.Heal2 | Button.Deploy | SKILL_BUTTONS;
           f.buttons = kind === 'repeat' ? ns.frame.buttons & ~once : 0;
           // The grenade throws on release: a stand-in holds that button exactly where the last step had it, so it never throws.
           f.buttons = (f.buttons & ~Button.Grenade) | (seat.sim.prevButtons & Button.Grenade);
+          // The katana's heavy spins on release too: a stand-in holds Fire as it was (it never presses it, so it never swings).
+          if (bladeOut(seat.sim)) f.buttons |= seat.sim.prevButtons & Button.Fire;
           m.applyInput(seat, f, m.standInViewTime(seat));
         },
       );
@@ -755,7 +768,7 @@ export abstract class GameRoom<M extends Arena> extends Room<{ state: IslandStat
   }
 }
 
-function writePose(p: Pose, s: { x: number; y: number; z: number; yaw: number; pitch: number; crouch: number; grounded: number; mode: number; ex: number }, act: number): void {
+function writePose(p: Pose, s: { x: number; y: number; z: number; yaw: number; pitch: number; crouch: number; grounded: number; mode: number; ex: number; arms: number }, act: number): void {
   // Quantized fields store their dequantized value, so compare in that domain via assignment only on change.
   p.x = s.x;
   p.y = s.y;
@@ -766,6 +779,6 @@ function writePose(p: Pose, s: { x: number; y: number; z: number; yaw: number; p
   if (p.grounded !== s.grounded) p.grounded = s.grounded;
   if (p.fly !== s.mode) p.fly = s.mode;
   if (p.act !== act) p.act = act;
-  const lnch = exLauncher(s);
+  const lnch = launcherUp(s);
   if (p.lnch !== lnch) p.lnch = lnch;
 }

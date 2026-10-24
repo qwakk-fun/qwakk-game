@@ -260,9 +260,10 @@ export abstract class Arena {
     if (!seat.bot) seat.viewLagMs = Math.max(0, Math.min(COMBAT.maxRewindMs, this.now - viewTimeMs));
     this.beforeStep(seat, f);
     const shot = stepPlayer(this.sim, seat.sim, f, DT);
-    this.afterStep(seat, f);
-    if (!shot) return;
+    // The rewind target for anything this step hit (shots below, Hunt Season's katana in afterStep): the client's view time within the cap.
     const viewTime = Math.max(this.now - this.maxRewindFor(seat), Math.min(this.now, viewTimeMs));
+    this.afterStep(seat, f, viewTime);
+    if (!shot) return;
     const isFar = this.ao.isFar;
     const extra = this.ao.farExtraDelayMs ?? 0;
     const rtt = Math.max(0, seat.rttMs);
@@ -335,7 +336,8 @@ export abstract class Arena {
 
   /** Hooks around the sim step (battle royale: plane ejection before, pickups after). */
   protected beforeStep(_seat: Seat, _f: InputFrame): void {}
-  protected afterStep(_seat: Seat, _f: InputFrame): void {}
+  /** `viewTime`: the server time this step's input saw the world at (lag compensated, capped). */
+  protected afterStep(_seat: Seat, _f: InputFrame, _viewTime: number): void {}
 
   /** Damage from the world (the zone): no armor, no attacker. */
   worldDamage(victim: Seat, amount: number): void {

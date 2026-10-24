@@ -38,3 +38,5 @@ export * from './raid/cannon.ts';
 export * from './raid/man.ts';
 export * from './raid/keepSync.ts';
 export * from './raid/index.ts';
+export * from './raid/blade.ts';
+export * from './raid/arc.ts';

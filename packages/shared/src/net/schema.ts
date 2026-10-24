@@ -73,7 +73,8 @@ export const PlayerState = schema(
     grounded: t.uint8().view(),
     air: t.uint8().view(),
     jumpBuf: t.uint8().view(),
-    prevButtons: t.uint16().view(),
+    /** uint32: the Hunt Season skill buttons live past bit 15 (input.ts). */
+    prevButtons: t.uint32().view(),
     equip: t.uint8().view(),
     cooldown: t.uint8().view(),
     reload: t.uint8().view(),
@@ -266,7 +267,7 @@ export type RaidCannon = SchemaType<typeof RaidCannon>;
  */
 export const RaidState = schema(
   {
-    /** RaidStage: lobby, break, wave, won, lost. */
+    /** RaidStage: lobby, break, fight, won, lost. */
     stage: t.uint8(),
     /** The wave being fought, or the one coming after a break (1 to waves); 0 in the lobby. */
     wave: t.uint8(),
@@ -298,6 +299,12 @@ export const RaidState = schema(
     kills: t.uint16(),
     /** The bread cannons, keyed by their index ('0' to '3'). */
     cannons: t.map(RaidCannon),
+    /** v3, the push: the objective in play (Goal, push.ts), where its marker stands, and how far along it is (done of need). `wave` is its number, `waves` the count. */
+    goal: t.uint8(),
+    gx: t.float32(),
+    gz: t.float32(),
+    gDone: t.uint16(),
+    gNeed: t.uint16(),
   },
   'RaidState',
 );
@@ -322,9 +329,22 @@ export const Hunter = schema(
     act: t.uint8(),
     /** Health left, 0 to 255 of its full health (the small bar over it). */
     hp: t.uint8(),
+    /** HunterFx bits (raid/hunters.ts): an elite (the ring under it). */
+    fx: t.uint8(),
   },
   'Hunter',
 );
+
+/**
+ * Hunt Season v3: an objective's marker in the field (a supply crate to
+ * smash, a watchtower to take, the Big Hunter's camp). Public like the
+ * hunters. `hp` is 0 to 255 of a crate's health; `done` 1 once taken.
+ */
+export const RaidTarget = schema(
+  { kind: t.uint8(), x: t.float32(), y: t.float32(), z: t.float32(), hp: t.uint8(), done: t.uint8() },
+  'RaidTarget',
+);
+export type RaidTarget = SchemaType<typeof RaidTarget>;
 export type Hunter = SchemaType<typeof Hunter>;
 
 /** A trapper's trap on the ground: armed (1) once it can catch, sprung (2) with a duck in it. */
@@ -384,6 +404,8 @@ export const IslandState = schema(
     traps: t.map(RaidTrap),
     /** Ammo and heal drops (kind RaidDrop), public like the deathmatch boosts. */
     raidDrops: t.map(DmPickup),
+    /** v3 objective markers (crates, towers, the camp). */
+    raidTargets: t.map(RaidTarget),
   },
   'IslandState',
 );
@@ -398,7 +420,8 @@ export const PlayerInput = schema(
     tick: t.uint32(),
     mx: t.float32(),
     mz: t.float32(),
-    buttons: t.uint16(),
+    /** Button bits (input.ts); uint32 since the Hunt Season skill buttons (bits 16 to 18). */
+    buttons: t.uint32(),
     yaw: t.float32(),
     pitch: t.float32(),
     /** Server time (ms) the client was drawing other players at: the lag-compensation rewind target. */
@@ -510,14 +533,32 @@ export const Msg = {
    * xpBefore, xpAfter, levelBefore, levelAfter, runMs, bestWave, bestMs, newBest(0/1), granted (0: the first, unsaved answer; 1: stored; 2: could not be saved)].
    */
   RaidEnd: 'raid-end',
+  /**
+   * To one duck: what its katana (or pistol) did to hunters this tick, for the damage numbers and the combo:
+   * [combo, stormMeter, n, then n times: damage, RaidHitFlags, x, y, z (cm)]. The server's numbers; never a duck's.
+   */
+  RaidHits: 'raid-hits',
+} as const;
+
+/** `Msg.RaidHits` flags per hit. */
+export const RaidHitFlags = {
+  Crit: 1,
+  /** From behind. */
+  Back: 2,
+  Killed: 4,
+  Elite: 8,
+  /** Dealt by a dash, the quack, the storm, bleeding or the chain (not the swing itself). */
+  Skill: 16,
+  /** A supply crate, not a hunter. */
+  Crate: 32,
 } as const;
 
 /** `Msg.RaidEvent` kinds. */
 export const RaidEvent = {
-  /** [_, wave, isBoss]. */
-  WaveStart: 1,
-  /** [_, wave, 0]. */
-  WaveClear: 2,
+  /** [_, objective number, Goal]: an objective starts (v2: a wave). */
+  GoalStart: 1,
+  /** [_, objective number, 0]: an objective is taken. */
+  GoalClear: 2,
   /** [_, x, z] (m): the Big Hunter whistles for help. */
   Whistle: 3,
   /** [_, coreHp, 0]: hunters at the QoreChain core (throttled). */
@@ -540,6 +581,10 @@ export const RaidEvent = {
   LeverDenied: 12,
   /** To one duck: [_, cannon index, 0]: the cannon it mans overheated. */
   Overheat: 13,
+  /** To one duck: [_, hunters, 0]: several hunters bagged in quick succession (a multi-kill call-out). */
+  Streak: 14,
+  /** [_, target kind, 0]: an objective marker was taken (a crate smashed, a tower cleared). */
+  TargetDone: 15,
 } as const;
 
 /** Why a lever pull did nothing (`RaidEvent.LeverDenied`). */
@@ -557,6 +602,10 @@ export const RaidKillHow = {
   Splash: 1,
   /** A bread loaf. */
   Bread: 2,
+  /** The katana (a slash or the heavy spin). */
+  Blade: 3,
+  /** A dash through it, the quack shockwave, the Blade Storm, bleeding. */
+  Skill: 4,
 } as const;
 
 /** Hunt Season drops (`raidDrops` kind). */

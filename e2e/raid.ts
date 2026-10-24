@@ -1,26 +1,25 @@
 /**
- * Hunt Season end to end on Pond Keep: the real server (test hooks on, a
- * throwaway database), `vite preview` of the test bundle, headless Chrome.
+ * Hunt Season end to end (v3, the push with the katana) on Pond Keep: the
+ * real server (test hooks on, a throwaway database), `vite preview` of the
+ * test bundle, headless Chrome.
  *
- *   Solo: a signed-in duck (signed up through the API and the dev mail sink)
- *   clicks Hunt Season in the menu and plays with the dev autopilot (it holds
- *   the courtyard behind the gate, fights the hunters it sees and picks a
- *   card). It clears waves 1 and 2 on its own (wave 1 at full hunter damage,
- *   wave 2 held: it never uses the keep's toys). On wave 3 (the Big Hunter's)
- *   the ducks are held (no damage) and the test walks the keep with test
- *   hooks: the wall walk; a bread cannon manned with Use and fired with the
- *   fire button (loaves from the server, the aim arc, no prediction
- *   corrections while manning); riflemen sent to the gate damage it and the
- *   duck repairs it by holding Use; the lever raises the drawbridge (the
- *   hunters at the gate go into the moat) and the wave's hunters paddle the
- *   raft lanes; the boss. Then wave 10 is beaten: the run is won and the
- *   duck's XP (stored by the game server, read back over the account API)
- *   has gone up, with a personal best.
+ *   Solo: a signed-in duck walks through Duck Plaza's Hunt Season portal into
+ *   a run and plays with the dev autopilot (it cuts with the katana, dashes,
+ *   quacks, lets the Blade Storm go, walks out through the gate to the
+ *   objective). Packs held off, it meets a minion pack in the field: one
+ *   swing cuts several (a multi-kill), the dash and the "VAK!" shockwave are
+ *   used, the combo grows, the damage numbers show; the storm with a full
+ *   meter. Then the packs come again and it takes the first objective (the
+ *   trench) at full hunter damage, picks a card. The other objectives are
+ *   skipped through with test hooks for their screenshots (the crates and
+ *   their markers, the watchtowers with snipers, the Big Hunter's camp), the
+ *   run is won and the duck's XP (stored by the game server, read back over
+ *   the account API) has gone up. Prediction corrections 0 through all of it.
  *
- *   Party: two ducks in a party (one on an emulated phone in landscape, touch
- *   controls) start a hunt: the leader clicks Hunt Season, the member follows
- *   into the same run; both reach wave 1 and see the hunters; then the boss
- *   wave, the cards (tapped on the phone) and the end screen, on both screens.
+ *   Party: two ducks in a party, one on an emulated phone in landscape
+ *   (touch controls), start a run: the phone fights with its touch skill
+ *   buttons (Dash, VAK!, the storm) and the Fire button; screenshots of both;
+ *   the end screen on both.
  *
  * Screenshots to OUTDIR. Usage: npm run e2e:raid [-- OUTDIR] (npm run build:test first).
  * E2E_SERVER_PORT, E2E_WEB_PORT and E2E_DIST pick other ports and a bundle built for them
@@ -32,8 +31,9 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { BridgeState, Button, RAID, RaidStage } from '@qwakk/shared';
+import { Button, Goal, RAID, RaidStage } from '@qwakk/shared';
 import { accountSeed, e2eDatabase, fetchAccount, openSheet, pickDuck, seedBrowser, signUpApi, waitPlaza } from './lib/accounts.ts';
+import { center, Fingers } from './lib/fingers.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-raid');
@@ -52,6 +52,8 @@ const dev = (p: Page, op: string, wave = 0): Promise<void> => p.evaluate(([o, w]
 const press = (p: Page, buttons: number, ms: number): Promise<void> => p.evaluate(([b, m]) => (window as any).__qwakk.press(b, m), [buttons, ms] as const);
 const face = (p: Page, x: number, z: number, ms: number, pitch = 0.02): Promise<void> => p.evaluate(([fx, fz, m, pt]) => (window as any).__qwakk.face(fx, fz, m, pt), [x, z, ms, pitch] as const);
 const hideOverlay = (p: Page): Promise<void> => p.evaluate(() => document.getElementById('overlay')?.classList.add('hidden'));
+const hub = (p: Page): Promise<any> => p.evaluate(() => (window as any).__qwakkHub?.snapshot() ?? null);
+const hubCall = (p: Page, fn: string, ...args: unknown[]): Promise<unknown> => p.evaluate(([f, a]) => (window as any).__qwakkHub[f as string](...(a as unknown[])), [fn, args] as const);
 
 function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = {}): ChildProcess {
   return spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -76,43 +78,13 @@ async function until<T>(label: string, get: () => Promise<T>, test: (v: T) => bo
   for (;;) {
     const v = await get();
     if (test(v)) return v;
-    if (Date.now() > end) throw new Error(`timeout: ${label} (${JSON.stringify(v)?.slice(0, 800)})`);
+    if (Date.now() > end) throw new Error(`timeout: ${label} (${JSON.stringify(v)?.slice(0, 900)})`);
     await sleep(250);
   }
 }
 
-/**
- * Face the nearest hunter that passes `want` (the autopilot pauses meanwhile) and take a screenshot; skipped with a
- * note if none comes. `towers`: first move to the cannon stand spot (a tower top) nearest to it, to see past the walls.
- */
-async function closeUp(p: Page, want: (h: { kind: number; act: number; dist: number }) => boolean, path: string, ms: number, pitch = -0.02, towers: { x: number; z: number }[] = []): Promise<boolean> {
-  const end = Date.now() + ms;
-  const list = (): Promise<{ id: string; kind: number; act: number; x: number; y: number; z: number; dist: number }[]> => p.evaluate(() => (window as any).__qwakk.hunters());
-  while (Date.now() < end) {
-    let h = (await list()).find((x) => x.act !== 11 && want(x));
-    if (h) {
-      if (towers.length > 0) {
-        const at = h;
-        const i = towers.map((t, k) => [Math.hypot(t.x - at.x, t.z - at.z), k] as const).sort((a, b) => a[0] - b[0])[0]![1];
-        await dev(p, 'tp', i + 1);
-        await sleep(1200);
-        h = (await list()).find((x) => x.id === at.id) ?? at;
-      }
-      await face(p, h.x, h.z, 1600, pitch);
-      await sleep(800);
-      await hideOverlay(p);
-      await p.screenshot({ path });
-      console.log(`close-up: kind ${h.kind} act ${h.act} at ${h.dist.toFixed(1)} m -> ${path}`);
-      return true;
-    }
-    await sleep(200);
-  }
-  console.log(`close-up skipped (none came): ${path}`);
-  return false;
-}
-
 let n = 0;
-async function newDuck(browser: Browser, name: string, phone = false): Promise<{ ctx: BrowserContext; page: Page; token: string; duckId: string }> {
+async function newDuck(browser: Browser, name: string, phone = false): Promise<{ ctx: BrowserContext; page: Page; token: string }> {
   const ctx = phone
     ? await browser.newContext({ locale: 'en-US', viewport: { width: 844, height: 390 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
     : await browser.newContext({ locale: 'en-US', viewport: { width: 1280, height: 720 } });
@@ -121,17 +93,28 @@ async function newDuck(browser: Browser, name: string, phone = false): Promise<{
   const page = await ctx.newPage();
   page.on('pageerror', (e) => console.error(`[${name}] page error:`, e.message));
   page.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error(`[${name}] console:`, m.text()));
-  return { ctx, page, token: s.session.accountToken, duckId: s.ducks[0]!.id };
+  return { ctx, page, token: s.session.accountToken };
 }
 
 const menuUrl = (extra = ''): string => `http://localhost:${WEB_PORT}/game/?lang=en&server=${server_}&hud=0&menu=1${extra}`;
 
-/** Wait until this page is in a hunt (mode 2) at a stage. */
-const inStage = (p: Page, stage: number, wave: number, ms: number): Promise<Raid> => until(`stage ${stage} wave ${wave}`, () => raid(p), (r) => r?.stage === stage && r.wave >= wave, ms);
+/** Wait until this page is in a run at a stage (and objective). */
+const inStage = (p: Page, stage: number, wave: number, ms: number): Promise<Raid> => until(`stage ${stage} objective ${wave}`, () => raid(p), (r) => r?.stage === stage && r.wave >= wave, ms);
 
-/** The keep's layout as this client loaded it (the map's markup). */
-const keepOf = (p: Page): Promise<{ gate: { x: number; z: number; nx: number; nz: number }; lever: number[]; cannons: { x: number; z: number; yaw: number }[]; core: { x: number; z: number } }> =>
-  p.evaluate(() => (window as any).__qwakk.keep());
+/** Screenshots every `everyMs` while `test` holds (a fight: the best frames show the swing); returns how many. */
+async function burst(p: Page, name: string, count: number, everyMs: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    await hideOverlay(p);
+    await p.screenshot({ path: `${out}/${name}-${String(i).padStart(2, '0')}.png` });
+    await sleep(everyMs);
+  }
+}
+
+async function noCorrections(p: Page, label: string): Promise<void> {
+  const pred = (await snap(p)).prediction;
+  console.log(`${label}: ${pred.reconciles} reconciles, ${pred.corrected} corrected (max ${pred.maxErrM.toFixed(4)} m)`);
+  if (pred.corrected !== 0) throw new Error(`prediction corrections (${label}): ${pred.corrected}`);
+}
 
 async function solo(browser: Browser): Promise<void> {
   const A = await newDuck(browser, 'Hunt');
@@ -139,153 +122,114 @@ async function solo(browser: Browser): Promise<void> {
   const before = (await fetchAccount(API, A.token)).characters[0]!;
   await a.goto(menuUrl('&autopilot=raid'));
   await pickDuck(a);
-  await openSheet(a, 0);
-  await a.locator('.qm-sheet-mode[data-mode="raid"]').waitFor();
-  await sleep(800);
-  await a.screenshot({ path: `${out}/01-menu-hunt-season.png` });
-  await a.locator('.qm-sheet-mode[data-mode="raid"]').click();
-  await until('in a hunt', () => snap(a), (s) => s?.mode === 2, 60000);
+  // Through Duck Plaza's Hunt Season portal (east), round the pond on the promenade.
+  const ring = (deg: number): [number, number] => [Math.round(18.4 * Math.cos((deg * Math.PI) / 180) * 10) / 10, Math.round((-4 + 12.6 * Math.sin((deg * Math.PI) / 180)) * 10) / 10];
+  for (const [x, z] of [ring(90), ring(45), ring(0), [26, -4]] as [number, number][]) {
+    await hubCall(a, 'walkTo', x, z, 20000);
+    await until(`plaza walk to ${x}, ${z}`, () => hub(a), (s) => !!s && Math.hypot(s.pos.x - x, s.pos.z - z) < 1.6, 22000);
+  }
+  await hubCall(a, 'look', -Math.PI / 2, 0.08);
+  await sleep(900);
+  await a.screenshot({ path: `${out}/01-plaza-hunt-portal.png` });
+  await hubCall(a, 'walkTo', 44, -4, 15000);
+  await until('in a hunt through the portal', () => snap(a), (s) => s?.mode === 2, 60000);
   const map = (await snap(a)).mapId;
   if (map !== RAID.mapId) throw new Error(`the hunt is on ${map}, not ${RAID.mapId}`);
   await hideOverlay(a);
   await sleep(1500);
-  await a.screenshot({ path: `${out}/02-lobby-courtyard.png` });
-  await inStage(a, RaidStage.Wave, 1, 30000);
-  const t0 = Date.now();
-  const first = await until('hunters out', () => raid(a), (r) => r.hunters >= 2, 30000);
-  console.log(`wave 1: ${JSON.stringify({ hunters: first.hunters, core: first.core, gate: first.gate, keepModels: first.keepModels })}`);
-  await sleep(5000);
+  await a.screenshot({ path: `${out}/02-lobby-katana.png` });
+  await inStage(a, RaidStage.Fight, 1, 30000);
+  const r1 = await until('the trench objective', () => raid(a), (r) => r.goal === Goal.Trench && r.gNeed > 0, 10000);
+  console.log(`objective 1: the trench, ${r1.gNeed} hunters to bag`);
+  await sleep(2500);
   await hideOverlay(a);
-  await a.screenshot({ path: `${out}/03-wave1-hunters.png` });
-  await closeUp(a, (h) => h.kind === 1 && h.act === 3 && h.dist < 90, `${out}/03b-rifleman-laser.png`, 25000);
-  // Waves 1 and 2, cleared by the autopilot alone (it holds the courtyard; the hunters come through the gate).
-  for (const w of [1, 2]) {
-    const r = await until(`wave ${w} cleared by the autopilot`, () => raid(a), (x) => (x.stage === RaidStage.Break && x.wave === w) || x.stage === RaidStage.Lost || x.stage === RaidStage.Won, 300000);
-    if (r.stage === RaidStage.Lost) {
-      await a.screenshot({ path: `${out}/xx-lost-wave${w}.png` });
-      throw new Error(`the autopilot lost the run on wave ${w}: ${JSON.stringify(r)}`);
-    }
-    console.log(`wave ${w} cleared in ${((Date.now() - t0) / 1000).toFixed(0)} s (kills ${r.teamKills}, core ${r.core}/${r.coreMax}, gate ${r.gate}/${r.gateMax}, hp ${Math.round(r.hp)})`);
-    await until('cards up', () => raid(a), (x) => x.offers >= w, 10000);
-    if (w === 1) {
-      await sleep(400);
-      await a.screenshot({ path: `${out}/04-upgrade-cards.png` });
-    }
-    const picked = await until('the autopilot picked a card, the server took it', () => raid(a), (x) => x.picks >= w && !x.cardsOpen, 15000);
-    console.log(`card picked (picks ${picked.picks}), max health now ${picked.maxHp}`);
-    // Wave 1 at full hunter damage; from wave 2 on the duck is held (the autopilot only shoots: it never mans a cannon,
-    // pulls the lever or mends the gate, so a solo wave 2 with a sniper and dogs is a coin toss for it). It still has to bag every hunter.
-    if (w === 1) await dev(a, 'hold');
-    await dev(a, 'break');
-    await inStage(a, RaidStage.Wave, w + 1, 15000);
-  }
-  // Wave 3: the Big Hunter's. Ducks held (no damage) while the test walks the keep.
-  await inStage(a, RaidStage.Wave, 3, 20000);
+  await a.screenshot({ path: `${out}/03-objective-1.png` });
+
+  // The kit, with the packs held off and the duck held (no damage): out in the field, a pack charges it.
+  await dev(a, 'quiet', 1);
+  await dev(a, 'freeze', 1);
   await dev(a, 'hold');
-  const keep = await keepOf(a);
-  const g = keep.gate;
-  // The wall walk near the gate, looking out over the moat at the field.
-  await dev(a, 'tp', 7);
-  await sleep(1200);
-  await face(a, g.x + g.nx * 60, g.z + g.nz * 60, 2500, -0.12);
-  await sleep(900);
-  await hideOverlay(a);
-  await a.screenshot({ path: `${out}/05-wall-walk.png` });
-  // A bread cannon: to its stand spot, Use mans it (the sim's own bit), then fire, looking out over the field.
-  const c0 = keep.cannons[0]!;
-  await dev(a, 'tp', 1);
+  await dev(a, 'tpgoal', 30);
   await sleep(1500);
   await a.evaluate(() => (window as any).__qwakk.resetStats());
-  await face(a, c0.x - Math.sin(c0.yaw) * 70, c0.z - Math.cos(c0.yaw) * 70, 9000, -0.08);
-  await sleep(300);
-  await press(a, Button.Use, 120);
-  await until('manning the cannon', () => raid(a), (x) => x.manning === 0, 5000);
-  await press(a, Button.Fire, 5000);
-  const firing = await until('loaves away', () => raid(a), (x) => x.fired >= 1 && (x.cannons.find((k: any) => k.i === 0)?.heat ?? 0) > 0, 8000);
-  await sleep(500);
-  await hideOverlay(a);
-  await a.screenshot({ path: `${out}/06-cannon-firing.png` });
-  await sleep(2500);
-  await until('the loaves burst where they land', () => a.evaluate(() => (window as any).__qwakk.explosives()), (x) => x.booms >= 2, 10000);
-  const booms = (await a.evaluate(() => (window as any).__qwakk.explosives())).booms;
-  const pred = (await snap(a)).prediction;
-  console.log(`cannon: fired ${firing.fired} (predicted thumps), heat ${firing.cannons[0]?.heat}, booms drawn ${booms}, prediction while manning: ${pred.reconciles} reconciles, ${pred.corrected} corrected (max ${pred.maxErrM.toFixed(4)} m)`);
-  if (pred.corrected !== 0) throw new Error(`prediction corrections while manning a cannon: ${pred.corrected}`);
-  if (booms < 1) throw new Error('no loaf burst was drawn');
-  await press(a, Button.Jump, 120);
-  await until('left the cannon', () => raid(a), (x) => x.manning === -1, 5000);
-  // The gate: riflemen sent to it hammer it down to its damaged look.
-  await dev(a, 'gatehunters', 6);
-  const hurt = await until('the gate takes damage', () => raid(a), (x) => x.gate < x.gateMax * 0.45, 90000);
-  console.log(`gate hammered to ${hurt.gate}/${hurt.gateMax} (look ${hurt.gateState})`);
-  await dev(a, 'tp', 6);
-  await sleep(1200);
-  await face(a, g.x, g.z, 3000, 0.05);
-  await sleep(800);
-  await hideOverlay(a);
-  await a.screenshot({ path: `${out}/07-gate-damaged.png` });
-  // The lever: the drawbridge rises, the hunters in the gate passage go into the moat and the gate is covered.
-  await dev(a, 'tp', 5);
-  await sleep(1200);
-  await face(a, g.x, g.z, 3000, 0.1);
-  const splashBefore = (await raid(a)).splashes;
-  await press(a, Button.Use, 150);
-  const up = await until('the drawbridge rises', () => raid(a), (x) => x.bridge === BridgeState.Raising || x.bridge === BridgeState.Up, 5000);
-  const splashed = await until('hunters splashed into the moat', () => raid(a), (x) => x.splashes > splashBefore, 4000).catch(() => null);
-  console.log(`lever pulled: bridge ${up.bridge}, hunters splashed ${splashed ? splashed.splashes - splashBefore : 0}, lever ready at ${up.leverReady}`);
-  // Now the duck mends the gate (holding Use at it), safe from the hammering.
-  await dev(a, 'tp', 6);
-  await sleep(1200);
-  const low = (await raid(a)).gate;
-  await face(a, g.x, g.z, 7500, 0.05);
-  await press(a, Button.Use, 7000);
-  const fixed = await until('the gate repaired', () => raid(a), (x) => x.gate > low + 120, 9000);
-  console.log(`gate repaired ${low} -> ${fixed.gate} (look ${fixed.gateState})`);
-  await sleep(500);
-  await hideOverlay(a);
-  await a.screenshot({ path: `${out}/08-gate-repaired.png` });
-  await until('the drawbridge is up', () => raid(a), (x) => x.bridge === BridgeState.Up, 8000);
-  // From the field past the moat: the raised drawbridge in front of the gatehouse.
-  await dev(a, 'tp', 8);
-  await sleep(1200);
-  await face(a, g.x, g.z, 2500, 0.08);
-  await sleep(900);
-  await hideOverlay(a);
-  await a.screenshot({ path: `${out}/09-drawbridge-up.png` });
-  // From the nearest tower top: hunters on a raft lane across the moat.
-  const towers = keep.cannons.map((c) => ({ x: c.x, z: c.z }));
-  const rafting = await closeUp(a, (h) => h.act === 12, `${out}/10-hunters-on-rafts.png`, 30000, -0.3, towers);
-  if (!rafting) console.log('note: no hunter paddled across while the bridge was up');
-  // The Big Hunter: the wave's one is out (the boss bar); for the close-up one more stands 8 m in front of the duck in the field (test hook).
-  await until('the Big Hunter', () => raid(a), (x) => x.bossMax > 0, 30000);
-  await dev(a, 'tp', 8);
-  await sleep(1000);
-  await face(a, g.x + g.nx * 60, g.z + g.nz * 60, 4000, -0.05);
+  const k0 = (await raid(a)).blade;
+  await dev(a, 'pack', 10);
+  // The autopilot meets it: dash in, cut, quack when surrounded.
   await sleep(600);
-  await dev(a, 'spawn', 5);
-  await sleep(1500);
-  await closeUp(a, (h) => h.kind === 5 && h.dist < 16, `${out}/11-boss.png`, 10000, 0.05);
-  // Wave 10, beaten: the run is won and XP is granted by the server.
-  await dev(a, 'skip', RAID.waves);
-  await sleep(1500);
-  await dev(a, 'clear');
+  await burst(a, '04-pack-fight', 10, 260);
+  const fight = await until('the autopilot cuts the pack down', () => raid(a), (r) => r.blade.mostKilledAtOnce >= 2 && r.blade.dashes > k0.dashes, 30000);
+  console.log(`pack: swings ${fight.blade.swings}, predicted hits ${fight.blade.predictedHits} (multi ${fight.blade.multiHits}), most killed by one swing ${fight.blade.mostKilledAtOnce}, dashes ${fight.blade.dashes}, quacks ${fight.blade.quacks}, combo ${fight.blade.bestCombo}, numbers ${fight.blade.numbers}`);
+  // Surrounded: the "VAK!" shockwave (the autopilot quacks with 4 around; press it once to be sure).
+  await dev(a, 'pack', 8);
+  await sleep(900);
+  if ((await raid(a)).blade.quacks === 0) await press(a, Button.Quack, 120);
+  await until('a quack', () => raid(a), (r) => r.blade.quacks >= 1, 10000);
+  await sleep(150);
+  await hideOverlay(a);
+  await a.screenshot({ path: `${out}/05-shockwave.png` });
+  // The Blade Storm with a full meter (the autopilot lets it go with two hunters near).
+  await dev(a, 'meter');
+  await dev(a, 'pack', 8);
+  await until('the Blade Storm', () => raid(a), (r) => r.blade.storms >= 1, 15000);
+  await sleep(700);
+  await burst(a, '06-blade-storm', 3, 300);
+  await until('the pack gone', () => raid(a), (r) => r.hunters === 0, 30000).catch(() => console.log('note: hunters still standing after the storm'));
+  await noCorrections(a, 'prediction while dashing, cutting, quacking and spinning');
+  const after = (await raid(a)).blade;
+  if (after.dashes < 1 || after.quacks < 1 || after.storms < 1 || after.mostKilledAtOnce < 2) throw new Error(`the kit was not used in full: ${JSON.stringify(after)}`);
+
+  // The trench at full hunter damage: its count starts over, the packs come again, the autopilot takes the objective.
+  await dev(a, 'resetgoal');
+  await dev(a, 'freeze', 0);
+  await dev(a, 'hold', 2);
+  await dev(a, 'quiet', 0);
+  await dev(a, 'tpgoal', 22);
+  const t0 = Date.now();
+  await sleep(4000);
+  await burst(a, '07-trench-fight', 4, 1200);
+  const took = await until('the trench taken by the autopilot', () => raid(a), (r) => r.cleared >= 1 || r.stage === RaidStage.Lost, 240000);
+  // The rest is for screenshots: the duck is held from here on.
+  await dev(a, 'hold');
+  if (took.stage === RaidStage.Lost) {
+    await a.screenshot({ path: `${out}/xx-lost-trench.png` });
+    throw new Error(`the autopilot lost the run on the trench: ${JSON.stringify(took).slice(0, 600)}`);
+  }
+  console.log(`trench taken in ${((Date.now() - t0) / 1000).toFixed(0)} s (team kills ${took.teamKills}, hp ${Math.round(took.hp)}, best combo ${took.blade.bestCombo}, streaks ${took.blade.streaks})`);
+  await until('cards offered', () => raid(a), (x) => x.offers >= 1, 10000);
+  if ((await raid(a)).cardsOpen) {
+    await sleep(300);
+    await a.screenshot({ path: `${out}/08-melee-cards.png` });
+  }
+  await until('the autopilot picked a card', () => raid(a), (x) => x.picks >= 1 && !x.cardsOpen, 15000);
+  // Objectives 2 to 4, each taken by a test hook after its screenshot: the supply crates by the dugouts (markers over them),
+  // the watchtowers with their snipers (the pistol's job), the Big Hunter's camp.
+  const shots: [number, string, number, number][] = [[Goal.Crates, '09-supply-crates', 12, -0.12], [Goal.Towers, '10-watchtower-snipers', 30, 0.12], [Goal.Camp, '11-boss-camp', 14, 0.05]];
+  for (const [goal, name, short, pitch] of shots) {
+    await dev(a, 'break');
+    await inStage(a, RaidStage.Fight, goal, 15000);
+    const r = await until(`objective ${goal}`, () => raid(a), (x) => x.goal === goal && (goal !== Goal.Camp || x.bossMax > 0), 10000);
+    await dev(a, 'tpgoal', short);
+    await sleep(2200);
+    const at = r.targets.find((t: { done: number }) => t.done === 0) ?? { x: r.gx, z: r.gz };
+    await face(a, at.x, at.z, 3000, pitch);
+    await sleep(1100);
+    await hideOverlay(a);
+    await a.screenshot({ path: `${out}/${name}.png` });
+    await dev(a, 'clear');
+    await until(`objective ${goal} taken`, () => raid(a), (x) => x.cleared >= goal, 15000);
+  }
   const end = await until('end screen', () => raid(a), (x) => x.endOpen && x.ended >= 2, 20000);
-  console.log(`run won: ended messages ${end.ended}, kills ${end.teamKills}`);
+  console.log(`run won: ended messages ${end.ended}, team kills ${end.teamKills}`);
   await sleep(2000);
   await a.screenshot({ path: `${out}/12-end-screen.png` });
-  const after = (await fetchAccount(API, A.token)).characters[0]!;
-  console.log(`XP ${before.xp} -> ${after.xp}, level ${before.level} -> ${after.level}, best ${JSON.stringify(after.raidBest)}`);
-  if (!(after.xp > before.xp)) throw new Error('the duck got no XP');
-  if (!after.raidBest || after.raidBest.wave < 3) throw new Error('no personal best stored');
-  // Back to the pond: Duck Plaza (in front of the Hunt Season gate) with the new level; the sheet's account tab shows the XP bar.
+  const afterAcc = (await fetchAccount(API, A.token)).characters[0]!;
+  console.log(`XP ${before.xp} -> ${afterAcc.xp}, level ${before.level} -> ${afterAcc.level}, best ${JSON.stringify(afterAcc.raidBest)}`);
+  if (!(afterAcc.xp > before.xp)) throw new Error('the duck got no XP');
+  if (!afterAcc.raidBest || afterAcc.raidBest.wave < RAID.objectives) throw new Error('no personal best stored');
   await a.locator('.raid-end-buttons .back').click();
   await waitPlaza(a);
   const plazaLevel = await a.evaluate(() => (window as any).__qwakkHub.snapshot().ducks.find((d: { self: boolean }) => d.self)?.level ?? 0);
-  if (plazaLevel !== after.level) throw new Error(`the plaza shows level ${plazaLevel}, the account has ${after.level}`);
-  await openSheet(a, 5);
-  await until('the menu shows the XP', () => a.locator('.qm-active-xp .qm-xp-text').innerText().catch(() => ''), (t) => /XP|Max/.test(t), 10000);
-  await sleep(2500);
-  await a.screenshot({ path: `${out}/13-menu-after-xp.png` });
+  if (plazaLevel !== afterAcc.level) throw new Error(`the plaza shows level ${plazaLevel}, the account has ${afterAcc.level}`);
   await A.ctx.close();
 }
 
@@ -294,7 +238,7 @@ async function party(browser: Browser): Promise<void> {
   const B = await newDuck(browser, 'Mate', true);
   const a = A.page;
   const b = B.page;
-  await a.goto(menuUrl());
+  await a.goto(menuUrl('&autopilot=raid'));
   await pickDuck(a);
   await openSheet(a, 1);
   await a.locator('.qm-party button', { hasText: 'Create party' }).click();
@@ -305,48 +249,60 @@ async function party(browser: Browser): Promise<void> {
   await openSheet(a, 0);
   await a.locator('.qm-sheet-mode[data-mode="raid"]').click();
   const sa = await until('A in a hunt', () => snap(a), (s) => s?.mode === 2, 60000);
-  const sb = await until('B followed into the hunt', () => snap(b), (s) => s?.mode === 2, 60000).catch(async (err) => {
-    console.error('B menu:', await b.locator('.qm-status').innerText().catch(() => '?'), '|', await b.locator('.qm-party').innerText().catch(() => '?'), '| screen', await b.locator('#menu').getAttribute('data-screen').catch(() => '?'));
-    await b.screenshot({ path: `${out}/xx-b-not-following.png` });
-    throw err;
-  });
+  const sb = await until('B followed into the hunt', () => snap(b), (s) => s?.mode === 2, 60000);
   const ra = await until('two ducks in the run', () => raid(a), (r) => r?.ducks === 2, 30000);
   console.log(`party hunt: ${sa.sessionId} and ${sb.sessionId}, ducks ${ra.ducks}`);
-  // The phone taps the card to play with the touch controls.
-  await b.locator('#overlay .card').tap().catch(() => undefined);
+  const cdp = await B.ctx.newCDPSession(b);
+  const f = new Fingers(cdp);
+  // The phone's first tap on the pause card turns touch play on.
+  const card = await center(b, '#overlay .card').catch(() => null);
+  if (card) await f.tap(card.x, card.y);
   await hideOverlay(a);
-  await inStage(a, RaidStage.Wave, 1, 40000);
-  await until('B sees hunters', () => raid(b), (r) => r.hunters >= 1, 30000);
-  await sleep(5000);
-  await hideOverlay(a);
-  await a.screenshot({ path: `${out}/20-party-wave1-desktop.png` });
-  await b.screenshot({ path: `${out}/21-party-wave1-phone.png` });
-  // The phone at a cannon: the touch Use button shows, and the cannon panel once manned.
-  await dev(b, 'tp', 2);
-  await until('the phone sees the Use prompt', () => b.locator('.raid-prompt').innerText().catch(() => ''), (t) => t.length > 0, 8000).catch(() => console.log('note: no Use prompt text on the phone'));
-  await press(b, Button.Use, 120);
-  await until('the phone mans a cannon', () => raid(b), (x) => x.manning === 1, 6000);
-  await sleep(800);
-  await b.screenshot({ path: `${out}/22-cannon-phone.png` });
-  await press(b, Button.Jump, 120);
-  await dev(a, 'skip', RAID.bossWaves[0]!);
-  await until('boss on the phone', () => raid(b), (r) => r.bossMax > 0, 30000);
-  await sleep(4000);
-  await b.screenshot({ path: `${out}/23-boss-phone.png` });
-  await dev(a, 'clear');
-  await until('cards on the phone', () => raid(b), (r) => r.cardsOpen, 20000);
+  await inStage(a, RaidStage.Fight, 1, 40000);
+  await dev(a, 'quiet', 1);
+  await dev(a, 'hold');
+  // Both out in the field, a pack charging the phone.
+  await dev(b, 'tpgoal', 30);
+  await dev(a, 'tpgoal', 32);
+  await sleep(1500);
+  await until('the touch skill buttons', () => b.locator('.tc-dash:not([hidden])').count(), (c) => c === 1, 15000);
+  // The teleports above were corrections; count from here.
+  await b.evaluate(() => (window as any).__qwakk.resetStats());
+  await dev(b, 'pack', 8);
   await sleep(500);
-  await b.screenshot({ path: `${out}/24-cards-phone.png` });
-  await b.locator('.raid-card').first().tap();
-  await until('the phone picked a card', () => raid(b), (r) => r.picks >= 1 && !r.cardsOpen, 10000);
-  await dev(a, 'break');
-  await dev(a, 'skip', RAID.waves);
+  // The phone: Dash toward them, VAK! when they close in, Fire taps (slashes), then the storm.
+  const dash = await center(b, '.tc-dash');
+  await f.tap(dash.x, dash.y);
+  await sleep(700);
+  const fire = await center(b, '.tc-fire:not(.tc-fire-l)');
+  for (let i = 0; i < 6; i++) {
+    await f.tap(fire.x, fire.y, 50);
+    await sleep(140);
+  }
+  const quack = await center(b, '.tc-quack');
+  await f.tap(quack.x, quack.y);
+  await sleep(250);
+  await b.screenshot({ path: `${out}/20-phone-quack.png` });
+  await dev(b, 'meter');
+  await sleep(400);
+  const storm = await center(b, '.tc-storm');
+  await f.tap(storm.x, storm.y);
+  await sleep(900);
+  await b.screenshot({ path: `${out}/21-phone-blade-storm.png` });
+  const rb = await raid(b);
+  console.log(`phone: dashes ${rb.blade.dashes}, swings ${rb.blade.swings}, quacks ${rb.blade.quacks}, storms ${rb.blade.storms}, predicted hits ${rb.blade.predictedHits}`);
+  if (rb.blade.dashes < 1 || rb.blade.quacks < 1 || rb.blade.storms < 1 || rb.blade.swings < 1) throw new Error(`the phone's touch skills did not all go: ${JSON.stringify(rb.blade)}`);
+  await sleep(1500);
+  await hideOverlay(a);
+  await a.screenshot({ path: `${out}/22-party-desktop.png` });
+  await noCorrections(b, 'the phone');
+  await dev(a, 'skip', RAID.objectives);
   await sleep(1000);
   await dev(a, 'clear');
   await until('end on both', async () => [await raid(a), await raid(b)], ([x, y]) => x.endOpen && y.endOpen, 20000);
   await sleep(2200);
-  await a.screenshot({ path: `${out}/25-party-end-desktop.png` });
-  await b.screenshot({ path: `${out}/26-party-end-phone.png` });
+  await a.screenshot({ path: `${out}/23-party-end-desktop.png` });
+  await b.screenshot({ path: `${out}/24-party-end-phone.png` });
   await A.ctx.close();
   await B.ctx.close();
 }

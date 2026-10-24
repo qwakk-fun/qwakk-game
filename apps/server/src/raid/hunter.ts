@@ -79,6 +79,21 @@ export interface HunterAgent {
   checkX: number;
   checkZ: number;
   busyTick: number;
+  /** v3: reeling from a katana hit (ticks; no brain) and how it shows (HunterAct.Stagger or Launched). */
+  stun: number;
+  stunAct: number;
+  /** A tougher escort of a pack (the ring under it). Every hunter that is not a minion or the Big Hunter. */
+  elite: boolean;
+  /** Bleeding from a cut (bleed upgrade): ticks left, damage per second, whose cut. */
+  bleedTicks: number;
+  bleedDps: number;
+  bleedBy: string | null;
+  /** Where its pack was sent (the objective's ground), walked to while no duck holds its attention. */
+  rally: P3 | null;
+  /** A sniper placed on its perch by the director (raid/push.ts): it holds it, whatever the push. */
+  perchFixed: boolean;
+  /** Which objective marker it guards (a watchtower's index), or -1. */
+  guard: number;
 }
 
 export interface KindNumbers {
@@ -105,7 +120,13 @@ export const KIND: Record<number, KindNumbers> = {
   [HunterKind.Dog]: { walk: 5.2, run: 6.4, view: 30, hear: 12, fovCos: cos(90), engage: 30, close: 1.6 },
   [HunterKind.Boss]: { walk: 2.6, run: 2.9, view: 45, hear: 10, fovCos: cos(80), engage: 36, close: 13 },
   [HunterKind.Sniper]: { walk: 3.0, run: 4.3, view: 160, hear: 10, fovCos: cos(85), engage: 150, close: 150 },
+  // Minions charge: they hear a duck far off whichever way they face, and close in to their swing.
+  [HunterKind.Beater]: { walk: 3.2, run: 4.9, view: 50, hear: 24, fovCos: cos(90), engage: 45, close: 1.5 },
+  [HunterKind.Recruit]: { walk: 3.4, run: 5.3, view: 50, hear: 24, fovCos: cos(90), engage: 45, close: 1.4 },
 };
+
+/** A minion's melee swing: the tell (art Bonk: the club lands at 0.38 s), its reach, the cooldown after it (ticks, m), and how many minions may wind up at one duck at once. */
+export const SWING = { tell: 11, reach: 2.0, cooldown: 30, maxAttackers: 3 };
 
 /** A gun's telegraph and shot (server only; damage before the admin scale). */
 export interface GunNumbers {
@@ -141,7 +162,7 @@ export const GUN: Record<number, GunNumbers> = {
 };
 
 /** Dog bite: the lunge tell (ticks), reach (m), damage, cooldown (ticks). */
-export const BITE = { tell: 8, reach: 2.1, damage: 8, cooldown: 27 };
+export const BITE = { tell: 8, reach: 2.1, damage: 6, cooldown: 27 };
 /** Decoy throw: wind-up and cooldown (ticks). Pop: fuse (ticks), radius, damage at the center. */
 export const DECOY = { windup: 15, cooldown: 135, fuse: 66, radius: 3.4, inner: 0.8, damage: 32 };
 /** Trapper's trap: wind-up, cooldown (ticks), arming time (ticks), catch radius (m), damage when it snaps, lifetime (s). */
@@ -156,5 +177,7 @@ export function newHunter(id: string, serial: number, kind: number, x: number, y
     shotsSinceMove: 0, shotsSinceReload: 0, barrel: 0, trapCd: 60 + Math.floor(Math.random() * 90), throwCd: 45 + Math.floor(Math.random() * 60),
     whistleCd: 240, slot: Math.random() * Math.PI * 2, cover: null, downTicks: 0, hurtBy: new Set(), lastHitBy: null, bornTick: tick, hammerTicks: 0, flash: 0, helper: false,
     raft: null, kx: 0, kz: 0, swim: 0, perch: -1, barred: null, checkX: x, checkZ: z, busyTick: tick,
+    stun: 0, stunAct: HunterAct.Stagger, elite: kind !== HunterKind.Boss && kind !== HunterKind.Beater && kind !== HunterKind.Recruit,
+    bleedTicks: 0, bleedDps: 0, bleedBy: null, rally: null, perchFixed: false, guard: -1,
   };
 }

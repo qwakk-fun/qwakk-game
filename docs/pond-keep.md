@@ -1,6 +1,6 @@
 # Pond Keep (Gölet Kalesi)
 
-The Hunt Season map (map id `pond-keep`): a storybook stone duck castle on an island in a pond. The ducks hold the QoreChain core in the courtyard; hunters come out of a ring of WWI trenches around the pond, snipe from watchtowers and hills, and cross the moat over the drawbridge or, when it is up, on raft lanes. Built by `art/map/layout/gen_pond.py` from the prop kit (castle pieces in `art/map/blender/castle.py`, pond props in `art/map/blender/props_pond.py`), everything procedural. Review renders: `art/map/renders/pond-keep/`.
+The Hunt Season map (map id `pond-keep`): a storybook stone duck castle on an island in a pond. The ducks start in the castle (the QoreChain core stands in its courtyard) and push out south through the gate across the field; hunters come out of a ring of WWI trenches around the pond, snipe from watchtowers and hills, and cross the moat over the drawbridge or, when it is up, on raft lanes. Built by `art/map/layout/gen_pond.py` from the prop kit (castle pieces in `art/map/blender/castle.py`, pond props in `art/map/blender/props_pond.py`), everything procedural. Review renders: `art/map/renders/pond-keep/`.
 
 ## Layout
 
@@ -19,6 +19,19 @@ All positions are map coordinates: x east, y up, z south (north is -z), meters, 
 | Snipers | Four hunters' watchtowers (5 m platforms, plank walls, two flights of stairs, a roof) at 118 m on the diagonals, three hills with rock and sandbag nests at 126 m (east, west, north). |
 | Cover | The meadow between the moat road and the trenches has low cover only (rocks, bushes, hay bales, hay carts, crates, fences, beached rafts); trees stand past 95 m, off the sight lines, so the walls see the trenches. |
 | Paths | The hunters' road from the south ring to the drawbridge, a moat road around the outer bank, and a path from behind every trench segment past its end to the moat road (ground paint only). |
+
+## The push (Hunt Season v3)
+
+The objectives are worked out on the server from the markup below at the start of a run (`apps/server/src/raid/push.ts`, `pushLayout`), snapped onto the navmesh; nothing new in the map data:
+
+| Objective | Spot |
+| --- | --- |
+| 1, the trench | the middle of the trench line more than 20 m out in front of the gate on its right (the south-east line) |
+| 2, the supply crates | 3.5 m inside the farthest dugout door on each side in front of the gate, and one on the road 62 m out from the gate (decoration: the kit's `crate_large`, no collider) |
+| 3, the watchtowers | the two highest sniper perches in front of the gate (the southern watchtower platforms); their snipers stand on the platforms |
+| 4, the Big Hunter's camp | the road 100 m straight out from the gate; the client dresses it from the prop kit (tents, a campfire, the flag, hay, crates; no colliders) |
+
+Packs come out of the `hunterSpawns` (trench exits, dugout doors) within 75 m of the objective and never within 25 m of a standing duck.
 
 ## The `raid` markup (`map_v1.json`)
 

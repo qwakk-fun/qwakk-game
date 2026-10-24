@@ -167,7 +167,8 @@ export class GameHud {
     if (key !== this.lastAmmo) {
       this.lastAmmo = key;
       this.weaponName.textContent = name;
-      this.ammo.innerHTML = `<b>${mag}</b> / ${reserve}`;
+      // A blade has no ammo (mag -1): just its name.
+      this.ammo.innerHTML = mag < 0 ? '' : `<b>${mag}</b> / ${reserve}`;
       this.ammo.classList.toggle('empty', mag === 0);
     }
     this.reloadBar.parentElement!.style.visibility = reload > 0 ? 'visible' : 'hidden';

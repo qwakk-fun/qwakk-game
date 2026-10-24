@@ -148,6 +148,35 @@ describe('Controls with touch', () => {
     return c;
   };
 
+  it('Hunt Season keys: Shift only sprints (never a dash), X dashes, Q quacks, F lets the storm go', async () => {
+    const c = await make();
+    c.skills = true;
+    const key = (code: string, down: boolean) => (c as unknown as { onKey(e: unknown, d: boolean): void }).onKey({ code, repeat: false, target: null, preventDefault() {} }, down);
+    key('ShiftLeft', true);
+    for (let i = 0; i < 3; i++) {
+      const b = c.sample().buttons;
+      expect(b & Button.Sprint).toBe(Button.Sprint);
+      expect(b & Button.Dash).toBe(0);
+    }
+    key('ShiftLeft', false);
+    key('ShiftLeft', true);
+    key('ShiftLeft', false);
+    expect(c.sample().buttons & Button.Dash).toBe(0);
+    key('KeyX', true);
+    key('KeyX', false);
+    expect(c.sample().buttons & Button.Dash).toBe(Button.Dash);
+    expect(c.sample().buttons & Button.Dash).toBe(0);
+    key('KeyQ', true);
+    expect(c.sample().buttons & Button.Quack).toBe(Button.Quack);
+    key('KeyF', true);
+    expect(c.sample().buttons & Button.Storm).toBe(Button.Storm);
+    // Outside Hunt Season the skill keys do nothing.
+    c.skills = false;
+    key('KeyX', true);
+    expect(c.sample().buttons & (Button.Dash | Button.Quack | Button.Storm)).toBe(0);
+    c.dispose();
+  });
+
   it('counts a fire tap released before the next tick, once', async () => {
     const c = await make();
     c.setTouchHeld(Button.Fire, true);

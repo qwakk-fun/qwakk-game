@@ -32,6 +32,7 @@ import { Button, type InputFrame } from './input.ts';
 import { hasWeapon } from './combat.ts';
 import { weaponStats } from './weapons.ts';
 import type { PlayerSim } from './sim.ts';
+import { isBladeDuck } from './raid/blade.ts';
 
 /** What flies (wire code in projectile messages). */
 export const ExplosiveKind = {
@@ -94,6 +95,17 @@ export const exNades = (s: { ex: number }): number => s.ex & 7;
 export const exRockets = (s: { ex: number }): number => (s.ex >>> 3) & 15;
 /** 1 while the rocket launcher is the slot in hand. */
 export const exLauncher = (s: { ex: number }): number => (s.ex >>> 7) & 1;
+
+/**
+ * What a duck carries, for everything outside the sim step (poses, HUD,
+ * previews). A Hunt Season katana duck carries no explosives and keeps its
+ * Dash and Quack timers in `ex` bits 0..14 (raid/blade.ts), so for it these
+ * are always 0: read these, never the raw `ex*` getters, wherever a katana
+ * duck can show up.
+ */
+export const heldNades = (s: { ex: number; arms: number }): number => (isBladeDuck(s) ? 0 : exNades(s));
+export const heldRockets = (s: { ex: number; arms: number }): number => (isBladeDuck(s) ? 0 : exRockets(s));
+export const launcherUp = (s: { ex: number; arms: number }): number => (isBladeDuck(s) ? 0 : exLauncher(s));
 
 /** Server: set the grenades carried (a new life). */
 export function setNades(s: { ex: number }, n: number): void {

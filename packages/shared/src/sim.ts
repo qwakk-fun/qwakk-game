@@ -11,6 +11,7 @@ import { Button, type InputFrame } from './input.ts';
 import { stepWeapon, type ShotFired } from './combat.ts';
 import { WeaponId, weaponStats } from './weapons.ts';
 import { dcos, dsin } from './math.ts';
+import type { KinematicCharacterController } from '@dimforge/rapier3d-compat';
 import { CROUCH_CAPSULE, PLAYER_QUERY_GROUPS, STAND_CAPSULE, type SimWorld } from './physics.ts';
 import { waterSurfaceAt } from './brMapData.ts';
 import { stepDrop } from './drop.ts';
@@ -21,6 +22,7 @@ import { exLauncher, lastExplosive, stepExplosives } from './explosives.ts';
 import { exRoot, tickRoot } from './raid/root.ts';
 import { exMan, KEEP_GATE_OPEN, keepDeckRule, stepManning } from './raid/man.ts';
 import { MOVE_QUERY_GROUPS } from './collision.ts';
+import { bladeOut, bladeSpeedFactor, clearBladeEvents, dashVelocity, endDash, isBladeDuck, quackTick, stepBlade, stepBladeSkills } from './raid/blade.ts';
 
 /**
  * The movement query filter for this duck: what blocks a duck, duck-only
@@ -187,7 +189,8 @@ function applyFriction(s: PlayerSim, dt: number, stopSpeed: number): void {
 }
 
 /** True when the standing capsule fits at the given feet position. */
-function hasHeadroom(sim: SimWorld, x: number, y: number, z: number, groups: number = PLAYER_QUERY_GROUPS): boolean {
+/** A standing duck's capsule fits with its feet at (x, y, z) (nothing it walks against overlaps it). */
+export function hasHeadroom(sim: SimWorld, x: number, y: number, z: number, groups: number = PLAYER_QUERY_GROUPS): boolean {
   const hit = sim.world.intersectionWithShape(
     { x, y: y + STAND_CAPSULE.centerY + 0.02, z },
     { x: 0, y: 0, z: 0, w: 1 },
@@ -201,6 +204,19 @@ function hasHeadroom(sim: SimWorld, x: number, y: number, z: number, groups: num
 const f32 = Math.fround;
 /** Lift used by the stuck-on-ground retry (m). */
 const UNSTICK_LIFT = 0.004;
+/** Contact normals at least this upright count as walkable ground (the controller's slope limit). */
+const GROUND_NORMAL_Y = dcos((MOVE.maxSlopeClimbDeg * Math.PI) / 180);
+
+/** True when every contact of the controller's last move is walkable ground (no wall, no steep face). */
+function onlyGroundContacts(ctl: KinematicCharacterController): boolean {
+  const n = ctl.numComputedCollisions();
+  if (n === 0) return false;
+  for (let i = 0; i < n; i++) {
+    const c = ctl.computedCollision(i);
+    if (!c || c.normal1.y < GROUND_NORMAL_Y) return false;
+  }
+  return true;
+}
 
 /**
  * Advance one player by one fixed step: movement, then the weapon. Mutates `s`
@@ -211,8 +227,12 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
   const buttons = input.buttons | 0;
   let shot: ShotFired | null = null;
   lastExplosive.kind = 0;
+  clearBladeEvents();
   // Hunt Season: man or leave a bread cannon (raid/man.ts; maps without a keep skip it).
   if (sim.map.raid) stepManning(sim, s, input);
+  // Hunt Season katana ducks: Dash, Quack and the Blade Storm, before the movement (a dash moves the duck now).
+  const blade = isBladeDuck(s);
+  if (blade) stepBladeSkills(s, input, s.ex !== 0 && exMan(s) > 0, s.ex !== 0 && exRoot(s) > 0);
   if (s.alive && s.mode === Mode.Ground && s.down) {
     // Knocked: crawl only. The weapon, the aim and heals stay frozen.
     s.aim = 0;
@@ -223,6 +243,13 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
     s.aim = 0;
     stepMovement(sim, s, input, dt);
     tickRoot(s);
+  } else if (s.alive && s.mode === Mode.Ground && blade) {
+    // Hunt Season: the katana (raid/blade.ts) or the pistol; no grenades, rockets or heal items.
+    if (bladeOut(s)) s.aim = 0;
+    else stepAim(s, input);
+    stepMovement(sim, s, input, dt);
+    tickRoot(s);
+    if (!stepBlade(s, input, false)) shot = stepWeapon(s, input);
   } else if (s.alive && s.mode === Mode.Ground) {
     stepAim(s, input);
     stepMovement(sim, s, input, dt);
@@ -277,8 +304,13 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
 
   // Caught in a Hunt Season trap (raid/root.ts) or manning a cannon (raid/man.ts): no walking and no jumping.
   const rooted = s.ex !== 0 && (exRoot(s) > 0 || exMan(s) > 0);
+  // Hunt Season katana: a dash drives the duck for a few ticks; swings, the charge, the quack and the storm slow it.
+  const blade = isBladeDuck(s);
+  const dash = blade ? dashVelocity(s, dashScratch) : null;
+  const bladeFactor = blade ? bladeSpeedFactor(s) : 1;
+  const busy = dash !== null || (blade && quackTick(s) >= 0);
   // Jump edge with a short buffer, so a press just before landing still fires.
-  const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0 && s.down === 0 && !rooted;
+  const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0 && s.down === 0 && !rooted && !busy;
   if (jumpPressed) s.jumpBuf = JUMP_BUFFER_TICKS;
   else if (s.jumpBuf > 0) s.jumpBuf -= 1;
 
@@ -290,14 +322,18 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   const wlen = Math.sqrt(wx * wx + wz * wz);
   let wishSpeed = 0;
   if (wlen > 1e-6 && !rooted) {
-    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1) * stackSpeedFactor(s) * sim.moveScale;
+    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1) * stackSpeedFactor(s) * sim.moveScale * bladeFactor;
     wx /= wlen;
     wz /= wlen;
   }
 
-  const canJump = s.down === 0 && !rooted && s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
+  const canJump = s.down === 0 && !rooted && !busy && s.jumpBuf > 0 && (s.grounded === 1 || s.air <= COYOTE_TICKS) && s.vy <= 0.5;
   const hero = isHero(s);
-  if (s.grounded) {
+  if (dash) {
+    // Dashing: the clip's speed along the dash's line (raid/blade.ts), no friction or steering.
+    s.vx = dash.x;
+    s.vz = dash.z;
+  } else if (s.grounded) {
     applyFriction(s, dt, s.down ? KNOCK.crawlStopSpeed : MOVE.stopSpeed);
     if (wishSpeed > 0) accelerate(s, wx, wz, wishSpeed, MOVE.groundAccel, dt, Infinity);
   } else if (hero) {
@@ -343,7 +379,10 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
     if (s.air < 255) s.air += 1;
   }
   if (hero) stepHeroEnergy(s, thrust);
+  if (dash) endDash(s, dash);
 }
+
+const dashScratch = { x: 0, z: 0 };
 
 /** Speed factor for wading (river, shallow sea). 1 on dry land and on maps without water. */
 export function wadeFactor(sim: SimWorld, s: PlayerSim): number {
@@ -375,14 +414,29 @@ export function moveCapsule(sim: SimWorld, s: PlayerSim, dt: number): boolean {
   let my = m.y;
   let mz = m.z;
 
-  // Rapier's controller occasionally reports a zero-time hit with the ground
-  // it rests on and refuses to move at all (about 1 step in 1500 while
-  // running). That reads as a hitch, so retry once from a few millimeters up.
-  if (s.grounded && dx * dx + dz * dz > 1e-8 && mx * mx + mz * mz < 1e-12) {
+  // Rapier's controller now and then reports a near-zero-time hit with the
+  // ground it rests on and moves the duck not at all (a stuck spot, 1 running
+  // step in 1500) or under a millimeter (a hitch: the velocity is clipped to
+  // nothing and the next step starts from a standstill; on Pond Keep's
+  // courtyard about 1 running step in 115). Retry once from a few
+  // millimeters up:
+  // - no move at all: keep the retry if it moves (as always; the tower stairs
+  //   need it, where the contact is a riser);
+  // - a move under a tenth of its way, only when all the controller touched
+  //   is walkable ground (never a wall or a steep face: wall-pushing ducks
+  //   cost one controller call as before) and only if the retry goes further
+  //   without ending more than half the lift above the first move (the lift
+  //   is a way out of the ground contact, never a climb: kept against a steep
+  //   face, it walked a duck up faces past the slope limit).
+  const wantH = dx * dx + dz * dz;
+  const firstH = mx * mx + mz * mz;
+  const zero = firstH < 1e-12;
+  if (s.grounded && wantH > 1e-8 && (zero || (firstH < wantH * 0.01 && onlyGroundContacts(ctl)))) {
     probe.setTranslation({ x: s.x, y: s.y + cap.centerY + UNSTICK_LIFT, z: s.z });
     ctl.computeColliderMovement(probe, { x: dx, y: dy - UNSTICK_LIFT, z: dz }, undefined, groups);
     m = ctl.computedMovement();
-    if (m.x * m.x + m.z * m.z > 1e-12) {
+    const retryH = m.x * m.x + m.z * m.z;
+    if (zero ? retryH > 1e-12 : retryH > firstH + 1e-12 && m.y + UNSTICK_LIFT <= Math.max(my, 0) + UNSTICK_LIFT / 2) {
       mx = m.x;
       my = m.y + UNSTICK_LIFT;
       mz = m.z;

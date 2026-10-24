@@ -587,3 +587,13 @@ body.touch-game #overlay button {
   font-size: 11px;
   border-color: var(--beak);
 }
+
+/* Hunt Season katana skills: Dash where Aim sits (Aim shows only with the pistol), VAK! and the Blade Storm in the grenade and rocket spots. A sweep shows the cooldown left (--cd). */
+.tc-skill { --cd: 0; overflow: hidden; font-size: 12px; font-weight: 800; }
+.tc-skill::before { content: ''; position: absolute; inset: 0; border-radius: inherit; background: conic-gradient(rgba(13, 14, 16, 0.72) calc(var(--cd) * 360deg), transparent 0); pointer-events: none; }
+.tc-skill .tc-label { position: relative; }
+.tc-skill.ready { border-color: var(--yellow); }
+.tc-dash { right: calc(132px + var(--sr)); bottom: calc(112px + var(--sb)); }
+.tc-quack { --s: 56px; right: calc(262px + var(--sr)); bottom: calc(24px + var(--sb)); }
+.tc-storm { --s: 58px; right: calc(266px + var(--sr)); bottom: calc(108px + var(--sb)); border-color: var(--beak); }
+.tc-storm.ready { border-color: var(--beak); background: rgba(255, 138, 61, 0.45); box-shadow: 0 0 18px rgba(255, 138, 61, 0.8); }

@@ -1,0 +1,48 @@
+/* The katana's HUD (bladeHud.ts). Brand: yellow #ffd43b, beak orange #ff8a3d, dark #151619. */
+.blade-hud { position: absolute; inset: 0; pointer-events: none; z-index: 4; }
+.blade-hud[hidden], .blade-hud [hidden] { display: none !important; }
+.blade-numbers { position: absolute; inset: 0; overflow: hidden; }
+.blade-num { position: absolute; left: 0; top: 0; font: 900 20px/1 system-ui, sans-serif; color: #fff8e7; text-shadow: 0 2px 0 #151619, 0 0 6px #15161999; white-space: nowrap; will-change: transform, opacity; }
+.blade-num.skill { color: #bfe6ff; font-size: 16px; }
+.blade-num.crit { color: #ff8a3d; font-size: 30px; -webkit-text-stroke: 1px #151619; }
+.blade-num.kill::after { content: ' ✦'; color: #ffd43b; }
+.blade-num.crate { color: #f2d49b; }
+
+.blade-combo { position: absolute; right: 7%; top: 30%; display: grid; justify-items: center; gap: 2px; padding: 6px 14px 8px; border-radius: 14px; background: #151619b8; min-width: 92px; transform-origin: 50% 50%; }
+.blade-combo .n { font: 900 46px/1 system-ui, sans-serif; color: #ffd43b; text-shadow: 0 3px 0 #151619; font-variant-numeric: tabular-nums; }
+.blade-combo .label { font-size: 12px; letter-spacing: .24em; text-transform: uppercase; color: #fff3d6; font-weight: 800; }
+.blade-combo .bonus { font-size: 12px; color: #67e8b0; font-weight: 700; }
+.blade-combo .bar { width: 100%; height: 4px; border-radius: 3px; background: #ffffff22; overflow: hidden; }
+.blade-combo .fill { height: 100%; background: #ffd43b; }
+.blade-combo.hot .n { color: #ff8a3d; }
+.blade-combo.blaze { box-shadow: 0 0 0 2px #ff8a3d, 0 0 24px #ff6a1366; }
+.blade-combo.bump { animation: blade-bump 160ms ease-out; }
+@keyframes blade-bump { 0% { transform: scale(1.28) rotate(-3deg); } 100% { transform: scale(1); } }
+
+.blade-callout { position: absolute; top: 33%; left: 50%; transform: translateX(-50%); font: 900 40px/1 system-ui, sans-serif; color: #ffd43b; text-shadow: 0 4px 0 #151619, 0 0 22px #ff8a3d88; letter-spacing: .02em; white-space: nowrap; text-transform: uppercase; }
+.blade-callout.pop { animation: blade-pop 1.5s ease-out both; }
+@keyframes blade-pop { 0% { transform: translateX(-50%) scale(2.2); opacity: 0; } 12% { transform: translateX(-50%) scale(0.92); opacity: 1; } 22% { transform: translateX(-50%) scale(1.05); } 80% { opacity: 1; } 100% { transform: translateX(-50%) scale(1) translateY(-14px); opacity: 0; } }
+
+.blade-skills { position: absolute; right: 22px; bottom: 96px; display: flex; gap: 10px; }
+.blade-skill { position: relative; width: 58px; height: 58px; border-radius: 14px; background: #151619d8; border: 2px solid #ffffff2a; overflow: hidden; display: grid; place-items: center; --left: 0; }
+.blade-skill .sweep { position: absolute; inset: 0; background: conic-gradient(#0d0e10cc calc(var(--left) * 360deg), transparent 0); }
+.blade-skill .icon { position: relative; width: 30px; height: 30px; background: #fff8e7; mask-size: contain; mask-repeat: no-repeat; mask-position: center; }
+.blade-skill.dash .icon { mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 12h11M3 7h8M3 17h8M14 6l6 6-6 6' fill='none' stroke='black' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"); }
+.blade-skill.quack .icon { mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='3' fill='black'/%3E%3Ccircle cx='12' cy='12' r='7' fill='none' stroke='black' stroke-width='2'/%3E%3Ccircle cx='12' cy='12' r='10.5' fill='none' stroke='black' stroke-width='1.5' stroke-dasharray='3 2'/%3E%3C/svg%3E"); }
+.blade-skill.storm .icon { mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2c4 3 4 7 0 10s-4 7 0 10M2 12c3-4 7-4 10 0s7 4 10 0' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round'/%3E%3C/svg%3E"); }
+.blade-skill .key { position: absolute; top: 2px; left: 4px; font-size: 10px; font-weight: 800; color: #151619; background: #ffd43b; border-radius: 4px; padding: 0 4px; }
+.blade-skill .name { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 9px; font-weight: 700; color: #fff3d6; text-transform: uppercase; letter-spacing: .04em; }
+.blade-skill.ready { border-color: #ffd43b; }
+.blade-skill.ready .icon { background: #ffd43b; }
+.blade-skill.storm.ready { border-color: #ff8a3d; box-shadow: 0 0 16px #ff8a3d99; animation: blade-glow 800ms ease-in-out infinite alternate; }
+.blade-skill.storm.spinning { border-color: #ffd43b; }
+.blade-skill.storm .sweep { background: conic-gradient(#0d0e10cc calc(var(--left) * 360deg), #ff8a3d33 0); }
+@keyframes blade-glow { from { box-shadow: 0 0 6px #ff8a3d66; } to { box-shadow: 0 0 22px #ff8a3dcc; } }
+
+/* Phones: the touch layer has the skill buttons; keep the combo and the numbers, smaller. */
+body.touch-ui .blade-skills { display: none; }
+body.touch-ui .blade-combo { top: 22%; right: 4%; padding: 4px 10px; min-width: 70px; }
+body.touch-ui .blade-combo .n { font-size: 32px; }
+body.touch-ui .blade-callout { font-size: 26px; top: 16%; }
+body.touch-ui .blade-num { font-size: 15px; }
+body.touch-ui .blade-num.crit { font-size: 22px; }

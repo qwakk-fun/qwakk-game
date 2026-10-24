@@ -1,7 +1,8 @@
 /**
- * The Hunt Season HUD: the wave bar (wave of 10, timer, hunters left), the
- * QoreChain core's and the gate's health (with the gate's look), the
- * drawbridge and its lever, the bread cannon's heat while we man one, the
+ * The Hunt Season HUD (v3, the push): the objective bar (objective n of 4,
+ * what it asks and how far along it is, the timer, hunters out), the gate's
+ * health once hunters hurt it, the drawbridge near the keep, the bread
+ * cannon's heat while we man one, the
  * action prompt (man a cannon, pull the lever, repair the gate), the Big
  * Hunter's bar, banners, the upgrade cards, the duck's own upgrades, the
  * knocked and out notes, and the end screen with the XP and the level bar.
@@ -13,15 +14,18 @@ import { t } from '../../i18n/game.ts';
 import './raid.css';
 
 const UPGRADE_TEXT: Record<UpgradeId, { name: string; line: string; icon: string }> = {
-  [Upgrade.Damage]: { name: 'Damage', line: '+{n}% damage to hunters', icon: '✦' },
+  [Upgrade.Damage]: { name: 'Sharper blade', line: '+{n}% damage with the katana and the pistol', icon: '✦' },
   [Upgrade.MaxHealth]: { name: 'Max health', line: '+{n} max health, healed now', icon: '♥' },
   [Upgrade.Armor]: { name: 'Armor', line: '{n}% less damage taken', icon: '⛨' },
   [Upgrade.Regen]: { name: 'Regen', line: '+{n} health a second when not hit for 3 s', icon: '✚' },
-  [Upgrade.Grenade]: { name: 'Extra grenade', line: '+1 grenade every wave (G)', icon: '●' },
+  [Upgrade.Reach]: { name: 'Wider arcs', line: 'Every swing reaches {n}% further', icon: '◠' },
   [Upgrade.Revive]: { name: 'Faster revive', line: 'Revive {n}% faster', icon: '⇡' },
-  [Upgrade.Headshot]: { name: 'Headshot bonus', line: '+{n}% headshot damage', icon: '◎' },
-  [Upgrade.Lifesteal]: { name: 'Lifesteal', line: '+{n} health for every hunter you bag', icon: '❦' },
-  [Upgrade.Repair]: { name: 'Core repair kit', line: '+{n} core health', icon: '⚒' },
+  [Upgrade.Crit]: { name: 'Keen edge', line: '+{n}% crit damage (back-stabs, full heavy spins)', icon: '✸' },
+  [Upgrade.Lifesteal]: { name: 'Lifesteal', line: '+{n} health for every cut that lands', icon: '❦' },
+  [Upgrade.Storm]: { name: 'Storm charge', line: 'The Blade Storm fills {n}% faster', icon: '❂' },
+  [Upgrade.Bleed]: { name: 'Bleed', line: 'Cuts make hunters bleed {n} a second for 3 s', icon: '❖' },
+  [Upgrade.Chain]: { name: 'Chain lightning', line: 'Heavy spins arc {n}% of their damage to 3 more hunters', icon: 'ϟ' },
+  [Upgrade.Finisher]: { name: 'Finisher', line: 'The combo\'s third cut hits {n}% harder', icon: '⚔' },
 };
 
 export function upgradeName(id: number): string {
@@ -61,6 +65,10 @@ export class RaidHud {
   private readonly wave: HTMLElement;
   private readonly timer: HTMLElement;
   private readonly left: HTMLElement;
+  private readonly goalBox: HTMLElement;
+  private readonly goalName: HTMLElement;
+  private readonly goalFill: HTMLElement;
+  private readonly goalCount: HTMLElement;
   private readonly towerFill: HTMLElement;
   private readonly towerText: HTMLElement;
   private readonly gateBox: HTMLElement;
@@ -102,8 +110,14 @@ export class RaidHud {
     this.wave = el('span', 'raid-wave', row);
     this.timer = el('span', 'raid-timer', row);
     this.left = el('span', 'raid-left', row);
+    this.goalBox = el('div', 'raid-goal', top);
+    this.goalName = el('span', 'raid-goal-name', this.goalBox);
+    const gbarOuter = el('div', 'raid-bar', this.goalBox);
+    this.goalFill = el('div', 'raid-bar-fill', gbarOuter);
+    this.goalCount = el('span', 'raid-goal-count', this.goalBox);
     const keep = el('div', 'raid-keep', top);
     const tower = el('div', 'raid-tower raid-core', keep);
+    tower.hidden = true;
     el('span', 'raid-tower-label', tower, t('QoreChain core'));
     const bar = el('div', 'raid-bar', tower);
     this.towerFill = el('div', 'raid-bar-fill', bar);
@@ -154,14 +168,24 @@ export class RaidHud {
     this.onEnd = cb;
   }
 
-  /** The bar at the top: wave, timer (lobby and break count down, a wave counts up) and hunters left. */
-  bar(wave: number, boss: boolean, seconds: number, countdown: boolean, left: number, showLeft: boolean): void {
-    this.wave.textContent = wave > 0 ? t('Wave {n} / {total}', { n: wave, total: RAID.waves }) : t('Hunt Season');
-    this.wave.classList.toggle('boss', boss);
+  /**
+   * The bar at the top: the objective (n of 4) and what it asks, how far
+   * along (done of need), the timer (lobby and break count down, an
+   * objective counts up) and the hunters out in the field.
+   */
+  goal(index: number, name: string, done: number, need: number, seconds: number, countdown: boolean, out: number, fighting: boolean): void {
+    this.wave.textContent = index > 0 ? t('Objective {n} / {total}', { n: index, total: RAID.objectives }) : t('Hunt Season');
+    this.wave.classList.toggle('boss', index === RAID.objectives && fighting);
     this.timer.textContent = clock(Math.max(0, seconds));
     this.timer.classList.toggle('down', countdown);
-    this.left.hidden = !showLeft;
-    this.left.textContent = left === 1 ? t('1 hunter left') : t('{n} hunters left', { n: left });
+    this.left.hidden = !fighting;
+    this.left.textContent = t('{n} hunters out', { n: out });
+    this.goalBox.hidden = !fighting || !name;
+    if (!this.goalBox.hidden) {
+      if (this.goalName.textContent !== name) this.goalName.textContent = name;
+      this.goalCount.textContent = need > 1 ? `${Math.min(done, need)} / ${need}` : '';
+      this.goalFill.style.width = `${need > 0 ? Math.min(1, done / need) * 100 : 0}%`;
+    }
   }
 
   /** The QoreChain core's health (the run is lost at 0). */
@@ -177,8 +201,9 @@ export class RaidHud {
     this.flashUntil = now + 450;
   }
 
-  /** The gate's health and look (intact, damaged, broken). */
-  gate(hp: number, max: number, state: number, now: number): void {
+  /** The gate's health and look (intact, damaged, broken); shown only while it matters. */
+  gate(hp: number, max: number, state: number, now: number, show = true): void {
+    this.gateBox.hidden = !show;
     const f = max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0;
     this.gateFill.style.width = `${f * 100}%`;
     this.gateFill.classList.toggle('low', state !== GateState.Intact);
@@ -193,8 +218,9 @@ export class RaidHud {
     this.gateFlashUntil = now + 450;
   }
 
-  /** The drawbridge line: where it is, when it comes down by itself, the lever's cooldown. */
+  /** The drawbridge line: where it is, when it comes down by itself, the lever's cooldown (empty: hidden). */
   bridge(text: string, up: boolean): void {
+    this.bridgeChip.hidden = !text;
     if (this.bridgeChip.textContent !== text) this.bridgeChip.textContent = text;
     this.bridgeChip.classList.toggle('up', up);
   }
@@ -311,15 +337,15 @@ export class RaidHud {
     const card = el('div', 'raid-end-card', this.end);
     const won = v.reason === 1;
     el('div', 'kicker', card, t('Hunt Season'));
-    el('h2', won ? 'won' : 'lost', card, won ? t('Pond Keep held!') : v.reason === 2 ? t('The core fell') : t('Every duck is down'));
-    el('p', 'sub', card, won ? t('All {n} waves held. The hunters went home.', { n: RAID.waves }) : t('You held {n} waves.', { n: v.waves }));
+    el('h2', won ? 'won' : 'lost', card, won ? t('The field is ours!') : v.reason === 2 ? t('The core fell') : t('Every duck is down'));
+    el('p', 'sub', card, won ? t('The Big Hunter is down and the hunters went home.') : t('You took {n} of {total} objectives.', { n: v.waves, total: RAID.objectives }));
     const stats = el('div', 'raid-end-stats', card);
     const stat = (label: string, value: string) => {
       const s = el('div', 'stat', stats);
       el('small', '', s, label);
       el('strong', '', s, value);
     };
-    stat(t('Waves cleared'), `${v.waves} / ${RAID.waves}`);
+    stat(t('Objectives'), `${v.waves} / ${RAID.objectives}`);
     stat(t('Hunters bagged'), String(v.kills));
     stat(t('Bosses'), String(v.bossKills));
     stat(t('Revives'), String(v.revives));
@@ -333,7 +359,7 @@ export class RaidHud {
     const saved = v.granted ? t('XP is saved to your duck.') : v.failed ? t('XP could not be saved this time.') : t('Saving your XP...');
     const status = el('p', `xp-note${v.failed ? ' failed' : ''}`, xp, saved);
     if (v.newBest) el('div', 'best', xp, t('New best!'));
-    else if (v.bestWave > 0) el('div', 'best quiet', xp, t('Best: wave {n}', { n: v.bestWave }));
+    else if (v.bestWave > 0) el('div', 'best quiet', xp, t('Best: {n} objectives', { n: v.bestWave }));
     // The level bar fills from the XP before the run to the XP after it.
     cancelAnimationFrame(this.endAnim);
     const from = v.xpBefore >= 0 ? v.xpBefore : 0;

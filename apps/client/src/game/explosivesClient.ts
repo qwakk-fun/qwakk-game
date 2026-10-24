@@ -25,9 +25,9 @@ import {
   DT,
   emptyFlight,
   EXPLOSIVE,
-  exLauncher,
-  exNades,
-  exRockets,
+  launcherUp,
+  heldNades,
+  heldRockets,
   ExplosiveKind,
   grenadeLaunch,
   grenadePath,
@@ -456,7 +456,7 @@ export class ExplosivesClient {
     const s = me?.state as unknown as PlayerSim | undefined;
     const playing = this.session.room.state.phase === MatchPhase.Playing;
     // Held in the last predicted step (keys, touch or a test hook alike).
-    const show = !!s && playing && (s.prevButtons & Button.Grenade) !== 0 && s.alive === 1 && s.mode === Mode.Ground && s.down === 0 && exNades(s) > 0 && s.heal === 0;
+    const show = !!s && playing && (s.prevButtons & Button.Grenade) !== 0 && s.alive === 1 && s.mode === Mode.Ground && s.down === 0 && heldNades(s) > 0 && s.heal === 0;
     this.preview.visible = show;
     this.landing.visible = show;
     if (!show || !me || !s) return;
@@ -547,9 +547,9 @@ export class ExplosivesClient {
   private updateHud(): void {
     const s = this.session.me?.state as unknown as PlayerSim | undefined;
     const alive = this.session.mine?.alive === 1;
-    const nades = s ? exNades(s) : 0;
-    const rockets = s ? exRockets(s) : 0;
-    const out = s ? exLauncher(s) === 1 : false;
+    const nades = s ? heldNades(s) : 0;
+    const rockets = s ? heldRockets(s) : 0;
+    const out = s ? launcherUp(s) === 1 : false;
     const key = `${alive ? 1 : 0}|${nades}|${rockets}|${out ? 1 : 0}`;
     if (key === this.hudKey) return;
     this.hudKey = key;

@@ -1,26 +1,34 @@
 /**
- * Hunt Season shared code: the wave math, the boss schedule, XP and levels,
- * the upgrade offer, the trap root in the sim (and that it stays
- * deterministic), and the hunters' own hitboxes.
+ * Hunt Season shared code: the push's horde math, XP and levels (v3 with
+ * minions and the combo bonus), the melee upgrade offer, the trap root in the
+ * sim (and that it stays deterministic), and the hunters' own hitboxes.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
+  comboBonus,
   createPlayerSim,
   createSimWorld,
+  crateHpFor,
+  duckScale,
+  eliteKinds,
   exRoot,
   generateMap,
+  GOALS,
+  goalAt,
+  Goal,
   HUNTER_HP,
   hunterHpScale,
   HunterAct,
   HunterKind,
   hunterShape,
   initPhysics,
-  isBossWave,
+  isMinion,
   LEVEL_CAP,
   levelOfXp,
-  MAX_SNIPERS,
   levelProgress,
+  packElites,
   packEx,
+  packSize,
   PLAYER_SIM_FIELDS,
   RAID,
   RAID_XP,
@@ -29,13 +37,11 @@ import {
   rollOffer,
   setNades,
   setRoot,
-  spawnGapSeconds,
   stepPlayer,
   tickRoot,
+  trenchKillsFor,
   unpackEx,
   Upgrade,
-  waveComposition,
-  waveTotal,
   xpForLevel,
   xpToNext,
   type InputFrame,
@@ -45,61 +51,48 @@ beforeAll(async () => {
   await initPhysics();
 });
 
-describe('waves', () => {
-  it('opens with riflemen and brings the kinds in one by one', () => {
-    expect(waveComposition(1, 1)).toEqual({ rifleman: 4, trapper: 0, decoy: 0, dog: 0, sniper: 0, boss: 0 });
-    expect(waveComposition(2, 1).dog).toBe(3);
-    expect(waveComposition(2, 1).sniper).toBe(1);
-    expect(waveComposition(2, 1).trapper).toBe(0);
-    expect(waveComposition(3, 1).trapper).toBeGreaterThan(0);
-    expect(waveComposition(3, 1).decoy).toBe(0);
-    expect(waveComposition(4, 1).decoy).toBeGreaterThan(0);
-    for (let w = 1; w <= RAID.waves; w++) for (let d = 1; d <= 4; d++) {
-      expect(waveComposition(w, d).dog % 3).toBe(0);
-      expect(waveComposition(w, d).sniper).toBeLessThanOrEqual(MAX_SNIPERS);
-    }
+describe('the push (objectives and the horde)', () => {
+  it('is four objectives in order: the trench, the crates, the towers, the camp', () => {
+    expect(RAID.objectives).toBe(4);
+    expect(GOALS).toEqual([Goal.Trench, Goal.Crates, Goal.Towers, Goal.Camp]);
+    expect(goalAt(1)).toBe(Goal.Trench);
+    expect(goalAt(4)).toBe(Goal.Camp);
+    expect(goalAt(9)).toBe(Goal.Camp);
   });
 
-  it('is 10 waves with the Big Hunter on waves 3, 6 and 10 only', () => {
-    expect(RAID.waves).toBe(10);
-    const boss = [];
-    for (let w = 1; w <= RAID.waves; w++) {
-      expect(waveComposition(w, 2).boss).toBe(isBossWave(w) ? 1 : 0);
-      if (isBossWave(w)) boss.push(w);
+  it('sends packs of 6 to 12 minions solo, bigger later and with more ducks', () => {
+    for (let g = 1; g <= 4; g++) for (let r = 0; r < 1; r += 0.1) {
+      const n = packSize(g, 1, r);
+      expect(n).toBeGreaterThanOrEqual(6);
+      expect(n).toBeLessThanOrEqual(12);
+      expect(packSize(g, 4, r)).toBeGreaterThan(n);
     }
-    expect(boss).toEqual([3, 6, 10]);
-    expect(isBossWave(0)).toBe(false);
-    expect(isBossWave(5)).toBe(false);
+    expect(packSize(4, 1, 0)).toBeGreaterThan(packSize(1, 1, 0));
+    expect(packSize(1, 4, 0.999)).toBeLessThanOrEqual(16);
   });
 
-  it('grows with the wave and with the ducks: more hunters than v1, lighter ones', () => {
-    for (let d = 1; d <= 4; d++) {
-      let last = 0;
-      for (let w = 1; w <= RAID.waves; w++) {
-        if (isBossWave(w)) continue;
-        const n = waveTotal(waveComposition(w, d));
-        expect(n).toBeGreaterThanOrEqual(last);
-        last = n;
-      }
-    }
-    for (let w = 1; w <= RAID.waves; w++) {
-      expect(waveTotal(waveComposition(w, 4))).toBeGreaterThan(waveTotal(waveComposition(w, 1)));
-      expect(waveTotal(waveComposition(w, 2))).toBeGreaterThanOrEqual(waveTotal(waveComposition(w, 1)));
-    }
-    // A solo run is about 150 hunters over 10 waves (v1: about 150 over 15); four ducks stay under 70 a wave.
-    let solo = 0;
-    for (let w = 1; w <= RAID.waves; w++) solo += waveTotal(waveComposition(w, 1));
-    expect(solo).toBeGreaterThan(130);
-    expect(solo).toBeLessThan(180);
-    expect(waveTotal(waveComposition(10, 4))).toBeLessThan(70);
-    expect(HUNTER_HP[HunterKind.Rifleman]).toBeLessThan(90);
-    expect(hunterHpScale(10, 1, HunterKind.Rifleman)).toBeGreaterThan(hunterHpScale(1, 1, HunterKind.Rifleman));
-    expect(hunterHpScale(6, 4, HunterKind.Boss)).toBeGreaterThan(hunterHpScale(6, 1, HunterKind.Boss));
+  it('escorts packs with elites of the old hunter kinds, never minions', () => {
+    expect(packElites(1, 1, 0.9, 0.9)).toBe(0);
+    expect(packElites(1, 1, 0.1, 0.1)).toBe(2);
+    expect(packElites(1, 1, 0.6, 0.9)).toBe(0);
+    expect(packElites(2, 1, 0.6, 0.9)).toBe(1);
+    expect(packElites(1, 4, 0.9, 0.9)).toBe(1);
+    for (let g = 1; g <= 4; g++) for (const k of eliteKinds(g)) expect(isMinion(k)).toBe(false);
+    expect(isMinion(HunterKind.Beater) && isMinion(HunterKind.Recruit)).toBe(true);
   });
 
-  it('spawns faster in later waves', () => {
-    expect(spawnGapSeconds(10)).toBeLessThan(spawnGapSeconds(1));
-    expect(spawnGapSeconds(10)).toBeGreaterThanOrEqual(0.6);
+  it('minions fall to one or two light cuts, elites take a few, the boss many', () => {
+    expect(HUNTER_HP[HunterKind.Recruit]).toBeLessThanOrEqual(24);
+    expect(HUNTER_HP[HunterKind.Beater]).toBeGreaterThan(24);
+    expect(HUNTER_HP[HunterKind.Beater]).toBeLessThanOrEqual(48);
+    expect(HUNTER_HP[HunterKind.Rifleman]).toBeGreaterThan(80);
+    expect(HUNTER_HP[HunterKind.Boss]).toBeGreaterThan(1000);
+    expect(hunterHpScale(4, 1, HunterKind.Beater)).toBeGreaterThan(hunterHpScale(1, 1, HunterKind.Beater));
+    expect(hunterHpScale(4, 4, HunterKind.Boss)).toBeGreaterThan(hunterHpScale(4, 1, HunterKind.Boss));
+    expect(duckScale(1)).toBe(1);
+    expect(duckScale(4)).toBe(2.5);
+    expect(trenchKillsFor(2)).toBeGreaterThan(trenchKillsFor(1));
+    expect(crateHpFor(4)).toBeGreaterThan(crateHpFor(1));
   });
 });
 
@@ -122,53 +115,47 @@ describe('XP and levels', () => {
     expect(levelProgress(1e12)).toMatchObject({ level: LEVEL_CAP, share: 1 });
   });
 
-  it('grants XP for waves, kills, bosses, revives and the win, within the cap', () => {
+  it('grants XP for objectives, kills, minions, the combo, bosses, revives and the win, within the cap', () => {
     expect(raidXp({ wavesCleared: 0, kills: 0, bossKills: 0, revives: 0, won: false })).toBe(0);
-    expect(raidXp({ wavesCleared: 1, kills: 0, bossKills: 0, revives: 0, won: false })).toBe(RAID_XP.perWave);
-    expect(raidXp({ wavesCleared: 2, kills: 3, bossKills: 0, revives: 1, won: false })).toBe(RAID_XP.perWave * 2 + RAID_XP.perWaveStep + 3 * RAID_XP.perKill + RAID_XP.perRevive);
-    const win = raidXp({ wavesCleared: 10, kills: 120, bossKills: 3, revives: 4, won: true });
-    expect(win).toBeGreaterThan(raidXp({ wavesCleared: 10, kills: 120, bossKills: 3, revives: 4, won: false }));
+    expect(raidXp({ wavesCleared: 1, kills: 0, bossKills: 0, revives: 0, won: false })).toBe(RAID_XP.perObjective);
+    expect(raidXp({ wavesCleared: 2, kills: 3, minionKills: 10, bossKills: 0, revives: 1, won: false })).toBe(RAID_XP.perObjective * 2 + RAID_XP.perObjectiveStep + 3 * RAID_XP.perKill + 10 * RAID_XP.perMinion + RAID_XP.perRevive);
+    const win = raidXp({ wavesCleared: 4, kills: 40, minionKills: 200, comboXp: 150, bossKills: 1, revives: 2, won: true });
+    expect(win).toBeGreaterThan(raidXp({ wavesCleared: 4, kills: 40, minionKills: 200, comboXp: 150, bossKills: 1, revives: 2, won: false }));
     expect(win).toBeLessThanOrEqual(RAID_XP.maxPerRun);
-    expect(raidXp({ wavesCleared: 10, kills: 99999, bossKills: 3, revives: 999, won: true })).toBe(RAID_XP.maxPerRun);
-    // A first win lifts a fresh duck several levels, not to the cap.
+    expect(raidXp({ wavesCleared: 4, kills: 99999, bossKills: 3, revives: 999, won: true })).toBe(RAID_XP.maxPerRun);
     expect(levelOfXp(win)).toBeGreaterThan(3);
     expect(levelOfXp(win)).toBeLessThan(12);
   });
-});
 
-describe('XP retune (Pond Keep, 10 waves)', () => {
-  it('a full solo win with every hunter bagged is about what a 15 wave v1 win was (about 2,400), so more per minute', () => {
-    let hunters = 0;
-    for (let w = 1; w <= RAID.waves; w++) {
-      const c = waveComposition(w, 1);
-      hunters += waveTotal(c) - c.boss;
-    }
-    const v2 = raidXp({ wavesCleared: RAID.waves, kills: hunters + 3, bossKills: 3, revives: 0, won: true });
-    expect(v2).toBeGreaterThan(2300);
-    expect(v2).toBeLessThan(2800);
-    // v1: 15 waves of 40 + 4 per wave number, about 150 hunters at 4, 3 bosses at 120, the win 400, in 12 to 18 minutes.
-    let v1 = 0;
-    for (let w = 1; w <= 15; w++) v1 += 40 + 4 * (w - 1);
-    v1 += 150 * 4 + 3 * 120 + 400;
-    // A v2 run is about 8 to 10 minutes: per minute it gives more than v1 did.
-    expect(v2 / 10).toBeGreaterThan(v1 / 12);
+  it('caps the combo bonus at half the kill XP, however much the server claims', () => {
+    expect(comboBonus(10, 0)).toBe(0);
+    expect(comboBonus(10, 20)).toBeCloseTo(2);
+    expect(comboBonus(10, 400)).toBe(5);
+    const base = { wavesCleared: 1, kills: 10, minionKills: 0, bossKills: 0, revives: 0, won: false };
+    expect(raidXp({ ...base, comboXp: 1e6 }) - raidXp(base)).toBe(Math.round(10 * RAID_XP.perKill * RAID_XP.comboMax));
+  });
+
+  it('a full solo win (four objectives, about 200 minions, 40 elites, the boss) is about 2,400 XP', () => {
+    const xp = raidXp({ wavesCleared: 4, kills: 40, minionKills: 200, comboXp: 150, bossKills: 1, revives: 0, won: true });
+    expect(xp).toBeGreaterThan(2100);
+    expect(xp).toBeLessThan(2800);
   });
 });
 
-describe('upgrade offer', () => {
-  it('rolls three different cards, never a maxed one, the repair kit only for a hurt core', () => {
+describe('upgrade offer (melee cards)', () => {
+  it('rolls three different cards, never a maxed one, the revive card only with friends', () => {
     let seed = 1;
     const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
     for (let i = 0; i < 200; i++) {
-      const o = rollOffer(rand, { coreHurt: false, maxed: new Set([Upgrade.Damage]) });
+      const o = rollOffer(rand, { team: false, maxed: new Set([Upgrade.Damage]) });
       expect(o).toHaveLength(3);
       expect(new Set(o).size).toBe(3);
-      expect(o).not.toContain(Upgrade.Repair);
+      expect(o).not.toContain(Upgrade.Revive);
       expect(o).not.toContain(Upgrade.Damage);
     }
-    let repair = 0;
-    for (let i = 0; i < 300; i++) if (rollOffer(rand, { coreHurt: true }).includes(Upgrade.Repair)) repair++;
-    expect(repair).toBeGreaterThan(0);
+    let revive = 0;
+    for (let i = 0; i < 300; i++) if (rollOffer(rand, { team: true }).includes(Upgrade.Revive)) revive++;
+    expect(revive).toBeGreaterThan(0);
   });
 });
 

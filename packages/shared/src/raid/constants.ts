@@ -1,8 +1,9 @@
 /**
  * Hunt Season (Av Sezonu): the co-op PvE mode. Hunting season opened and the
- * ducks defend their castle: 1 to 4 signed-in ducks hold Pond Keep (a duck
- * castle on a pond island) and the QoreChain core in its courtyard against 10
- * waves of duck hunters (the Big Hunter on waves 3, 6 and 10). Server rules
+ * ducks cut their way out: 1 to 4 signed-in ducks start in Pond Keep (a duck
+ * castle on a pond island) with katanas and push across the field through
+ * hordes of hunters, objective by objective (push.ts: the trench, the supply
+ * crates, the watchtowers, the Big Hunter's camp). Server rules
  * in `apps/server/src/raid/`, the room in `apps/server/src/RaidRoom.ts`, the
  * docs in `docs/hunt-season.md`.
  *
@@ -21,32 +22,29 @@ export const RAID = {
   mapId: 'pond-keep',
   /** Ducks per run (parties welcome: up to PARTY.maxSize, which is 4 too). */
   maxDucks: 4,
-  waves: 10,
-  /** Waves the Big Hunter comes out on. */
-  bossWaves: [3, 6, 10] as readonly number[],
+  /** Objectives of a run (push.ts GOALS); the run is won when the last falls. */
+  objectives: 4,
   /** Lobby: the first duck starts this countdown, every later one adds a few seconds up to the cap; a full room starts soon. */
   lobbySeconds: 15,
   joinExtraSeconds: 5,
   lobbyMaxSeconds: 30,
   fullLobbySeconds: 5,
-  /** Break between waves (upgrade pick). Admin setting `raid.breakSeconds`. */
-  breakSeconds: 10,
+  /** Break between objectives (upgrade pick). Admin setting `raid.breakSeconds`. */
+  breakSeconds: 8,
   /** Results stay up this long after the run ends, then the room closes. */
   endSeconds: 60,
   /** The QoreChain core's health (the run is lost when it falls). Admin setting `raid.coreHp`. */
   coreHp: 1000,
   /** The main gate's health. Admin setting `raid.gateHp`. */
   gateHp: 700,
-  /** Most hunters and dogs alive at once; the rest of a wave waits its turn. Admin setting `raid.maxLive`. */
-  maxLive: 30,
-  /** Grenades every duck gets at the start of each wave (an upgrade adds more). */
-  grenadesPerWave: 1,
+  /** Most hunters, minions and dogs alive at once; packs wait their turn. Admin setting `raid.maxLive`. */
+  maxLive: 44,
   /** A trap holds a duck this long (ticks: 1.6 s). Stays a constant: the root is part of the sim. */
   rootTicks: Math.round(1.6 * TICK_RATE),
   /** Hunters at the core hammer it: damage per second, by kind (admin setting `raid.coreDamageScale` scales it). */
-  coreDps: { 1: 3, 2: 4, 3: 3, 4: 1.5, 5: 12, 6: 2 } as Record<number, number>,
+  coreDps: { 1: 3, 2: 4, 3: 3, 4: 1.5, 5: 12, 6: 2, 7: 3, 8: 2 } as Record<number, number>,
   /** Hunters at the gate hammer it: damage per second, by kind (admin setting `raid.gateDamageScale` scales it). */
-  gateDps: { 1: 4, 2: 6, 3: 4, 4: 2.5, 5: 20, 6: 3 } as Record<number, number>,
+  gateDps: { 1: 4, 2: 6, 3: 4, 4: 2.5, 5: 20, 6: 3, 7: 5, 8: 3 } as Record<number, number>,
   /** How close counts as "at the core" (m past its radius). */
   coreReach: 1.8,
 } as const;
@@ -55,21 +53,18 @@ export const RAID = {
 export const RaidStage = {
   /** Waiting for ducks: the countdown runs from the first one. */
   Lobby: 0,
-  /** Between waves: pick an upgrade. */
+  /** Between objectives: pick an upgrade. */
   Break: 1,
-  Wave: 2,
+  /** An objective in play (`RaidState.wave` is its number). */
+  Fight: 2,
   Won: 3,
   Lost: 4,
 } as const;
 
-export function isBossWave(wave: number): boolean {
-  return RAID.bossWaves.includes(wave);
-}
-
 /** Why a run ended (`Msg.RaidEnd`). */
 export const RaidEndReason = {
   Won: 1,
-  /** The QoreChain core fell. */
+  /** v2 only (the QoreChain core fell); a v3 push cannot lose its core. */
   CoreFell: 2,
   AllDown: 3,
 } as const;

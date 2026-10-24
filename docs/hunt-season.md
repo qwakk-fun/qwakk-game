@@ -1,35 +1,119 @@
 # Hunt Season (Av Sezonu)
 
-Hunting season opened and the ducks defend their castle. A co-op PvE mode: 1 to 4 signed-in ducks (parties welcome) hold **Pond Keep**, a duck castle on a pond island (map `pond-keep`, `docs/pond-keep.md`), and the QoreChain core in its courtyard against 10 waves of duck hunters. Hunters pour out of the trenches all around, snipe from watchtowers and hills, hammer the gate, cross the moat over the drawbridge or on raft lanes; the ducks fight from the walls, lob bread from the tower cannons, pull the drawbridge lever and mend the gate. It is the mode that gives a duck XP and levels. Levels are cosmetic progress only: nothing about a level changes the deathmatch or the battle royale.
+Hunting season opened and the ducks cut their way out. A co-op PvE mode in the spirit of an action MMORPG: 1 to 4 signed-in ducks (parties welcome) start in **Pond Keep**, a duck castle on a pond island (map `pond-keep`, `docs/pond-keep.md`), draw their katanas and push out across the field through hordes of duck hunters, objective by objective: the trench, the supply crates, the watchtowers and finally the Big Hunter's camp. It is the mode that gives a duck XP and levels. Levels are cosmetic progress only: nothing about a level changes the deathmatch or the battle royale, and the katana exists only here (the deathmatch and the battle royale stay guns only).
 
-Code: shared `packages/shared/src/raid/` (`@qwakk/shared/raid`, pure: waves, XP, upgrades, hunters; the keep is in the root package: `raid/markup.ts`, `raid/keep.ts`, `raid/cannon.ts`, `raid/man.ts`), the trap root in the sim (`raid/root.ts`); server `apps/server/src/raid/` (`keepWorld.ts` the gate, the drawbridge, the cannons and the loaves; `travel.ts` the hunters' route rules; `hunts.ts`, `brain.ts` the hunters) and `apps/server/src/RaidRoom.ts`; results `apps/server/src/meta/raid.ts` and `apps/server/db/migrations/004_raid.sql`, `005_raid_keep.sql`; client `apps/client/src/game/raidClient.ts`, `apps/client/src/game/raid/` (hunter art and looks, `keepView.ts` the keep's moving parts), `apps/client/src/hud/raid/`; menu: the Hunt Season portal in Duck Plaza (east, `docs/duck-plaza.md`) and its row in the sheet's Play list (`ui/menu/hubSheet.ts`), the XP bar (`ui/menu/xpBar.ts`, on the character select and the sheet's Account card).
+Code: shared `packages/shared/src/raid/` (`blade.ts` the katana in the sim, `arc.ts` the hit shapes and the sweep, `push.ts` the objectives and the horde math, `hunters.ts`, `progress.ts` XP, `upgrades.ts` the cards; the keep: `markup.ts`, `keep.ts`, `cannon.ts`, `man.ts`, `root.ts`); server `apps/server/src/raid/` (`blade.ts` the katana's hits, `push.ts` the director, `hunts.ts`, `brain.ts`, `hunter.ts`, `travel.ts`, `keepWorld.ts`, `raid.ts` the rules) and `apps/server/src/RaidRoom.ts`; results `apps/server/src/meta/raid.ts` and migrations 004 to 006; client `apps/client/src/game/raidClient.ts`, `game/raid/` (`bladeFeel.ts` the feel, `campDecor.ts`, the hunter looks, `keepView.ts`), `player/meleeRig.ts`, `player/meleeArt.ts`, `player/katanaTrail.ts` (the katana on the duck), `hud/raid/` (`raidHud.ts`, `bladeHud.ts`); menu: the Hunt Season portal in Duck Plaza (east) and its row in the sheet's Play list, the XP bar.
 
 ## A run
 
 | Stage | What happens |
 | --- | --- |
-| Lobby | Ducks gather in the courtyard, no damage (the cannons and the lever already work). The first duck starts a 15 s countdown (`raid.lobbySeconds`), each later one adds 5 s, four ducks start in 5 s. The hunt starts at most 30 s after the countdown first started (an absolute deadline). The room locks when the run starts. |
-| Wave | The director sends the wave's hunters from the trench exits all around the pond (60 to 120 m out). They charge the keep, take cover in the trenches, snipe from the perches, hammer the gate, break in and go for the core; any duck they see, they fight. |
-| Break | 10 s (`raid.breakSeconds`). Every duck picks one of three upgrade cards (keys 1 to 3, or a tap); the timer picks one at random. Fallen ducks come back with 60% health, knocked ones get up with 50%, standing ones heal 25%. Reserve ammo refills. The castle crew patches the gate by 25% of its health (`raid.gateBreakRepairPercent`). |
-| Won / lost | Won after wave 10. Lost when the core falls or no duck is standing (knocked or out) at once. The end screen shows the run and the XP; the room closes 60 s later. "Play again" starts another hunt from the menu. |
+| Lobby | Ducks gather in the courtyard, no damage. The first duck starts a 15 s countdown (`raid.lobbySeconds`), each later one adds 5 s, four ducks start in 5 s; at most 30 s after it first started. The room locks when the run starts. |
+| Objective | One of the four objectives is in play (below). Packs of minions with elites come out of the trench exits and dugout doors near it and charge the ducks; its ground is their rally point, so the fight meets the ducks out in the field. |
+| Break | The objective is taken: the hunters still standing flee (no kills, no drops). 8 s (`raid.breakSeconds`): every duck picks one of three cards (keys 1 to 3, or a tap; the timer picks one at random). Fallen ducks come back beside a friend still standing (a spot checked for room for the duck, ground under it within a step of the friend's and no wall between them; in the castle when there is none or no friend is standing), with 60% health; knocked ones get up with 50%, standing ones heal 25%; the pistol's reserve refills. |
+| Won / lost | Won when the Big Hunter falls. Lost when no duck is standing (knocked or out) at once. The end screen shows the run and the XP; the room closes 60 s later. |
 
-Waves 3, 6 and 10 are boss waves: the Big Hunter comes out, and the rocket launcher pickup appears in the courtyard for 90 s. A full run is about 8 to 10 minutes with a team that uses the keep (waves of 40 to 60 s plus 9 breaks of 10 s); passive bot ducks that only shoot from the walls take 75 to 110 s a wave.
+| # | Objective | Where (Pond Keep) | Taken when |
+| --- | --- | --- | --- |
+| 1 | Clear the trench | the trench line in front of the gate on its right (the south-east one) | `raid.push.trenchKills` hunters (28 solo, times 1, 1.5, 2, 2.5 for 1 to 4 ducks) are bagged within 38 m of it |
+| 2 | Smash the supply crates | by the two southern dugout doors and on the road between them | every crate (`raid.push.crates`, 3) is smashed: `raid.push.crateHp` (150, 35% more per extra duck) each, by cuts or bullets |
+| 3 | Take the watchtowers | the two southern watchtowers (the highest perches in front of the gate) | the snipers placed on their platforms (`raid.push.snipersPerTower`, 2 each) are down; riflemen guard the towers' feet |
+| 4 | Storm the Big Hunter's camp | the far end of the hunters' road, 100 m out from the gate | the Big Hunter is down |
 
-Ducks use the battle royale knock and revive: at 0 health a duck is knocked (it crawls and bleeds out in 30 s), a friend holds Use next to it for 5 s to revive it (faster with the revive upgrade). There is no friendly fire (bread loaves never hurt a duck). A knocked duck that bleeds out is out until the next break; while out, its camera follows a living friend. A lone duck has a second wind once a wave: knocked with nobody to revive it, it holds Use for 8 s to get up by itself.
+A solo run takes about 10 to 12 minutes, a team is faster (more damage, the counts grow slower than the team). The castle is the start and the fallback: the gate, the drawbridge on its lever and the four bread cannons still work as in v2 (below). The QoreChain core no longer ends a run; ducks that hide in the castle for more than 40 s of an objective draw the hunters to its gate (they hammer it while the drawbridge is down, wait on the bank while it is up, and come in once it breaks).
 
-Ammo: rifle and pistol, full reserves at every break, ammo drops in between. Grenades: one each wave (`RAID.grenadesPerWave`), more with the grenade card.
+Ducks use the battle royale knock and revive: at 0 health a duck is knocked (it crawls and bleeds out in 30 s), a friend holds Use next to it for 5 s to revive it (faster with the revive card). No friendly fire. A knocked duck that bleeds out is out until the next break; while out its camera follows a living friend. A lone duck has a second wind once an objective: knocked with nobody to revive it, it holds Use for 8 s to get up by itself.
+
+## The katana (Hunt Season only)
+
+Every duck carries a katana (the weapon in hand) and the pistol (the secondary: snipers, a crate out of reach). No rifle, no grenades, no rocket launcher here; the deathmatch and the battle royale never hand out the katana.
+
+| Move | Desktop | Phone | What it does |
+| --- | --- | --- | --- |
+| Light combo | Click (tap) | Fire (tap) | Slash 1, 2, 3: a press during a swing is buffered and chains at the combo window (Slash 1: impact on tick 4, chains from tick 5, recovers on 8, the window shuts on 13; Slash 2: 4, 6, 9, 14; Slash 3, the overhead finisher: impact on 9, recovers on 12). Each cut steps the duck forward a little and slows it while it swings. |
+| Heavy spin | Hold, let go | Hold Fire, let go | Held past a swing's recovery the duck charges (up to 0.8 s, slower on its feet); the release spins all the way round, wider and harder the longer the charge (a full charge is a crit). |
+| Dash | X | Dash | A 4.5 m lunge in 0.2 s along the move keys (straight ahead without any), through hunters (each one on the path is cut once), invulnerable for its first 5 ticks; 2.2 s cooldown. Blocked (a wall, the gate, a closed drawbridge, a prop: the move clipped under 30% of its speed along its line, or turned back) it ends on the spot, with the cooldown running; at an angle it slides along the wall; off a ledge it carries on and drops. |
+| "VAK!" Quack Shockwave | Q | VAK! | The duck roots for 11 ticks and quacks: a ring from its feet to 5.5 m that shoves, staggers and knocks minions off their feet (a little damage); 8 s cooldown. |
+| Blade Storm (ultimate) | F | Storm | With its meter full: 4 s of spinning, a cut all around every 0.2 s, moving at 85%. The meter fills from landed hits and kills (server written). |
+| Pistol | 2 (1 for the katana, or the wheel) | Swap | The usual pistol (Aim and Reload show with it on a phone). |
+
+Desktop keys: R stays Reload (the pistol), so the ultimate is F; Q was free; Dash has its own key, X (Shift only sprints: a sprint key that sometimes lunges read as a bug; Space is Jump, C Crouch, Alt Walk, V the shoulder, E Use, all taken). The touch layer shows Dash where Aim sits (Aim and Reload only with the pistol), VAK! and Storm in the grenade and rocket spots, each with its cooldown sweeping over it (`input/touch/`); Fire slashes on a tap and charges while held.
+
+### Authority and determinism
+
+- Inputs only: the skill buttons are three new input bits (`Button.Dash`, `Quack`, `Storm`, bits 16 to 18; `PlayerInput.buttons` and `PlayerState.prevButtons` are uint32 now). Every other room masks them off when it sanitizes an input (`GameRoom.allowSkills`), and a duck without the katana never reads them anyway. Stand-in steps never press them, and hold Fire exactly where the last step had it while the katana is out, so a stand-in never swings and never lets a heavy spin go.
+- The swing state, the combo step, the buffered press, the charge, the cooldowns, the storm and the dash's movement are part of the shared sim (`raid/blade.ts`, stepped by `stepPlayer` on both sides), so the owner predicts its own duck exactly; the e2e checks 0 corrections while dashing, cutting, quacking and spinning. No PlayerState field was added. The bit map (a katana duck carries no rifle, grenades or rockets, and there is no caped hero in Hunt Season):
+
+| Field | Bits | Meaning |
+| --- | --- | --- |
+| `arms` | bit 2 | the katana (`WeaponId.Katana` = 2); `weapon` 2 while it is in hand |
+| `mag0` | 0..3 | `BladeAct`: idle, slash 1 to 3, charge, heavy, draw |
+| `mag0` | 4 | a buffered Fire press (the next slash) |
+| `mag0` | 5..7 | the heavy's charge in eighths (kept from the release to the impact) |
+| `res0` | 0..7 | ticks into the act (saturates at 255) |
+| `ex` | 0..6 | the Dash timer: counts down from 66; dashing while above 60 |
+| `ex` | 7..14 | the Quack timer: counts down from 240; casting while above 229 |
+| `ex` | 15..18 | free |
+| `ex` | 19..31 | the keep (the trap root, the manned cannon, the cannons taken: unchanged) |
+| `dmEnergy` | 0..7 | the Blade Storm: 0 to 100 its meter (written by the server), 128 + n storming with n ticks left |
+
+- The swing timings come from the art's clip events (`apps/client/public/models/melee/melee.json`) at 30 Hz; the dash follows the clip's per-frame progress curve (scaled to 4.5 m; the clip's own reach is 3 m). These are constants (`BLADE`, `DASH`, `QUACK`, `STORM`): the client simulates them, so they change only with a deploy, and no card ever changes them.
+- Hits are server side only (`apps/server/src/raid/blade.ts`): the sim says when a swing lands (`lastBlade`: up to four events a step, so a storm pulse, a quack's impact, a dash tick and a slash landing on the same tick all count), and right after that duck's step the server sweeps the swing's shape (`raid/arc.ts`) against the hunters as the duck saw them: the lag compensated hunter history at the step's view time, bounded by the round trip the server measured and the 230 ms cap, exactly like a shot. A wall between the duck and a hunter stops the cut (`BULLET_QUERY_GROUPS`). Every hunter inside the shape is hit once per swing, so one swing cuts several. The client never sends a hit.
+- The client predicts only the feel of its own swings (`game/raid/bladeFeel.ts`): the trail, the whoosh, the slash arc, and the same arc test against the hunters as drawn: a predicted hit freezes the duck's and those hunters' clips for 55 to 95 ms (hit-stop), throws sparks and gives the camera a small kick. Damage numbers, the combo and kills come from the server (`Msg.RaidHits`, the state).
+
+### Hit shapes (`raid/arc.ts`)
+
+Slices of a disc around the feet, from the art's measured blade reach and sweep with forgiveness added (the client draws the slash arc at the same radius); height window from 0.6 m under the feet to 2.4 m over them.
+
+| Swing | Shape |
+| --- | --- |
+| Slash 1, 2 | 2.6 m, 95 degrees either side (turned 10 and -5 degrees) |
+| Slash 3 | a 1.9 m disc 1.5 m ahead (the chop) |
+| Heavy spin | all round, 3.0 m, plus 0.9 m at a full charge |
+| Blade Storm pulse | all round, 3.0 m |
+| Quack | all round, 5.5 m |
+| Dash | 1.2 m either side of the path |
+
+### What a cut does (server numbers, `raid.blade.*`)
+
+| | Default |
+| --- | --- |
+| Slash 1, 2, 3 | 24, 24, 42 damage (a Recruit has 20, a Beater 40) |
+| Heavy spin | 34, plus up to 40 with the charge |
+| Storm pulse, Quack, Dash | 12, 10, 16 |
+| Crit (a back-stab, a fully charged heavy) | x1.6 |
+| Stagger | 0.35 s for a minion (the finisher 1.6 times, the heavy 1.5), elites half, the Big Hunter a quarter |
+| Knockback | slashes 1.6 m/s, the finisher 6, the heavy 7 to 11, the quack 15 (times `raid.blade.knockScale`; elites less than half, the Big Hunter a tenth); the finisher, the heavy and the quack knock minions off their feet (`HunterAct.Launched`, 1.5 s) |
+| Storm meter | +1.2 per landed hit, +3 per kill (100 fills it) |
+| Combo | grows with every landed hit, resets 3 s (`raid.blade.comboSeconds`) after the last; its bonus on kill XP is 1% a hit, at most +50% |
+
+## The horde
+
+| Kind | Health (first objective, solo) | Moves | Fights |
+| --- | --- | --- | --- |
+| Beater (minion, a lanky villager with a big wooden spoon) | 40: two light cuts | 3.2 m/s, charges at 4.9 | hears a duck within 24 m whichever way it faces, charges, winds up (art Bonk: the spoon lands at 0.38 s) and hits for 6 within 2 m |
+| Recruit (minion, a kid-sized hunter with a butterfly net) | 20: one light cut | 3.4, charges at 5.3 | the same, 4 damage |
+| Rifleman, trapper, decoy thrower, dog (elites) | 110, 140, 100, 55 | as before | as before, but they come at the ducks (no cover, no sniping from afar): riflemen close to 14 m; a glowing ring under them |
+| Sniper | 70 | on its perch | placed on the watchtowers for objective 3; the long laser and glint as before |
+| Big Hunter | 1,800 (40% more per extra duck) | 2.6 | his camp's boss; whistles up dogs and Beaters (they give no kill XP and drop nothing) |
+
+Health grows 8% per objective and 12% per extra duck (`hunterHpScale`, times `raid.hunterHpScale`). At most 3 minions wind up a swing at one duck at once (a horde, not a blender); a wound-up swing needs the duck still in reach and in sight when the blow lands.
+
+Packs (`push.ts`): every 9, 7.5, 6.5, 6 s on objectives 1 to 4 (times `raid.push.packGapScale`), 6 to 9 minions solo (bigger later and with more ducks, up to 16), about 55% Beaters, escorted by 0 to 2 elites (one less likely on a solo duck's first objective, one more with three or four ducks). They come out of a trench exit or dugout door within 75 m of the objective, never within 25 m of a standing duck. At most `raid.maxLive` hunters alive with four ducks (44), 55% of it solo (24), 15% more per extra duck; packs wait their turn, and a pack bigger than the cap could ever hold shrinks to fit (with room for its elites), so no `raid.maxLive` or `raid.waveScale` the panel allows can stop the packs for good. Hunters stuck in a pocket of the map regroup at a trench exit (never defeated by it).
+
+Defeated hunters drop ammo (22%) or a small heal (12%); minions a third as often; the boss drops both.
+
+Hunters are server-only AI actors with the bot fairness rules (line of sight only, a reaction delay, an aim error that settles, a random spread, a visible telegraph before every attack, no shot without a clear line). Hitboxes from the art contract (`raid/hunters.ts`; the minions from `hunters.json`), lag compensated like a duck's.
 
 ## The keep (Pond Keep)
 
-The map's `raid` markup (`map_v1.json`, read and checked by `raid/markup.ts` like the rest of the map; the contract is `docs/pond-keep.md`) places everything: the core, the gate, the drawbridge (hinge, span, deck outline), the four cannon mounts and the spots a duck mans them from, the lever, the spawns, the sniper perches, the raft lanes, the trenches, the wall walk, the courtyard (`keep`) and island outlines. `raid/keep.ts` derives the geometry once at load (pure, the same on both sides).
+The castle's moving parts are those of v2 (drawbridge on its lever, the repairable gate, the four bread cannons on the towers); the core stays in the courtyard but no longer ends a run. The rules that keep a duck's prediction exact (`ex` and `dmBuff` bits, static colliders only) are unchanged (below).
 
 | Part | Rules | Numbers (admin settings) |
 | --- | --- | --- |
-| QoreChain core | In the courtyard. Hunters inside the walls hammer it (within 1.8 m of its plinth); at 0 the run is lost. | `raid.coreHp` 1000; per second rifleman 3, trapper 4, decoy thrower 3, dog 1.5, sniper 2, Big Hunter 12 (`RAID.coreDps`), times `raid.coreDamageScale`. |
-| Main gate | Hunters outside, in the gate passage, hammer it while the drawbridge is down. Looks: intact (over half health), damaged, broken (at 0). Broken lets hunters into the courtyard; mended back past 30% it holds again (shown with a plank barricade until it is whole). A duck holding Use within 3.4 m of it (either side) mends it after a short wind-up; a hit on that duck pauses the mending for 1.5 s. | `raid.gateHp` 700; per second rifleman 4, trapper 6, decoy thrower 4, dog 2.5, sniper 3, Big Hunter 20 (`RAID.gateDps`), times `raid.gateDamageScale`; `raid.gateRepairPerSecond` 35; `raid.gateBreakRepairPercent` 25. |
-| Drawbridge | The lever in the courtyard beside the gate passage: a Use press within 1.8 m raises a lowered bridge or lowers a raised one. It takes `raid.bridgeMoveSeconds` to move, the lever then rests for `raid.bridgeCooldownSeconds`, and a raised bridge comes down by itself after `raid.bridgeUpMaxSeconds` (the hunters always get a way in). It never rises under a duck (the lever says why): the raise starts at the end of the tick, once every duck has stepped, and is refused if a duck stands on the deck then. When it starts to rise, every hunter in the gate passage or on the deck goes into the moat: out of the wave, a toony splash, credited to the duck at the lever (kill XP); the Big Hunter is dunked instead (8% of his health, out on the far bank, 3 s stunned). While it is not down, hunters cannot hammer the gate (the bridge covers it) and must cross on the raft lanes. | `raid.bridgeMoveSeconds` 2.5 s, `raid.bridgeCooldownSeconds` 10 s, `raid.bridgeUpMaxSeconds` 25 s, `raid.raftSpeed` 1.5 m/s. |
-| Bread cannons | One on each corner tower. A Use press on its stand spot mans it (Use or Jump leaves; knocked or dead leaves too). While manning, the duck stands at the cannon: no walking, jumping, shooting, throwing or healing; it turns and aims, and the camera's crosshair aims the cannon: the barrel turns toward the crosshair point within its arc (about 40 degrees either way of straight out, 23 up or down, what clears the barbette) and takes the low arc that lands there. Holding Fire lobs a loaf whenever the cannon is ready: a server projectile (gravity, about 150 m at most), bursting on what it hits in a splash of crumbs that hurts hunters with falloff (a quarter at the edge) through what stops a bullet and shoves them away (dogs fly further, the Big Hunter hardly moves). Each loaf heats the cannon; at 100% it overheats and fires again only once it cooled below the vent line. | `raid.cannon.damage` 75 (times the duck's damage upgrade), `raid.cannon.radius` 3.5 m, `raid.cannon.knockback` 8 m/s, `raid.cannon.reloadSeconds` 1.3 s, `raid.cannon.heatPerShot` 30%, `raid.cannon.coolPerSecond` 10%, `raid.cannon.ventBelow` 35%. The flight constants (`CANNON` in `raid/cannon.ts`: speed 54 m/s, gravity 14 m/s², the arc limits) are client drawn, so they are constants. |
-| Wall walk and crenels | Plain map geometry: ducks fight from height; hunters see and shoot a duck on the walls only through gaps where its chest or head is in clear sight (`SIGHT_QUERY_GROUPS`), so a duck behind a merlon is safe and one in a crenel is exposed. Shots through the gatehouse's iron grate reach the hunters hammering the gate. | |
+| Main gate | Hunters hammer it only while ducks hide in the castle (after 40 s of an objective). Ducks pass through its 1.5 m wicket; a broken gate is the `KEEP_GATE_OPEN` bit. | `raid.gateHp` 700, `raid.gateDamageScale`, `raid.gateRepairPerSecond`, `raid.gateBreakRepairPercent` |
+| Drawbridge | The lever raises it; hunters on the deck go into the moat. The `KEEP_CLOSED` bit keeps ducks off a closed deck. | `raid.bridgeMoveSeconds`, `raid.bridgeCooldownSeconds`, `raid.bridgeUpMaxSeconds`, `raid.raftSpeed` |
+| Bread cannons | Use on a tower's stand spot mans one (`ex` bits 25 to 27); Fire lobs loaves (server projectiles) as far as 150 m: support for friends out in the field. | `raid.cannon.*` |
 
 ### Moving parts and the duck sim (determinism)
 
@@ -38,48 +122,12 @@ No collider a duck walks against ever changes during a run. Duck movement is pre
 - **The drawbridge deck is a static walkable collider** (Pond Keep's `castle_bridge` prop carries it; `keepShapes` adds one only for a map without). A raised drawbridge is the `KEEP_CLOSED` bit (`dmBuff` bit 4, `raid/man.ts`), which the server sets on every duck from the tick the bridge starts to rise until it is fully down: the sim then takes back any step that would put a duck onto the deck (`keepDeckRule`, exact float tests on the static deck outline). The server never raises the bridge under a duck: a pull is checked again at the tick boundary, after every duck's steps of that tick (catch-up steps included), and the bit is written in that same step, so no duck can be on the deck when the rule starts. A duck that walks onto the deck within one round trip of the lever pull gets a small correction, the only mispredict this rule can cause.
 - **The gate's leaves beside its wicket are static duck-only colliders** (`CG.DuckOnly`: Pond Keep's kit `castle_gate` boxes placed at `raid.gate`). Ducks pass the gate through its 1.5 x 2.2 m wicket door, while it holds and after. A broken gate is the `KEEP_GATE_OPEN` bit (`dmBuff` bit 5): the sim then runs that duck's movement queries without the duck-only group, so the whole opening is free. It is a per-duck query filter from sim state, never a collider switched on or off.
 - **What blocks the hunters is server only**: their mover and routes (`travel.ts`) bar the gate's line while it holds, the gate passage and the deck while the bridge is not down, and deep water (the moat is crossed on the bridge or a raft lane, never on foot). The navmesh never changes.
-- **What a raised bridge or the gate blocks for bullets and sight** is a pair of colliders with Bullet and Sight bits only (no Move, no Opaque), built on both sides and switched by their groups (`setToggle`): on the server by the keep, on the client from `state.raid.bridge` and `state.raid.gate` (`syncKeepShields`, `raid/keepSync.ts`), so predicted tracers and hit markers, drawn loaves and grenades and the cannon's arc preview meet them exactly when the server's traces do. No duck movement query sees them, so switching them cannot move a duck; the hunters' sight and shots and the server's hit traces respect them.
+- **What a raised bridge or the gate blocks for bullets and sight** is a pair of colliders with Bullet and Sight bits only (no Move, no Opaque), built on both sides and switched by their groups (`setToggle`): on the server by the keep, on the client from `state.raid.bridge` and `state.raid.gate` (`syncKeepShields`, `raid/keepSync.ts`), so predicted tracers and hit markers, drawn loaves and the cannon's arc preview meet them exactly when the server's traces do. No duck movement query sees them, so switching them cannot move a duck; the hunters' sight and shots and the server's hit traces respect them.
 - **Manning a cannon is sim state** in `ex` bits 25 to 27 (the cannon index + 1), set and cleared by the sim itself on Use and Jump presses at the static stand spot, so the owner predicts it exactly. `ex` bits 28 to 31 hold the cannons other ducks man (written by the server when they change), so the sim never mans a taken cannon; two ducks pressing Use at one cannon in the same tick: the server keeps one. The loaves are server projectiles (like the rocket); the client predicts only the feel of its own shot (the thump, the recoil, a puff) and draws the arc preview with the same pure math (`cannonAim`, `breadPath`).
 
 `npm test` checks it (`packages/shared/test/keep.test.ts`): manning replays bit for bit, the deck rule and the gate bit replay bit for bit, and a duck's whole step is identical with the toggled colliders on and off.
 
-## Waves (`raid/waves.ts`, unit tested)
-
-`k = 1 + 0.5 * (ducks - 1)` (1, 1.5, 2, 2.5), times 0.65 on a boss wave, times `raid.waveScale` (admin):
-
-| Kind | From wave | Count |
-| --- | --- | --- |
-| Rifleman | 1 | `round((3 + 0.9 w) k)`, at least 1 |
-| Hunting dog | 2 | packs of 3: `3 * round((0.6 + 0.3 (w - 2)) k)`, at least one pack |
-| Sniper | 2 | `round((0.5 + 0.3 (w - 2)) k)`, 1 to 4, at most one per free perch (the rest come as riflemen) |
-| Trapper | 3 | `round((0.7 + 0.35 (w - 3)) k)`, at least 1 |
-| Decoy thrower | 4 | `round((0.7 + 0.3 (w - 4)) k)`, at least 1 |
-| Big Hunter | 3, 6, 10 | 1 |
-
-Solo: wave 1 is 4 riflemen, wave 2 nine hunters, wave 9 twenty-eight; about 157 over a run (v1: about 150 over 15 waves). Four ducks, wave 10: about 54 plus the boss's helpers. At most 30 are alive at once (`raid.maxLive`); the rest wait their turn. Spawns come every `max(0.6, 1.8 - 0.12 w)` s (a dog pack 1.6 times that), from the markup's trench exits, never within 25 m of a standing duck.
-
-Health (`HUNTER_HP` times `(1 + 0.06 (w - 1))`, times `1 + 0.12 (ducks - 1)`, the boss `1 + 0.35 (ducks - 1)`, times `raid.hunterHpScale`): rifleman 60, trapper 85, decoy thrower 55, dog 32, sniper 50, Big Hunter 1100. Lighter than v1, and more of them.
-
-A wave past one minute, or down to its last three hunters, pushes in: no more sniping from afar, everyone goes for the keep and fights only what is within 22 m. During a push a hunter that has neither moved 2 m nor fought nor hammered for 20 s (wedged in a pocket of the map) regroups: it goes back to a trench exit away from the ducks, its health kept, and comes again. It is never removed by this, so it never clears a wave, gives XP or drops anything. Waiting for the drawbridge (any time it is not down) or riding a raft counts as busy. The HUD marks every remaining hunter once three are left, and always the ones hammering the gate or the core and the snipers aiming.
-
-## Hunters
-
-Server-only AI actors (`raid/hunter.ts`, `raid/brain.ts`, `raid/travel.ts`). They are not ducks: no seat, no input frames, no client prediction. They walk on navmesh paths with a kinematic mover (`raid/hunterMover.ts`: wall checks at knee and chest height, the ground under each step, no drop deeper than a stair, steering around each other and the ducks; they never push a duck). A planned path that crosses a barrier (the gate, the raised bridge's gateway) marks its goal out of reach for a while and the hunter goes for its objective instead; stuck in a pocket the navmesh does not join up, it scrambles out onto a connected spot toward its goal. Fair by the bot rules: line of sight only (`SIGHT_QUERY_GROUPS`, bushes hide), a reaction delay on a new target (`raid.hunterReactionMin/Max`), an aim error that settles while they aim (`raid.hunterAimError`), a random spread on every bullet (`raid.hunterSpreadDeg`), no shot without a clear line at the moment it fires, bullets stop at walls (`BULLET_QUERY_GROUPS`). A duck that goes out of sight is chased to the point where it was last seen, never to where it really is; the chase runs out after about 4 s. They leave knocked ducks alone.
-
-Where they go with no duck in mind (their objective): inside the walls, the core; the drawbridge down and the gate holding, the gate (they stand in the passage and hammer it); the gate broken, the core; the drawbridge up (or moving), the nearest raft landing on the island, paddling across a raft lane from the outer bank if they are not on the island yet, where they wait (and fight) until the bridge comes down. Riflemen and the rest charge at a run while far from their objective.
-
-| Kind | Moves | Fights | Tell |
-| --- | --- | --- | --- |
-| Rifleman | 3.0 m/s, 4.4 running | Sees 70 m, fights within 60 m. Takes half cover (trench points first, then random walkable spots, only ones it can really walk to), kneels, stands up to aim and fires one 13 damage shot (x1.6 to the head, falloff past 40 m); a bound toward the keep every two shots, a reload every five. | Red laser and a scope glint for 0.9 s (27 ticks, plus the reaction on a new target); the laser stops tracking for the last 8 ticks: step aside on the glint and the shot misses. |
-| Sniper | 3.0, 4.3 running | Walks to a free perch (a watchtower platform or a hill nest, 90 to 140 m from the walls) and holds it; sees 160 m, fights within 150 m: one 26 damage shot (x1.6 to the head, no falloff) every 2.3 to 3.3 s, a reload every four. In a push it leaves the perch. | The longest tell: the red laser (drawn up to 175 m) and a glint that grows with the distance, for 30 ticks plus 0.25 a meter (1.8 s at 90 m, 2.2 s at 140 m) plus the reaction; frozen for the last 12 ticks. An aiming sniper always has a marker on the HUD. |
-| Trapper | 3.4, 4.6 running | Closes to 9 m: a 7 pellet shotgun (5 each, falloff to 0 at 20 m). Sets a trap a few meters ahead of a duck it fights (every 8 s, at most 2 of its own, 10 in all), also in front of the gate when nobody is around. | A short glint before the shot (14 ticks). The trap is a visible net disc: armed after 0.7 s, it roots the duck that steps in for 1.6 s (and 6 damage); shoot it (30 health) to break it. |
-| Decoy thrower | 3.1 | Keeps 18 m and lobs a wooden decoy duck at a duck it sees (every 4.5 s). | The duck call honks as the decoy flies; it pops after 2.2 s in a small toony blast (32 at the center, radius 3.4 m). |
-| Hunting dog | 5.2, 6.4 running | Packs of three, notice ducks within 12 m whichever way they face, chase, bite (8) within 2.1 m every 0.9 s. | The lunge (8 ticks) before each bite. |
-| Big Hunter | 2.6 | Closes to 13 m: a double barrel, two blasts of 9 pellets (7 each, falloff to 0 at 32 m) 8 ticks apart (each blast checks the line again), then a 2.2 s reload. Whistles for help every 16 s (11 s on wave 10) while fewer than 4 helpers stand, never past `raid.maxLive` alive, and no more whistles 150 s into the wave: 3 dogs, plus a rifleman from wave 6. Whistled helpers give no kill XP and drop nothing. | A 1.1 s wind-up with an orange glint; the whistle is a clear sound and a banner. |
-
-Defeated hunters drop ammo (22%) or a small heal (12%, 25 health); the boss drops both; a hunter splashed into the moat drops nothing.
-
-### Hitboxes
+## Hitboxes
 
 Hunters have their own hitbox table (`raid/hunters.ts`, from the art contract `art/hunters/README.md` and `hunters.json`), next to the one duck table (`hitbox.ts`): a head sphere and a body capsule per kind and stance (standing or moving), turned by the hunter's yaw. The sniper wears the rifleman's body (and its table) with a ghillie hood. `HitTarget.shape` carries it; ducks never have one.
 
@@ -87,55 +135,54 @@ Hunters have their own hitbox table (`raid/hunters.ts`, from the art contract `a
 | --- | --- | --- |
 | Rifleman, sniper, decoy thrower | 0.01, 1.55, 0.185 (moving: 0.11, 1.45) | 0.23 to 1.31, 0.23 (moving to 1.20) |
 | Trapper | the same head | 0.25 to 1.31, 0.25 |
+| Beater | 0.01, 1.55, 0.185 (moving: 0.11, 1.45) | 0.195 to 1.31, 0.195 (moving to 1.20) |
+| Recruit | 0.01, 1.12, 0.133 (moving: 0.08, 1.04) | 0.185 to 0.92, 0.185 (moving to 0.84) |
 | Big Hunter | 0.01, 1.92, 0.23 (moving: 0.13, 1.79) | 0.36 to 1.60, 0.36 |
 | Dog | 0.48, 0.90, 0.16 | along the body from -0.35 to 0.24 m at 0.63 m, 0.195 |
 | Trap | none | a puck, 0.08 to 0.12 m up, radius 0.55 |
 
-Hits on hunters follow the TPS hit rule (`shot.ts`) with lag compensation (`raid/hunterHistory.ts`, the same window and cap as the ducks'). Hunters never rewind: their shots use the ducks' current positions. Grenades, rockets and bread loaves hurt hunters through the blast rules (`dmExplosives.ts` hooks; `HuntWorld.blastBread`).
+Hits on hunters follow the TPS hit rule (`shot.ts`) with lag compensation (`raid/hunterHistory.ts`, the same window and cap as the ducks'). Hunters never rewind: their shots use the ducks' current positions. Katana cuts use the swing shapes above against the same lag compensated history (the hitbox table is for the pistol); bread loaves hurt hunters through the blast rules (`HuntWorld.blastBread`).
 
 ## Upgrades (`raid/upgrades.ts`, server only)
 
-Three different cards from the nine, never one at its limit, the repair kit only while the core is hurt. The numbers are admin settings (`raid.upgrade.*`) and never touch the client sim; the card shows the server's value. The damage card also makes a duck's bread loaves hit harder.
+Three different cards from twelve, never one at its limit, the revive card only with friends. Every number is a `raid.upgrade.*` admin setting, none changes what the client simulates (no card touches a swing's timing or a cooldown).
 
 | Card | Effect (default) | Limit |
 | --- | --- | --- |
-| Damage | +15% damage to hunters | 5 |
+| Sharper blade | +15% katana and pistol damage | 5 |
 | Max health | +20 max health (healed at once), up to 250 | 5 |
 | Armor | 10% less damage taken (at most 70% in all) | 4 |
 | Regen | +1.5 health a second after 3 s without a hit | 4 |
-| Extra grenade | +1 grenade every wave | 3 |
+| Wider arcs | +15% katana reach (the server's sweep) | 3 |
 | Faster revive | revives 25% faster | 2 |
-| Headshot bonus | +30% headshot damage | 3 |
-| Lifesteal | +6 health for every hunter you bag | 3 |
-| Core repair kit | +250 core health | any |
+| Keen edge | +30% crit damage | 3 |
+| Lifesteal | +1 health per landed cut | 3 |
+| Storm charge | the Blade Storm meter fills 25% faster | 3 |
+| Bleed | cuts make hunters bleed 6 a second for 3 s | 3 |
+| Chain lightning | a heavy spin's hits arc 40% of its damage to 3 more hunters within 6 m | 2 |
+| Finisher | the combo's third cut hits 40% harder | 3 |
 
 ## XP and levels (`raid/progress.ts`, unit tested)
 
-Level `n` needs `round(100 n^1.5)` XP to reach `n + 1` (level 2 at 100 XP, 5 at 1,703, 10 at about 11,100), capped at level 50 for now. A run gives each duck in it: 60 XP per wave cleared plus 8 per wave number (wave 10 gives 132), 4 per hunter it bagged (a hunter its lever pull sent into the moat counts; a loaf's kill counts for its duck), 150 per boss down (every duck that hit it), 15 per revive, 400 for the win, at most 5,000 per run. A full solo win with every hunter bagged is about 2,450 XP (v1: about 2,400 for 15 waves in 12 to 18 minutes), so a minute of hunting is worth about 1.5 to 2 times what it was.
+Level `n` needs `round(100 n^1.5)` XP to reach `n + 1` (cap 50). A run gives each duck in it: 150 XP for the first objective taken and 50 more for each later one (150, 200, 250, 300), 5 per hunter it bagged that is not a minion, 2 per minion, the combo bonus (kill by kill, 1% of the kill's XP per combo hit, at most +50%; capped at half of the kill XP in all), 200 per Big Hunter down (every duck that hit him), 15 per revive, 500 for the win, at most 5,000 per run. A full solo win (about 200 minions, 40 elites, the boss, a decent combo) is about 2,400 XP, like a v2 win.
 
-XP is granted only by the game server at the end of a run, from what the server saw: `RaidRoom.recordResult` calls `recordRaid` (`meta/raid.ts`) once (on the end, or when the room disposes after everyone left mid-run). The meta layer recomputes every grant from the run numbers with the shared formula, writes the run (`raid_runs`, `run_key` unique: a retried write never grants twice), each duck's row (`raid_run_players`), adds the XP to `players.xp` and sets `players.level`, and keeps the personal best on Pond Keep (`raid_keep_bests`, migration 005: most waves cleared, the fastest time to clear them, runs, wins; the Kavren bests of v1 stay in `raid_bests`, no longer written, because a 15 wave best could never be beaten in a 10 wave run). Only account ducks get XP. A duck that leaves before the end keeps the XP for the waves, kills and revives it was there for, but gets no win bonus and no recorded win. No client message can grant, change or send XP: the room answers `Msg.RaidEnd` with the server's numbers, first at once (`granted 0`), then always a second answer: the stored numbers (`granted 1`), or "could not be saved" (`granted 2`).
-
-The account API sends `xp`, `level` and `raidBest` with every duck; the character select and the Play tab's duck card show the level and an XP bar.
+XP is granted only by the game server at the end of a run (`RaidRoom.recordResult` to `recordRaid`, `meta/raid.ts`), once per run id, recomputed there from the run numbers with the shared formula (the minions and the combo bonus are stored with the rest, migration 006). Only account ducks get XP; a duck that leaves before the end keeps the XP for what it was there for, without the win. The personal best of the push (most objectives, the fastest time to take them) starts fresh in `raid_push_bests` (006): a v2 best of 10 waves could never be beaten in four objectives. No client message can grant, change or send XP.
 
 ## The room (`RaidRoom.ts`)
 
-- Account only, twice: the matchmaking guard (`accountOnly.rooms` includes `raid`, codes 534 and 535) and `checkAdmission` (4412 and 4413); a party with a guest is refused like the battle royale.
-- Quick Play joins an open lobby (`joinOrCreate`); a party leader opens a fresh room (`create`) and the members follow by room id. The room holds seats for the leader's party friends for `PARTY.reserveSeconds`, and refuses a party that does not fit (`RAID_ERROR.full`, 4414) or any join once the run started. At most `raid.maxRooms` rooms (3) at once.
-- Not listed in the lobby room list. The admin dashboard lists runs as HUNT with their wave and stage; Close works on them.
-- The tick loop sleeps whenever nobody is connected (`idleWhenEmpty`); a room disposes when its last client leaves.
-- State: `IslandState.raid` (stage, wave, the stage clock, the core, the gate and its look, the drawbridge (its state, when its move started and ends, when the lever is ready, when it comes down by itself), hunters left, the boss bar, ducks, team kills, and `cannons`: who mans each, its barrel's turn and elevation, heat, overheated, when it may fire), `hunters`, `traps`, `raidDrops`, and the deathmatch's `dmRockets` for the boss wave launcher. Each duck's own run numbers and its cards go to that duck only as messages (`Msg.RaidSelf`, `Msg.RaidOffer`); a pick (`Msg.RaidPick`) is checked against its offer. No PlayerState field was added: the trap root and the cannon manning are packed into `ex`, the drawbridge and gate bits into `dmBuff`.
-- Messages: `Msg.RaidEvent` (wave start and clear, the whistle, core hit, gate hit, gate broken, gate fixed, the drawbridge moving, a splash, and to one duck: the lever refused (why, and the seconds left) and its cannon overheated), `Msg.RaidKill` (with how: shot, splashed, a loaf), loaves as `Msg.Proj` and `Msg.Boom` with `ExplosiveKind.Bread` (ids from 1,000,000), decoys with `ExplosiveKind.Decoy`.
-- Visibility: every duck in a run is an ally (team 1), so ducks always get each other's poses and teammate entries. Hunters, traps, drops, the cannons and the keep are public room state, sent to everyone in the room every tick regardless of line of sight (the CLAUDE.md Hunt Season rule).
-- Test hooks (`QWAKK_TEST_HOOKS=1`, never in production): `dev:raid` with `start`, `skip` (to a wave), `clear` (beat the wave), `break` (end it now), `hold` (ducks take no damage, the benchmark), `spawn` (one hunter of a kind in front of the asking duck), `gate` (set the gate's health), `bridge` (straight up or down), `lever` (pull it from anywhere), `tp` (move the asking duck to a cannon's stand spot 1 to 4, the lever 5, inside the gate 6, the wall walk over the gate 7, outside past the bridge 8), `gatehunters` (riflemen at the gate).
+- Account only, twice: the matchmaking guard and `checkAdmission` refuse a guest or a party with a guest.
+- Quick Play joins an open lobby; a party leader opens a fresh room and the members follow. At most `raid.maxRooms` rooms (3).
+- State: `IslandState.raid` (stage, the objective's number, `goal`, its marker `gx`, `gz`, its progress `gDone` of `gNeed`, hunters out, the boss bar, the keep), `hunters` (with `fx`: the elite ring), `raidTargets` (the crates, the towers, the camp), `traps`, `raidDrops`. Public to the room (the co-op rule: hunters are AI enemies, every duck is an ally).
+- Messages: `Msg.RaidEvent` (an objective starts, is taken, a marker taken, a streak call-out to one duck, the keep's events), `Msg.RaidKill`, `Msg.RaidHits` to the hitter only (the combo, the storm meter, each hit's damage, flags and spot: the server's numbers), `Msg.RaidSelf`, `Msg.RaidOffer`, `Msg.RaidEnd`.
+- Test hooks (`QWAKK_TEST_HOOKS=1`, never in production): `dev:raid` with `start`, `skip` (to an objective), `clear` (take it), `break`, `hold` (ducks take no damage; `wave` 2 turns it off), `spawn` (a hunter of a kind, 1 to 8), `pack` (a minion pack charging the asking duck), `horde` (hunters around it past the cap, the performance check), `meter` (a full storm meter), `tpgoal` (the duck short of the objective), `quiet` (no packs), `freeze` (the objective cannot be taken), `resetgoal`, and the keep's `gate`, `bridge`, `lever`, `tp`, `gatehunters`.
 
 ## Client
 
-- Hunters are drawn from the art (`game/raid/hunterAssets.ts`); the sniper wears the rifleman with a ghillie hood. Without the art, greybox hunters stand in. A hunter on a raft lane has a raft under it.
-- The keep (`game/raid/keepView.ts`) from the prop kit's animated GLBs (`castle_gate` in its looks plus the `Planks` barricade while a broken gate is mended, `castle_drawbridge` on its hinge with its chains following, `castle_lever`, `bread_cannon` turning and tilting to its duck's aim with a heat glow and recoil), placed from the markup; greybox stand-ins until they load. Manning a cannon shows the dotted arc and the landing ring (the same math the server fires with), and our own shot thumps at once (predicted feel); the loaves are drawn from the server's messages with the same flight step (`game/explosivesClient.ts`), bursting in crumbs and flour.
-- Telegraphs: the rifleman's and the sniper's red laser and glint, the boss's orange wind-up glint, a small health bar once a hunter is hurt; a toony pop (dust and yellow stars, no blood) on hits and defeats, a splash when the drawbridge throws them in the moat.
-- HUD (`hud/raid/raidHud.ts`): the wave bar (wave of 10, a boss star, the timer, hunters left), the core's and the gate's bars (the gate's look in its label), the drawbridge line (down, rising, up and when it comes down, the lever's cooldown), the cannon panel while manning (heat, overheated, ready), the action prompt (man the bread cannon, raise or lower the drawbridge, hold to repair the gate), the Big Hunter's bar, banners, the cards, the duck's own upgrades, the knocked and out notes, markers, and the end screen with the XP and the level bar. Phones: a compact layout; the touch Use button shows for a cannon, the lever, the gate, a revive or the second wind; Fire fires a manned cannon, Jump or Use leaves it.
-- Sounds (synthesized, `audio/sound.ts`): the wave horn, the wave clear cheer, the boss whistle, the decoy's duck call and pop, the trap snap, the core knock, the gate knock and break, the repair tap, the chain rattle and the lever clunk, the cannon thump, the loaf's bonk, the splash, the overheat hiss, the card pick.
+- The katana on every duck in the run (`player/meleeRig.ts`): in the right hand or in the scabbard on the back (the pistol out), the melee clips (`duck_melee_anims.glb`) layered over the locomotion from the pose action (the swing, the charge, the spin, the dash, the quack, the storm, the draw), the trail ribbon between the blade's TrailStart and TrailEnd while it cuts. Friends' swings come from their pose (`Act.Katana` and up). Smoothness: clips cross-fade on eased linear ramps (60 ms in, 80 ms out, 110 ms from one swing straight into another), on the move a swing plays on the upper body over the running legs (the legs never stop to swing), the katana's carry pose blends from Katana_Idle to Katana_Run with the speed and Katana_Run keeps in step with the legs (its time is the run's phase, as `melee.json` asks). `npm run anim:raid` measures it.
+- The feel (`game/raid/bladeFeel.ts`): hit-stop on predicted hits, sparks, a gentle camera kick, the slash arcs (art SlashArc), the shockwave ring, the storm's whirl, damage numbers (crits bigger and orange, kills with a star), the combo counter with its XP bonus, streak call-outs (Triple Cut, Rampage...), feathers that burst out of our kills and fly to our duck (cosmetic). Synthesized sounds: swings, crunchy cuts, the "VAK!", the storm, the dash, the streak sting, the feathers.
+- The horde: minions and elites from the art (`hunter_beater.glb`, `hunter_recruit.glb`; Charge, Bonk, Stagger, Launched, Get_Up), the elite ring, LODs (only the LOD on show stays in the scene graph, the far one without its outline), far hunters animated at a lower rate, looks pooled and made ahead one a frame (a pack never clones a dozen skinned models in one frame).
+- Objective markers: a diamond with the distance to the objective's ground, beacons over crates (the kit's large crate with a health bar), towers and the camp; the camp dressed from the prop kit (tents, a campfire, the hunters' flag, hay, crates; decoration only, no colliders). The HUD (`hud/raid/`): the objective bar (n of 4, its progress, the timer, hunters out), the gate and the drawbridge only while they matter, the skill bar with cooldowns, the cards, the end screen.
 
 ## Measured
 
-`npm run bench:raid` (README, Hunt Season tables).
+`npm run bench:raid` and `npm run perf:raid` (README, Hunt Season tables).

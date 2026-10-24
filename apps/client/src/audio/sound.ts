@@ -574,6 +574,109 @@ export class Sound {
   }
 
   /** Winning: a little rising quack fanfare. */
+  // ---- Hunt Season katana (synthesized, like everything else) ------------------
+
+  /** A band of noise swept from `f0` to `f1`: the air the blade cuts. */
+  private sweep(dest: AudioNode, t: number, dur: number, f0: number, f1: number, gain: number, q = 1.4): void {
+    const ctx = this.ctx as Ctx;
+    const src = ctx.createBufferSource();
+    src.buffer = this.noise;
+    const filt = ctx.createBiquadFilter();
+    filt.type = 'bandpass';
+    filt.Q.value = q;
+    filt.frequency.setValueAtTime(f0, t);
+    filt.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + dur * 0.35);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(filt).connect(g).connect(dest);
+    src.start(t, Math.random() * 0.5, dur + 0.05);
+  }
+
+  /** A katana swing: a whoosh, deeper and longer for the finisher (step 3) and the heavy spin (step 4). */
+  swing(step: number, at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    if (step >= 4) {
+      this.sweep(dest, t, 0.34, 500, 2600, 0.5, 1.1);
+      this.tone(dest, t, 'sine', 160, 70, 0.3, 0.2);
+    } else if (step === 3) {
+      this.sweep(dest, t, 0.24, 700, 2300, 0.45, 1.2);
+    } else this.sweep(dest, t, 0.15, step === 2 ? 2400 : 1100, step === 2 ? 900 : 3200, 0.38, 1.6);
+  }
+
+  /** A cut lands: a crunchy thwack (crit: a bright ring on top; several at once: thicker). */
+  cutHit(crit: boolean, count = 1, at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    const k = Math.min(1.6, 1 + (count - 1) * 0.15);
+    this.noiseBurst(dest, t, 0.08, 5200, 700, 0.42 * k, 0.9);
+    this.tone(dest, t, 'square', 210, 70, 0.09, 0.16 * k);
+    this.tone(dest, t + 0.01, 'triangle', 1400, 900, 0.05, 0.08);
+    if (crit) {
+      this.tone(dest, t, 'sine', 2350, 2300, 0.28, 0.16);
+      this.tone(dest, t, 'sine', 3520, 3480, 0.2, 0.08);
+    }
+  }
+
+  /** "VAK!": the duck's shockwave quack, a low boom under it. */
+  quackShock(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    this.quack(t, 0.7);
+    this.quack(t + 0.03, 0.4);
+    this.tone(this.master, t, 'sine', 110, 38, 0.42, 0.55);
+    this.noiseBurst(this.master, t, 0.32, 1800, 120, 0.35);
+  }
+
+  /** The Blade Storm starts (a rising whirl) and each of its pulses (a short whoosh). */
+  stormStart(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    this.sweep(this.master, t, 0.5, 300, 3600, 0.5, 0.9);
+    this.tone(this.master, t, 'sawtooth', 120, 480, 0.45, 0.08);
+  }
+
+  stormPulse(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (dest) this.sweep(dest, this.ctx.currentTime, 0.12, 1400, 2800, 0.22, 1.8);
+  }
+
+  /** A dash: a quick high whoosh. */
+  dash(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (dest) this.sweep(dest, this.ctx.currentTime, 0.18, 3200, 800, 0.4, 1.2);
+  }
+
+  /** A kill streak call-out: a short brassy sting, higher for bigger streaks. */
+  streak(n: number): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    const base = 440 * 2 ** (Math.min(12, n) / 24);
+    this.tone(this.master, t, 'sawtooth', base, base, 0.12, 0.12);
+    this.tone(this.master, t + 0.1, 'sawtooth', base * 1.5, base * 1.5, 0.22, 0.14);
+    this.tone(this.master, t + 0.1, 'triangle', base * 2, base * 2, 0.25, 0.08);
+  }
+
+  /** XP feathers reaching the duck: a soft pluck. */
+  feather(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    this.tone(this.master, this.ctx.currentTime, 'triangle', 1900 + Math.random() * 400, 2600, 0.06, 0.05);
+  }
+
+  /** A skill is not ready yet. */
+  notReady(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    this.tone(this.master, this.ctx.currentTime, 'square', 220, 180, 0.06, 0.06);
+  }
+
   victory(): void {
     const out = this.out();
     if (!this.ready || !out || !this.ctx) return;

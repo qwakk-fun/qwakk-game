@@ -3,6 +3,7 @@
  * agree on spread, recoil and move speed. `s.aim` counts ticks into the aim
  * (0 hip fire, ADS.inTicks full aim); every effect scales with that blend.
  */
+import { bladePoseAct, isBladeDuck } from './raid/blade.ts';
 import { ADS } from './constants.ts';
 import { hasWeapon } from './combat.ts';
 import { Button, type InputFrame } from './input.ts';
@@ -18,6 +19,21 @@ export const Act = {
   Aim: 4,
   /** Knocked (team modes): drawn crawling, no gun up. */
   Down: 5,
+  /**
+   * Hunt Season katana (raid/blade.ts bladePoseAct): the katana in hand at
+   * rest, its swings, the charge, the heavy spin, the quack, the storm, the
+   * dash and the draw. Drawn on allies from the pose like a reload.
+   */
+  Katana: 16,
+  Slash1: 17,
+  Slash2: 18,
+  Slash3: 19,
+  Charge: 20,
+  Heavy: 21,
+  Quack: 22,
+  Storm: 23,
+  Dash: 24,
+  Draw: 25,
 } as const;
 
 /** 0 (hip) to 1 (full aim). */
@@ -44,6 +60,10 @@ export function aimScale(s: PlayerSim, scale: number): number {
 /** The pose action for other players: reload, equip, heal, aiming or idle. */
 export function actionOf(s: PlayerSim): number {
   if (s.down) return Act.Down;
+  if (isBladeDuck(s)) {
+    const b = bladePoseAct(s);
+    if (b) return b;
+  }
   if (s.reload > 0) return Act.Reload;
   if (s.equip > 0) return Act.Equip;
   if (s.heal > 0) return Act.Heal;

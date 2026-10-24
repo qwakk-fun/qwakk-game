@@ -1,6 +1,6 @@
 # Qwakk game
 
-A browser third-person shooter with ducks, planned to live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Yelova**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck (or one team) is left; server bots on a navmesh fill the empty seats. Rooms play Solo, Duo or Squad; friends group up in a party in the menu (a code and a share link) and land together on one team, with name tags, ally markers through walls, knocks and revives. Next to it run always-on deathmatch rooms of 24 ducks each (at launch one, Kavren; Kumra and Tanoba are ready in the catalog) on **Kavren**, a compact village quarter from the same kit; bots fill every seat a human does not take. **Hunt Season** (Av Sezonu) is the co-op PvE mode on **Pond Keep**, a duck castle on a pond island (`docs/pond-keep.md`): 1 to 4 signed-in ducks defend the QoreChain core in its courtyard against 10 waves of duck hunters (riflemen, snipers on watchtowers and hills, trappers, decoy throwers, hunting dogs and the Big Hunter on waves 3, 6 and 10) from the walls, with four bread cannons on the towers, a drawbridge on a lever and a gate they repair, pick upgrades between waves and earn XP and levels for their duck (`docs/hunt-season.md`). All modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream. It plays on desktop (keyboard and mouse) and on phones and tablets in landscape with touch controls (see Touch controls); both join the same rooms and parties.
+A browser third-person shooter with ducks, planned to live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Yelova**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck (or one team) is left; server bots on a navmesh fill the empty seats. Rooms play Solo, Duo or Squad; friends group up in a party in the menu (a code and a share link) and land together on one team, with name tags, ally markers through walls, knocks and revives. Next to it run always-on deathmatch rooms of 24 ducks each (at launch one, Kavren; Kumra and Tanoba are ready in the catalog) on **Kavren**, a compact village quarter from the same kit; bots fill every seat a human does not take. **Hunt Season** (Av Sezonu) is the co-op PvE mode on **Pond Keep**, a duck castle on a pond island (`docs/pond-keep.md`): 1 to 4 signed-in ducks draw katanas and push out of the castle across the field through hordes of duck hunters (packs of Beaters and Recruits with riflemen, trappers, decoy throwers and dogs as elites, snipers on the watchtowers), taking four objectives in turn (the trench, the supply crates, the watchtowers, the Big Hunter's camp) with light combos, a charged heavy spin, a dash, the "VAK!" quack shockwave and the Blade Storm, a pistol for range, bread cannons on the towers, a drawbridge and a gate to fall back on; they pick upgrade cards between objectives and earn XP and levels for their duck (`docs/hunt-season.md`). All modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream. It plays on desktop (keyboard and mouse) and on phones and tablets in landscape with touch controls (see Touch controls); both join the same rooms and parties.
 
 Phase 0 (the foundation: sim, netcode, camera) is described in the netcode section below.
 
@@ -139,6 +139,7 @@ Use `npm run dev -- --host` for the client on the LAN. The optional `npm run dev
 | E | Pick up the item in front of you (shown in the prompt). On a closed crate: open it; on an open crate: take everything that fits. Hold next to a knocked teammate for 5 s to revive it |
 | I | Inventory screen (battle royale): drop items, take single items from a crate or the ground. The mouse is free while it is open, W A S D still move; I, Esc or a click outside closes it |
 | F | Jump out of the plane; open the glider |
+| Hunt Season | Left mouse: slash (keep tapping for the three-cut combo; hold and let go: the heavy spin). X: dash. Q: the "VAK!" shockwave. F: the Blade Storm (meter full). 1 / 2: katana / pistol. Shift still only sprints |
 | 4 / 5 | Bandage / medkit |
 | M | Full-screen map |
 | Tab | Scoreboard (battle royale: your gear and every duck) |
@@ -228,12 +229,14 @@ npm run perf:mobile -- DIR # phone frame time under emulation, CPU throttled 4x 
 npm run e2e:party -- DIR # parties: menu party, deathmatch allies, Duo battle royale team, knock and revive (always on port 2567)
 npm run e2e:accounts -- DIR # accounts: guest locks, email sign-up with the dev mail sink, two ducks, battle royale, log out and in, phone shots
 npm run e2e:hub -- DIR # Duck Plaza: two ducks meet, invite, team up, walk into the Deathmatch portal together and come back; a guest's locked portal; a phone (port 2567, local PostgreSQL)
-npm run e2e:raid -- DIR # Hunt Season on Pond Keep: a solo run on the dev autopilot (waves 1 and 2, a card), then the keep with test hooks (the wall walk, a bread cannon manned and fired with no prediction corrections, the gate hammered and repaired, the drawbridge lever and the raft lanes, the boss), the win, XP stored; then a party run with a phone (port 2567, local PostgreSQL)
+npm run e2e:raid -- DIR # Hunt Season on Pond Keep: a solo run through the plaza portal on the dev autopilot (several hunters cut by one swing, dashes, the quack, the Blade Storm, no prediction corrections, the trench taken), then the other objectives with test hooks, XP and the best stored; then a party run with a phone's skill buttons (port 2567, local PostgreSQL)
+npm run anim:raid -- DIR # Hunt Season animation smoothness: the local duck's bones traced every frame while it runs, runs and slashes, stands and slashes, sprints and slashes; pops per second, a frame sequence (DEV=1, THROTTLE=4)
+npm run perf:raid -- DIR # Hunt Season frame pacing in headless Chrome: frame times, long tasks, patches, tick jitter, corrections, hunter smoothness, the opening and a 44-hunter peak (THROTTLE=4, DEV=1, PROFILE=1)
 npm run test:net     # pause and stall recovery against the real server
 npm run test:br      # headless 16-bot battle royale (server workspace)
 npm run bench        # deathmatch benchmark: 32 clients, or 1 client and 31 server bots, in one and in all three catalog rooms, opened with QWAKK_DM_ROOMS=3 (npm run bench -- 4 64 for client counts in one room)
 npm run bench:br     # battle royale benchmark: network clients plus bots, bandwidth, CPU, culling (npm run bench:br -- 4 60 2 for Duo)
-npm run bench:raid   # Hunt Season benchmark: headless waves 8 to 10 and 30 hunters at once with a duck at a cannon, then 4 network clients (one at a cannon) alone and next to a full deathmatch room (port 2597)
+npm run bench:raid   # Hunt Season benchmark: four headless katana bots pushing through the objectives and 50 hunters at once, then 4 network clients cutting a 44-hunter horde alone and next to a full deathmatch room (port 2597)
 npm run bench:hub    # Duck Plaza benchmark: one plaza of 40 network clients walking, jumping, quacking and chatting, crowded and spread (port 2594)
 npm run shots:menu -- DIR # the menu at 1440x900, 1024x768, 390x844 and 844x390 with every tab (build:test first, port 2567)
 npm run shots -- DIR # screenshots of a deathmatch firefight, then hip vs aim down sights and the reloads (two ducks in a battle royale warm-up; build:test first)
@@ -249,7 +252,7 @@ cd apps/client && VITE_DEVTOOLS=1 VITE_SERVER_PORT=2577 npx vite build --outDir 
 E2E_SERVER_PORT=2577 E2E_WEB_PORT=5174 E2E_DIST=/tmp/dist-test-2577 npm run e2e
 ```
 
-Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 32), `QWAKK_DM_MAP` (deathmatch map id for one run, `greybox` works too; default `MATCH.mapId`), `QWAKK_DM_SPAWN_RADIUS` (deathmatch spawns only within this many meters of the arena center, the e2e uses it), `QWAKK_DM_HERO=0` (no caped hero; the party e2e checks health), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder), `QWAKK_CLIENT_DIR` (serve the built client from this folder on the server's port; the image sets it), `QWAKK_BR_MAX_ROOMS` (battle royale rooms open at once, default `BR.maxRooms`), `QWAKK_RAID_COUNTDOWN` (Hunt Season lobby countdown seconds, default 15), `QWAKK_RAID_MAX_ROOMS` (Hunt Season rooms at once, default 3), `QWAKK_TEST_HOOKS=1` (tests only, refused in production: a client may hurt its own battle royale duck, so the party e2e can knock one and revive it, and skip or beat Hunt Season waves).
+Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (humans per deathmatch room, default 32), `QWAKK_DM_MAP` (deathmatch map id for one run, `greybox` works too; default `MATCH.mapId`), `QWAKK_DM_SPAWN_RADIUS` (deathmatch spawns only within this many meters of the arena center, the e2e uses it), `QWAKK_DM_HERO=0` (no caped hero; the party e2e checks health), `QWAKK_INTEREST=0` (every player at full rate), `QWAKK_SPECTATORS=1` (allow spectators), `QWAKK_BR_COUNTDOWN` (battle royale start countdown seconds, default 30), `QWAKK_BR_MIN_HUMANS` (humans a room needs before the countdown starts, default 3; the e2e and benchmark scripts lower it), `QWAKK_BR_SEED` (fixed match seed: plane path, circles, loot), `QWAKK_ZONE_SCALE` (zone timeline speed-up for tests, 0.25 is four times faster), `QWAKK_NAV_CACHE` (navmesh cache folder), `QWAKK_CLIENT_DIR` (serve the built client from this folder on the server's port; the image sets it), `QWAKK_BR_MAX_ROOMS` (battle royale rooms open at once, default `BR.maxRooms`), `QWAKK_RAID_COUNTDOWN` (Hunt Season lobby countdown seconds, default 15), `QWAKK_RAID_MAX_ROOMS` (Hunt Season rooms at once, default 3), `QWAKK_TEST_HOOKS=1` (tests only, refused in production: a client may hurt its own battle royale duck, so the party e2e can knock one and revive it, and skip or take Hunt Season objectives, spawn packs and hordes, fill the storm meter).
 
 ## Meta: identity, leaderboard, menu
 
@@ -382,10 +385,10 @@ The constants stay the defaults: with nothing stored the server runs exactly as 
 | `br.firstCircleRadius` | Battle royale: First circle radius (kept 20 m above the second circle) | 220 m | 160 to 380 | new rooms |  |
 | `raid.maxRooms` | Hunt Season: Runs at once | 3 rooms | 0 to 12 | now | `QWAKK_RAID_MAX_ROOMS` |
 | `raid.lobbySeconds` | Hunt Season: Lobby countdown | 15 s | 3 to 60 | new rooms | `QWAKK_RAID_COUNTDOWN` |
-| `raid.breakSeconds` | Hunt Season: Break between waves | 10 s | 5 to 60 | new rooms |  |
+| `raid.breakSeconds` | Hunt Season: Break between objectives | 8 s | 4 to 60 | new rooms |  |
 | `raid.coreHp` | Hunt Season: Core health | 1000 hp | 100 to 5000 | new rooms |  |
-| `raid.maxLive` | Hunt Season: Hunters at once | 30 hunters | 5 to 40 | new rooms |  |
-| `raid.waveScale` | Hunt Season: Wave size | 1 x | 0.3 to 3 | new rooms |  |
+| `raid.maxLive` | Hunt Season: Hunters at once | 44 hunters | 5 to 60 | new rooms |  |
+| `raid.waveScale` | Hunt Season: Pack size | 1 x | 0.3 to 3 | new rooms |  |
 | `raid.hunterHpScale` | Hunt Season: Hunter health | 1 x | 0.3 to 3 | new rooms |  |
 | `raid.hunterDamageScale` | Hunt Season: Hunter damage | 1 x | 0.2 to 3 | new rooms |  |
 | `raid.coreDamageScale` | Hunt Season: Core damage | 1 x | 0.2 to 3 | new rooms |  |
@@ -408,14 +411,39 @@ The constants stay the defaults: with nothing stored the server runs exactly as 
 | `raid.hunterReactionMax` | Hunt Season: Hunter reaction, slowest | 25 ticks | 0 to 90 | new rooms |  |
 | `raid.hunterAimError` | Hunt Season: Hunter aim error | 0.1 rad | 0 to 0.4 | new rooms |  |
 | `raid.hunterSpreadDeg` | Hunt Season: Hunter spread | 1.1 deg | 0 to 6 | new rooms |  |
+| `raid.blade.slash1` | Hunt Season: Katana: first cut | 24 hp | 1 to 200 | new rooms |  |
+| `raid.blade.slash2` | Hunt Season: Katana: second cut | 24 hp | 1 to 200 | new rooms |  |
+| `raid.blade.slash3` | Hunt Season: Katana: finisher | 42 hp | 1 to 300 | new rooms |  |
+| `raid.blade.heavy` | Hunt Season: Katana: heavy spin | 34 hp | 1 to 300 | new rooms |  |
+| `raid.blade.heavyCharge` | Hunt Season: Katana: heavy charge bonus | 40 hp | 0 to 300 | new rooms |  |
+| `raid.blade.storm` | Hunt Season: Blade Storm pulse | 12 hp | 1 to 100 | new rooms |  |
+| `raid.blade.quack` | Hunt Season: Quack shockwave damage | 10 hp | 0 to 100 | new rooms |  |
+| `raid.blade.dash` | Hunt Season: Dash cut | 16 hp | 0 to 100 | new rooms |  |
+| `raid.blade.crit` | Hunt Season: Crit multiplier | 1.6 x | 1 to 4 | new rooms |  |
+| `raid.blade.staggerSeconds` | Hunt Season: Stagger | 0.35 s | 0 to 2 | new rooms |  |
+| `raid.blade.knockScale` | Hunt Season: Blade knockback | 1 x | 0 to 3 | new rooms |  |
+| `raid.blade.meterPerHit` | Hunt Season: Storm meter per hit | 1.2 | 0 to 20 | new rooms |  |
+| `raid.blade.meterPerKill` | Hunt Season: Storm meter per kill | 3 | 0 to 50 | new rooms |  |
+| `raid.blade.comboSeconds` | Hunt Season: Combo window | 3 s | 1 to 10 | new rooms |  |
+| `raid.blade.beaterDamage` | Hunt Season: Beater hit | 6 hp | 1 to 60 | new rooms |  |
+| `raid.blade.recruitDamage` | Hunt Season: Recruit hit | 4 hp | 1 to 60 | new rooms |  |
+| `raid.push.trenchKills` | Hunt Season: Trench: hunters to bag | 28 hunters | 5 to 200 | new rooms |  |
+| `raid.push.crates` | Hunt Season: Supply crates | 3 crates | 1 to 6 | new rooms |  |
+| `raid.push.crateHp` | Hunt Season: Supply crate health | 150 hp | 20 to 2000 | new rooms |  |
+| `raid.push.snipersPerTower` | Hunt Season: Snipers per watchtower | 2 snipers | 1 to 4 | new rooms |  |
+| `raid.push.packGapScale` | Hunt Season: Time between packs | 1 x | 0.3 to 3 | new rooms |  |
 | `raid.upgrade.damagePercent` | Hunt Season: Upgrade: damage | 15 % | 1 to 50 | new rooms |  |
 | `raid.upgrade.maxHealth` | Hunt Season: Upgrade: max health | 20 hp | 5 to 60 | new rooms |  |
 | `raid.upgrade.armorPercent` | Hunt Season: Upgrade: armor | 10 % | 1 to 30 | new rooms |  |
 | `raid.upgrade.regenPerSecond` | Hunt Season: Upgrade: regen | 1.5 hp/s | 0.5 to 6 | new rooms |  |
 | `raid.upgrade.revivePercent` | Hunt Season: Upgrade: faster revive | 25 % | 5 to 50 | new rooms |  |
-| `raid.upgrade.headshotPercent` | Hunt Season: Upgrade: headshot | 30 % | 5 to 100 | new rooms |  |
-| `raid.upgrade.lifesteal` | Hunt Season: Upgrade: lifesteal | 6 hp | 1 to 30 | new rooms |  |
-| `raid.upgrade.repair` | Hunt Season: Upgrade: core repair kit | 250 hp | 50 to 1000 | new rooms |  |
+| `raid.upgrade.reachPercent` | Hunt Season: Upgrade: wider arcs | 15 % | 5 to 50 | new rooms |  |
+| `raid.upgrade.critPercent` | Hunt Season: Upgrade: crits | 30 % | 5 to 100 | new rooms |  |
+| `raid.upgrade.lifesteal` | Hunt Season: Upgrade: lifesteal | 1 hp | 0.5 to 10 | new rooms |  |
+| `raid.upgrade.stormPercent` | Hunt Season: Upgrade: storm charge | 25 % | 5 to 100 | new rooms |  |
+| `raid.upgrade.bleedDps` | Hunt Season: Upgrade: bleed | 6 hp/s | 1 to 40 | new rooms |  |
+| `raid.upgrade.chainPercent` | Hunt Season: Upgrade: chain lightning | 40 % | 5 to 100 | new rooms |  |
+| `raid.upgrade.finisherPercent` | Hunt Season: Upgrade: finisher | 40 % | 5 to 150 | new rooms |  |
 | `raid.dropAmmoPercent` | Hunt Season: Ammo drop chance | 22 % | 0 to 100 | new rooms |  |
 | `raid.dropHealPercent` | Hunt Season: Heal drop chance | 12 % | 0 to 100 | new rooms |  |
 | `raid.healAmount` | Hunt Season: Heal drop | 25 hp | 5 to 100 | new rooms |  |
@@ -762,24 +790,46 @@ With the culling a client receives on average 3.3 of the 11 enemies alive, so a 
 
 ### Hunt Season
 
-`npm run bench:raid` on the same Apple M4 Pro (Node 24.12), Hunt Season v2 on Pond Keep. Headless: four bot ducks (`raid/duckBot.ts`, the deathmatch brain shooting hunters through the human input path) hold the wall walk by the gate with the default rules except core and gate health and hunter damage turned up and down so the run keeps going; the raid's own tick cost with up to `raid.maxLive` (30) hunters and dogs alive (snipers on their perches included); in the second run one duck mans a bread cannon and keeps firing:
+`npm run bench:raid` on the same Apple M4 Pro (Node 24.12), Hunt Season v3 (the push with the katana) on Pond Keep. Headless: four katana bot ducks (`raid/duckBot.ts`: light combos, heavy spins, dashes and quacks through the human input path) push toward the objective with the default rules (hunter damage turned down so the run keeps going); packs keep coming up to the four-duck cap (`raid.maxLive`, 44); then a forced worst case of 50 hunters at once around the four ducks:
 
 | Headless run | Raid tick avg / p95 / max (ms) | Most hunters alive | Sight rays per tick |
 | --- | --- | --- | --- |
-| Waves 8 to 10, 4 bot ducks, 120 s | 0.213 / 0.370 / 4.21 | 30 | 22.6 |
-| 30 hunters at once, 4 bot ducks (one at a cannon), 30 s | 0.241 / 0.358 / 2.15 | 30 | 21.4 |
+| The push, 4 katana bot ducks, 120 s (objective 2 reached) | 0.235 / 0.396 / 4.57 | 44 | 10.4 |
+| 50 hunters at once around 4 katana bot ducks, 30 s | 0.322 / 0.483 / 1.17 | 50 | 12.5 |
 
-Networked: a server process (port 2597, test hooks on), one raid room with 4 network clients at wave 8, the ducks held (no damage) so the wave keeps going, measured over 30 s: three send random inputs in the courtyard, one mans a bread cannon and keeps firing; alone, and next to a deathmatch room with 1 client and its 23 navmesh bots. CPU is the whole process:
+Networked: a server process (port 2597, test hooks on), one raid room with 4 network clients at the first objective, the ducks held (no damage) so it keeps going, a horde of 44 around them, all four cutting with the katana (Fire taps, Dash, Quack), measured over 30 s; alone, and next to a deathmatch room with 1 client and its 23 navmesh bots. CPU is the whole process:
 
 | Server with | Raid room tick avg / p95 / max (ms) | Patch avg / p95 (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Hunters alive (avg) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Raid (4 clients, wave 8, one at a cannon) | 1.961 / 3.564 / 11.73 | 0.313 / 0.524 | 10.8 | 388 | 5.93 | 27 (30 at the end) |
-| Raid (4 clients, wave 8, one at a cannon) + deathmatch (1 + 23 bots) | 1.287 / 2.278 / 5.78 | 0.197 / 0.372 | 19.8 | 419 | 6.35 | 27 (30 at the end) |
+| Raid (4 katana clients, a horde of 44) | 1.828 / 2.995 / 9.08 | 0.383 / 0.541 | 10.5 | 444 | 9.65 | 32 (41 at the end) |
+| Raid (4 katana clients, a horde of 44) + deathmatch (1 + 23 bots) | 1.646 / 2.909 / 4.81 | 0.292 / 0.466 | 23.0 | 416 | 9.60 | 37 (36 at the end) |
 
-- Compared with v1 on Kavren (headless 0.186 / 0.220 ms, networked 1.501 ms alone at 8.6% CPU and 1.223 ms next to a deathmatch room at 18.8%): the raid's own tick is the same; the networked room costs about 0.3 to 0.5 ms a tick and 2% of a core more (two other runs: 1.844 and 2.022 ms alone, 1.336 and 1.388 next to the deathmatch room). A CPU profile shows no single hot spot: it is spread over Rapier's ray and controller work (snipers see 160 m, riflemen 70 m, the routes check their paths against the gate and the drawbridge), the socket writes and the cannon's loaves. Each hunter looks at no more than two ducks per look-around, which halved the sight rays (42 to 22 a tick) without moving the networked number.
+- Compared with v2 (30 hunters, wave 8, one duck at a cannon: headless 0.213 ms, networked 1.961 ms alone at 10.8% CPU and 1.287 ms next to a deathmatch room at 19.8%, 5.9 KB/s down): half again as many hunters for the same tick (earlier v3 runs: 2.158 and 1.883 alone, 1.456 and 1.486 next to the deathmatch room). Down per client grows with the horde (about 10 KB/s at 35 to 40 hunters: hunters are public room state, sent every tick). The katana's hits cost little: a swing sweeps the lag compensated hunter history inside its reach and casts one ray per hunter in its shape.
 - Hunters are kinematic navmesh movers (no character controller), see only every third tick and are sent to everyone without culling (the co-op rule), so a full run costs a fraction of a deathmatch room. The networked tick includes the 4 ducks' sim steps, the state writes and the macOS light-load effect noted above.
 - An empty raid room sleeps (no tick loop) and disposes when its last client leaves.
-- `npm run bench` after Hunt Season v1 (same machine): 1 x (32 + 0) 9.175 / 10.821 / 11.65 ms, 1 x (1 + 23) 3.498 / 6.253 / 8.36, 3 x (32 + 0) 6.261 / 7.278 / 8.38, 3 x (1 + 23) 2.696 / 5.454 / 8.03; after v2 (the keep checks in the duck sim step): 9.358 / 10.778 / 11.39, 3.632 / 6.259 / 9.99, 6.294 / 7.969 / 8.43, 2.538 / 6.483 / 7.73: unchanged within run to run noise.
+- `npm run bench` after Hunt Season v1 (same machine): 1 x (32 + 0) 9.175 / 10.821 / 11.65 ms, 1 x (1 + 23) 3.498 / 6.253 / 8.36, 3 x (32 + 0) 6.261 / 7.278 / 8.38, 3 x (1 + 23) 2.696 / 5.454 / 8.03; after v2 (the keep checks in the duck sim step): 9.358 / 10.778 / 11.39, 3.632 / 6.259 / 9.99, 6.294 / 7.969 / 8.43, 2.538 / 6.483 / 7.73; after v3 (the katana branch and the ground snag retry in the duck sim step): 8.845 / 10.469 / 11.69, 4.215 / 7.664 / 10.56, 6.268 / 7.352 / 8.37, 2.834 / 6.387 / 8.85 (a first v3 run, before the retry was limited to ground contacts: 9.756, 3.993, 6.254, 2.692). The 32-client and three-room rows are unchanged; the one-room bot row moves with how the bots meet (8.3 enemy poses held per client in this run, 12.9 in the first), 3.5 to 4.2 ms across runs.
+
+Client frame pacing (`npm run perf:raid`, headless Chrome with WebGPU on the same machine, the alt test bundle, one duck on the dev autopilot, 40 s per stage; the peak holds the duck in the field with a horde of 44 topped up around it, the four-duck peak on one screen):
+
+| Stage | Hunters drawn | Frame p50 / p95 / p99 / max (ms) | Long tasks | Our CPU per frame avg / p95 (ms) | Patches/s, bytes avg / p95 | Server stamp gap p95 (ms) | Corrections | Hunter stall / jump frames | Server tick avg / p95 / max (ms) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Opening (out of the castle into the first packs) | 17 | 16.7 / 16.8 / 16.8 / 16.8 | 0 | 2.9 / 3.6 | 30.1, 106 / 175 | 36.0 | 0 | 0.47% / 0.95% | 0.48 / 0.87 / 7.2 |
+| Peak, 44 hunters | 42 | 16.7 / 16.7 / 16.8 / 16.8 | 0 | 4.6 / 6.7 | 30.1, 269 / 581 | 35.0 | 0 | 0.96% / 0.49% | 0.68 / 1.48 / 3.3 |
+
+- The hitching hunt (before v3, the same harness): frames were already smooth at 60 fps (no long tasks, 0 corrections, patches at an even 30 a second), the peak of v2's wave 9 (14 to 24 hunters) had single frames of 33 to 117 ms, and a v3 horde first spiked to 200 ms frames when a pack's looks were cloned in one frame. Three real causes, all fixed: (1) the duck sim: Rapier's controller clipped a grounded step that touched the ground at a near-zero time of impact, so a running duck stopped dead for one tick (0.87% of steps in the courtyard, 0.47% on the island); `moveCapsule` retries such a step (0.16% and 0.13%, the rest are real wall contacts); (2) the client: a new hunter look was a skinned model cloned on the frame it appeared; looks are now made ahead (one a frame) and pooled, far hunters animate at a lower rate and only the LOD on show stays in the scene graph; (3) the game: the v2 waves left long stretches of waiting behind the gate while hunters hammered it, which read as the game stalling; v3 sends the fight to the ducks.
+- With the page's CPU slowed 4 times (`THROTTLE=4`, a phone or an older laptop): the peak runs at 30 to 60 fps, our CPU 13.8 ms a frame (p95 23.5; before hunters off screen animated at an eighth of the rate and far hunters stopped re-turning their spines between mixer updates: 15.6 ms), with a few long tasks when the test hook tops a horde up past the look pool (a real pack takes pooled looks). A CPU profile puts the matrix updates of about 1,500 bones (42 hunters) and the render submission on top; the static scene is small (824 objects in the opening, 2,654 at the peak).
+- The Vite dev server (`npm run dev`, `DEV=1`) measures the same as the production build once loaded: opening 3.1 ms a frame, peak 4.9 ms on both, no long tasks.
+
+Animation smoothness (`npm run anim:raid`, the same machine; pops per second: frames where a bone in the duck's own frame jumps over 3 times as far as in the frames around it):
+
+| Move | Hand pops /s before / after | Foot pops /s before / after | Hips and head pops /s before / after |
+| --- | --- | --- | --- |
+| Run, katana out | 0.40 / 0.20 | 0.00 / 0.00 | 0.00 / 0.00 |
+| Run + light combo taps | 3.17 / 0.00 to 1.34 | 1.17 / 0.00 to 0.17 | 2.33 / 0.00 |
+| Stand + light combo taps | 2.33 / 0.00 | 2.00 / 0.00 | 2.33 / 0.50 |
+| Sprint + light combo taps | 3.18 / 0.17 to 0.67 | 2.01 / 0.00 | 2.34 / 0.00 |
+
+Before: a new swing snapped in at full weight (the finisher into the next combo's first cut moved the hand 31 cm and the hips 9 cm in one frame), every swing took the legs out of the run and back (feet popping and sliding), and the katana's idle and running arms switched at 3 m/s out of step with the legs. After: eased crossfades, swings on the upper body over the running legs while moving, the running arms in step with the run (details in `docs/hunt-season.md`, Client). What is left are the art's fastest impact frames and the finisher's recovery rising out of its crouch.
 
 ### Phones (emulated)
 
@@ -837,7 +887,7 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 
 ### Melee (Hunt Season)
 
-`melee/` holds the duck's katana kit, built by `art/melee/` (`sh art/melee/build.sh`; the full contract, with the clip table, events, attach poses and hit arcs, is `art/melee/README.md`, the numbers are in `melee/melee.json`). Not wired into the client yet.
+`melee/` holds the duck's katana kit, built by `art/melee/` (`sh art/melee/build.sh`; the full contract, with the clip table, events, attach poses and hit arcs, is `art/melee/README.md`, the numbers are in `melee/melee.json`). Wired into Hunt Season: `apps/client/src/player/meleeArt.ts` loads the kit once, `meleeRig.ts` attaches the katana and the scabbard and layers the clips over the locomotion from the sim's pose action, `katanaTrail.ts` draws the trail between `TrailStart` and `TrailEnd`, `game/raid/bladeFeel.ts` places the `SlashArc`, `Shockwave` and `Feather` effects; greybox swings stand in while it loads or if a file is missing. The swing timings in `packages/shared/src/raid/blade.ts` (`BLADE`, `DASH`) come from the clip events at 30 Hz; the sim's dash is 4.5 m (the clip's own 3.0 m reads fine stretched) and the server's hit shapes (`raid/arc.ts`) are a little more generous than the art's arcs.
 
 - `katana.glb`: `Katana` (origin at the grip, blade +Y, edge -Z) with the `Blade` mesh and the `Grip`, `TrailStart`, `TrailEnd` and `Tip` empties; `Scabbard` with its `KatanaSeat` empty. The katana rides `RightHand`, the scabbard `Spine1` (diagonally across the back), at the poses in `melee.json` `attach`.
 - `duck_melee_anims.glb`: the classic duck's bones, a separate file next to `duck_anims.glb` (which is unchanged): `Katana_Idle`, `Katana_Run` (upper), `Slash_1`, `Slash_2`, `Slash_3` (a 3-hit combo with impact, combo window and recover events), `Heavy_Charge`, `Heavy_Release` (a 360 degree spin), `Dash` (no root motion: the sim moves the duck 3.0 m along `melee.json` `dash.progress`), `Quack_Shockwave`, `Ultimate`, `Ultimate_Spin`, `Draw` and `Sheathe` (upper; the katana moves between the hand and `KatanaSeat` at their `grab` and `release` events).
@@ -859,7 +909,7 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 - Under packet loss on WebSocket (TCP), downstream stalls make remote players hitch (the interpolation buffer runs dry). WebTransport with unreliable delivery, or an adaptive interpolation delay, is the planned fix.
 - After a pause longer than about 0.2 s (a hidden tab), the server's stand-in steps differ from what the client predicted, so the duck gets one smoothed correction on return.
 - The client bundle is about 2 MB gzip, mostly Rapier (its WASM is inlined as base64 in the compat build) and Three.js.
-- Rapier's character controller sometimes refuses to move off the ground it rests on; the sim retries from 4 mm up (see `sim.ts`), which fixed every case seen in a 12,000-step scan.
+- Rapier's character controller sometimes refuses to move off the ground it rests on; the sim retries from 4 mm up (see `sim.ts`), which fixed every case seen in a 12,000-step scan. A second case (Hunt Season's hitch hunt): a grounded step that hits the ground at a near-zero time of impact is clipped to almost nothing, so a walking duck stopped for one tick (on Pond Keep's courtyard 0.87% of steps); `moveCapsule` now also retries such a step from the same lift, only when everything the controller touched is walkable ground (never a wall or a face past the slope limit) and only when the retry goes further without climbing (0.16%, the rest are real wall contacts; a duck sprinting into a 55 or 70 degree face rises a few centimeters a minute at most, as before, `sim.test.ts`; a wall-pushing duck costs one controller call a step, as before).
 - Rapier's autostep does not fire at walking or crouching speed on 0.27 m stair treads, and the wall clip in `moveCapsule` used to treat climbing a slope as a wall hit (with stop-speed friction a walking duck went up a 36 degree ramp at 0.2 m/s, a crouched one at 0.1). The clip now skips steps where the controller lifts a grounded duck, and house stairs use one ramp collider per flight under the visual steps: 4 m of stairs take 1.3 s sprinting, 1.7 s running, 3.7 s walking, 4.3 s crouched (`sim.test.ts`, `houses.test.ts`).
 - Touch controls are checked under Chrome's phone emulation (real touch events, several fingers), not yet on a real iPhone or Android phone. iPhone Safari cannot go fullscreen or lock the orientation for a page: the address bar can show, and turning the phone shows the rotate screen until it is back in landscape.
 - Knocked ducks are drawn crouched with the gun away and a sway, not lying down: the hitbox stays the crouched one, so the drawing matches it. A crawl clip from the art workstream would need a matching low hitbox.

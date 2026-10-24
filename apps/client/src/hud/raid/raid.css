@@ -134,3 +134,15 @@ body.touch-ui .raid-hud .raid-end-buttons button { padding: 8px 16px; }
 body.touch-ui .raid-hud .raid-end-card .closes { margin-top: 4px; font-size: 10px; }
 @media (max-width: 600px) { .raid-end-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } .raid-card .line { font-size: 11px; } }
 @media (prefers-reduced-motion: reduce) { .raid-banner, .raid-card, .raid-marker.tower { animation: none; } }
+
+/* v3, the push: the objective bar and the markers in the field. */
+.raid-goal { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; width: 100%; padding: 4px 10px; border-radius: 9px; background: #151619c8; font-size: 13px; }
+.raid-goal-name { color: #ffd43b; font-weight: 800; white-space: nowrap; }
+.raid-goal .raid-bar-fill { background: linear-gradient(90deg, #ffd43b, #ff8a3d); }
+.raid-goal-count { font-variant-numeric: tabular-nums; color: #fff3d6; min-width: 36px; text-align: right; }
+.raid-goal-marker { position: absolute; transform: translate(-50%, -50%); padding: 3px 8px 3px 22px; border-radius: 10px; background: #151619c8; color: #ffd43b; font-weight: 800; font-size: 12px; white-space: nowrap; }
+.raid-goal-marker::before { content: ''; position: absolute; left: 7px; top: 50%; width: 9px; height: 9px; margin-top: -5px; background: #ffd43b; transform: rotate(45deg); }
+.raid-target-marker { position: absolute; width: 18px; height: 18px; margin: -9px 0 0 -9px; transform: rotate(45deg); border: 3px solid #ffd43b; background: #ff8a3d55; box-shadow: 0 0 10px #ff8a3daa; }
+.raid-target-marker.kind-2 { border-color: #ff5a4f; }
+.raid-target-marker.kind-3 { width: 26px; height: 26px; margin: -13px 0 0 -13px; border-color: #ff6a13; }
+body.touch-ui .raid-hud .raid-goal { font-size: 11px; padding: 3px 8px; }

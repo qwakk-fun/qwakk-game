@@ -11,7 +11,7 @@ import './touch.css';
 const B = COPY.touch.buttons;
 
 /** Every button id the layer knows. */
-export type ButtonId = 'fire' | 'fireL' | 'aim' | 'jump' | 'crouch' | 'reload' | 'swap' | 'use' | 'deploy' | 'heal1' | 'heal2' | 'pause' | 'board' | 'map' | 'bag' | 'next' | 'prev' | 'grenade' | 'rocket';
+export type ButtonId = 'fire' | 'fireL' | 'aim' | 'jump' | 'crouch' | 'reload' | 'swap' | 'use' | 'deploy' | 'heal1' | 'heal2' | 'pause' | 'board' | 'map' | 'bag' | 'next' | 'prev' | 'grenade' | 'rocket' | 'dash' | 'quack' | 'storm';
 
 const SPECS: { id: ButtonId; label: string; cls: string }[] = [
   { id: 'fire', label: B.fire, cls: 'tc-btn tc-fire' },
@@ -30,6 +30,10 @@ const SPECS: { id: ButtonId; label: string; cls: string }[] = [
   // Deathmatch explosives: hold to aim the throw, let go to throw; the launcher slot while rockets last.
   { id: 'grenade', label: B.grenade, cls: 'tc-btn tc-grenade' },
   { id: 'rocket', label: B.rocket, cls: 'tc-btn tc-rocket' },
+  // Hunt Season katana skills (tap): Dash, the "VAK!" shockwave, the Blade Storm. Cooldowns sweep over them (--cd).
+  { id: 'dash', label: B.dash, cls: 'tc-btn tc-skill tc-dash' },
+  { id: 'quack', label: B.quack, cls: 'tc-btn tc-skill tc-quack' },
+  { id: 'storm', label: B.storm, cls: 'tc-btn tc-skill tc-storm' },
 ];
 
 const TOP: { id: ButtonId; label: string }[] = [

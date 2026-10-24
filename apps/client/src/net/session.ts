@@ -18,6 +18,7 @@ import {
   BR,
   INTEREST,
   RAID,
+  lastBlade,
   lastExplosive,
   NET,
   PLAYER_SIM_FIELDS,
@@ -95,6 +96,10 @@ export interface SessionHandlers {
   raidEvent?(event: number, a: number, b: number): void;
   /** Hunt Season: the run is over for us (Msg.RaidEnd fields). */
   raidEnd?(data: number[]): void;
+  /** Hunt Season: what our cuts did this tick (Msg.RaidHits: combo, storm meter, then damage, flags, x, y, z in cm per hit). */
+  raidHits?(data: number[]): void;
+  /** Hunt Season: our katana did something this step (BladeEvent kind, slash step, heavy charge; live steps only). `state` is the post-step state. */
+  localBlade?(kind: number, step: number, charge: number, state: PlayerSim): void;
 }
 
 /** A hunter as drawn (interpolated like a near duck), reused object. */
@@ -285,6 +290,7 @@ export class Session {
     this.room.onMessage(Msg.RaidKill, (d: number[]) => handlers.raidKill?.(d[0] ?? 0, d[1] ?? 0, d[2] === 1, [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)], d[6] ?? 0));
     this.room.onMessage(Msg.RaidEvent, (d: number[]) => handlers.raidEvent?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0));
     this.room.onMessage(Msg.RaidEnd, (d: number[]) => handlers.raidEnd?.(Array.isArray(d) ? d : []));
+    this.room.onMessage(Msg.RaidHits, (d: number[]) => handlers.raidHits?.(Array.isArray(d) ? d : []));
   }
 
   sendChat(text: string): void {
@@ -336,6 +342,7 @@ export class Session {
         // Effects only for live steps: a replay re-runs inputs whose shots were already shown.
         if (shot && !ctx.isReplay) this.handlers?.localShot(shot, s, frame.buttons);
         if (lastExplosive.kind && !ctx.isReplay) this.handlers?.localExplosive?.(lastExplosive.kind, s, frame.buttons);
+        if (!ctx.isReplay) for (let i = 0; i < lastBlade.n; i++) this.handlers?.localBlade?.(lastBlade.kind[i]!, lastBlade.step[i]!, lastBlade.charge[i]!, s);
       },
     });
   }

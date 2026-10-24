@@ -49,45 +49,61 @@ export function levelProgress(xp: number): { level: number; into: number; need: 
 }
 
 /**
- * Hunt Season XP for one duck's run. Tuned for Pond Keep (v2: 10 short
- * waves, about 8 to 10 minutes): a full solo win with every hunter bagged is
- * about 2,450 XP, as much as a 15 wave v1 win (about 2,400 in 12 to 18
- * minutes), so a minute of hunting is worth more than before.
+ * Hunt Season XP for one duck's run (v3, the push: four objectives, about
+ * 10 to 12 minutes solo). A full solo win (every objective, a couple of
+ * hundred minions, a few dozen elites, the Big Hunter, a decent combo) is
+ * about 2,400 XP, like a v2 win.
  */
 export const RAID_XP = {
-  /** Every wave cleared while the duck was in the run. */
-  perWave: 60,
-  /** Later waves are worth more: this much extra per wave number (wave 10 gives 60 + 9 * 8). */
-  perWaveStep: 8,
-  perKill: 4,
-  /** A boss down, for every duck that hit it. */
-  perBossKill: 150,
+  /** Objective n (1-based) cleared while the duck was in the run: perObjective + perObjectiveStep * (n - 1). */
+  perObjective: 150,
+  perObjectiveStep: 50,
+  /** An elite or any other hunter bagged (not a minion). */
+  perKill: 5,
+  /** A minion bagged (Beater, Recruit). */
+  perMinion: 2,
+  /** The Big Hunter down, for every duck that hit him. */
+  perBossKill: 200,
   /** A knocked duck brought back up. */
   perRevive: 15,
-  /** All 10 waves held. */
-  win: 400,
-  /** Most XP one run can give (a sanity cap; a full four-duck win is far below it). */
+  /** All four objectives taken. */
+  win: 500,
+  /** The combo bonus is at most this much of the kill XP it rode on (the server adds it up as `comboXp`). */
+  comboMax: 0.5,
+  /** Most XP one run can give (a sanity cap). */
   maxPerRun: 5000,
 } as const;
 
 export interface RaidXpInput {
-  /** Waves the duck saw through to the end (in order: the wave numbers 1..n). */
+  /** Objectives the duck saw through (in order: 1..n). The database calls them waves (v2). */
   wavesCleared: number;
-  /** The first wave the duck was there for (late joiners: wave 1 for everyone so far). */
+  /** The first objective the duck was there for (1 for everyone so far: the room locks at the start). */
   firstWave?: number;
+  /** Hunters bagged that are not minions (elites, snipers, dogs). */
   kills: number;
+  /** Minions bagged. */
+  minionKills?: number;
   bossKills: number;
   revives: number;
+  /** The combo bonus the server added up kill by kill (comboBonus), at most comboMax of the kill XP. */
+  comboXp?: number;
   won: boolean;
 }
 
-/** XP for one duck's run (server only grants it; the client shows the same number back). */
+/** The combo multiplier on a kill's XP at a combo count: 1% a hit, at most +50%. */
+export function comboBonus(killXp: number, combo: number): number {
+  return killXp * Math.min(RAID_XP.comboMax, Math.max(0, Math.floor(combo)) * 0.01);
+}
+
+/** XP for one duck's run (the server grants it, from its own numbers; the client shows the same number back). */
 export function raidXp(r: RaidXpInput): number {
   const first = Math.max(1, Math.floor(r.firstWave ?? 1));
   const cleared = Math.max(0, Math.floor(r.wavesCleared));
   let xp = 0;
-  for (let w = first; w < first + cleared; w++) xp += RAID_XP.perWave + RAID_XP.perWaveStep * (w - 1);
-  xp += RAID_XP.perKill * Math.max(0, Math.floor(r.kills));
+  for (let w = first; w < first + cleared; w++) xp += RAID_XP.perObjective + RAID_XP.perObjectiveStep * (w - 1);
+  const kills = RAID_XP.perKill * Math.max(0, Math.floor(r.kills)) + RAID_XP.perMinion * Math.max(0, Math.floor(r.minionKills ?? 0));
+  xp += kills;
+  xp += Math.min(Math.round(kills * RAID_XP.comboMax), Math.max(0, Math.floor(r.comboXp ?? 0)));
   xp += RAID_XP.perBossKill * Math.max(0, Math.floor(r.bossKills));
   xp += RAID_XP.perRevive * Math.max(0, Math.floor(r.revives));
   if (r.won) xp += RAID_XP.win;

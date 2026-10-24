@@ -21,11 +21,23 @@ import {
   exOcc,
   gateInReach,
   GateState,
+  Act,
+  bladeOut,
+  DASH,
+  dashTimer,
+  Goal,
   HunterAct,
+  HunterFx,
   HunterKind,
   hunterShape,
-  isBossWave,
+  isBladeDuck,
   KNOCK,
+  QUACK,
+  quackTimer,
+  STORM,
+  stormLeft,
+  stormMeter,
+  WeaponId,
   leverInReach,
   OPAQUE_QUERY_GROUPS,
   RAID,
@@ -33,12 +45,20 @@ import {
   rayHitbox,
   syncKeepShields,
   TRAP_SHAPE,
+  CRATE_SHAPE,
+  groundHeightAt,
+  TargetKind,
   type HitTarget,
   type KeepGeometry,
   type PlayerSim,
   type SimWorld,
 } from '@qwakk/shared';
-import { LeverDenied, RaidDrop, RaidEvent, RaidKillHow, type Hunter } from '@qwakk/shared/net';
+import { LeverDenied, RaidDrop, RaidEvent, RaidKillHow, type Hunter, type RaidTarget } from '@qwakk/shared/net';
+import { BladeHud } from '../hud/raid/bladeHud.ts';
+import { loadMeleeArt, meleeArt } from '../player/meleeArt.ts';
+import type { Avatar } from '../player/avatar.ts';
+import { BladeFeel } from './raid/bladeFeel.ts';
+import { buildCamp, supplyCrate } from './raid/campDecor.ts';
 import type { Sound } from '../audio/sound.ts';
 import type { TpsCamera } from '../camera/tpsCamera.ts';
 import type { Effects } from '../fx/effects.ts';
@@ -91,10 +111,21 @@ interface View {
   raft: THREE.Object3D | null;
   /** Gone from the state: kept a moment to finish its defeat, then faded. */
   goneAt: number;
+  /** The glowing ring under an elite. */
+  ring: THREE.Object3D | null;
 }
 
 const HUNTER_NAMES: Record<number, string> = {
   [HunterKind.Rifleman]: 'Rifleman', [HunterKind.Trapper]: 'Trapper', [HunterKind.Decoy]: 'Decoy thrower', [HunterKind.Dog]: 'Hunting dog', [HunterKind.Boss]: 'Big Hunter', [HunterKind.Sniper]: 'Sniper',
+  [HunterKind.Beater]: 'Beater', [HunterKind.Recruit]: 'Recruit',
+};
+
+/** What each objective is called on the HUD and its banner (push.ts Goal). */
+export const GOAL_TEXT: Record<number, { name: string; line: string }> = {
+  [Goal.Trench]: { name: 'Clear the trench', line: 'Cut through the hunters around the south-east trench' },
+  [Goal.Crates]: { name: 'Smash the supply crates', line: 'Their ammo is stacked by the dugouts' },
+  [Goal.Towers]: { name: 'Take the watchtowers', line: 'Snipers on the towers: dash in, or use the pistol (2)' },
+  [Goal.Camp]: { name: "Storm the Big Hunter's camp", line: 'Bring him down and the field is ours' },
 };
 
 export function hunterName(kind: number): string {
@@ -126,7 +157,13 @@ const isPhone = (): boolean => matchMedia('(pointer: coarse)').matches;
 
 export class RaidClient {
   readonly hud: RaidHud;
+  /** The katana's HUD and feel (Hunt Season v3). */
+  readonly bladeHud: BladeHud;
+  readonly feel: BladeFeel;
   private readonly d: RaidClientDeps;
+  /** Objective markers (crates, towers, the camp) and the objective's ground. */
+  private readonly targetsDrawn = new Map<string, { obj: THREE.Object3D; kind: number; done: number; bar: THREE.Sprite | null; marker: HTMLElement; frame?: (now: number) => void }>();
+  private readonly goalMarker: HTMLElement;
   private readonly group = new THREE.Group();
   private readonly views = new Map<string, View>();
   private readonly traps = new Map<string, { obj: THREE.Object3D; open: THREE.Object3D; sprung: THREE.Object3D; state: number }>();
@@ -167,7 +204,7 @@ export class RaidClient {
     if (i >= 0 && i < this.offer.length) this.pick(i);
   };
   /** Dev and tests: stats for the e2e. */
-  readonly stats = { hunters: 0, kills: 0, offers: 0, picks: 0, waves: 0, models: 0, greybox: 0, ended: 0, reason: 0, knocks: 0, selfRevives: 0, fired: 0, splashes: 0, bridgeMoves: 0, gateBroken: 0, gateFixed: 0, leverDenied: 0, overheats: 0, rafts: 0, snipers: 0 };
+  readonly stats = { hunters: 0, kills: 0, offers: 0, picks: 0, waves: 0, models: 0, greybox: 0, ended: 0, reason: 0, knocks: 0, selfRevives: 0, fired: 0, splashes: 0, bridgeMoves: 0, gateBroken: 0, gateFixed: 0, leverDenied: 0, overheats: 0, rafts: 0, snipers: 0, hMove: 0, hStall: 0, hJump: 0, cleared: 0, targetsDone: 0, elites: 0, minions: 0, peakHunters: 0 };
 
   constructor(deps: RaidClientDeps) {
     this.d = deps;
@@ -177,6 +214,31 @@ export class RaidClient {
     this.hud.pick = (i) => this.pick(i);
     this.hud.ended = (again) => this.leave(again);
     deps.ghud.setMode('raid');
+    this.bladeHud = new BladeHud(deps.ghud.element, deps.touch);
+    this.goalMarker = document.createElement('div');
+    this.goalMarker.className = 'raid-goal-marker';
+    this.hud.markers.append(this.goalMarker);
+    this.feel = new BladeFeel({
+      scene: deps.scene,
+      camera: deps.camera,
+      cam: deps.cam,
+      sound: deps.sound,
+      fx: deps.fx,
+      hud: this.bladeHud,
+      art: () => meleeArt(),
+      targets: () => this.targets(),
+      hunterHit: (id, sec) => {
+        const v = this.views.get(id);
+        if (!v) return;
+        v.look.hit();
+        v.look.stop(sec);
+      },
+      hitStop: (sec) => this.equipped[0]?.hitStop(sec),
+      myPos: () => this.myPos,
+    });
+    void loadMeleeArt().then((art) => {
+      for (const a of this.equipped) a.enableMelee(art, deps.scene);
+    });
     window.addEventListener('keydown', this.onKey);
     this.g = deps.sim.map.raid ?? null;
     this.keep = this.g ? new KeepView(deps.scene, deps.sim, this.g) : null;
@@ -201,6 +263,36 @@ export class RaidClient {
         this.traps.delete(id);
       }
     });
+  }
+
+  /** Our duck first, then friends: every avatar in the run carries the katana. */
+  private readonly equipped: Avatar[] = [];
+  private readonly myPos = new THREE.Vector3();
+  /** The camera's view this frame (hunters off screen animate at a lower rate). */
+  private readonly frustum = new THREE.Frustum();
+  private readonly frustumM = new THREE.Matrix4();
+  private readonly sphere = new THREE.Sphere(new THREE.Vector3(), 1.6);
+
+  /** Give an avatar its katana (now if the art is in, else when it loads). The first one is our own duck. */
+  equip(avatar: Avatar): void {
+    this.equipped.push(avatar);
+    const art = meleeArt();
+    if (art) avatar.enableMelee(art, this.d.scene);
+  }
+
+  unequip(avatar: Avatar): void {
+    const i = this.equipped.indexOf(avatar);
+    if (i > 0) this.equipped.splice(i, 1);
+  }
+
+  /** Our predicted katana did something (live steps only): the feel. */
+  localBlade(kind: number, step: number, charge: number, state: PlayerSim): void {
+    this.feel.local(kind, step, charge, state);
+  }
+
+  /** The server's hits (Msg.RaidHits): damage numbers and the combo. */
+  hits(data: number[]): void {
+    this.feel.hits(data, performance.now());
   }
 
   /** Our cards changed (Msg.RaidOffer). */
@@ -242,12 +334,18 @@ export class RaidClient {
     return this.self[0] ?? 100;
   }
 
+  private lastPopAt = 0;
+
   hunterKilled(kind: number, killerPid: number, head: boolean, at: [number, number, number], how: number = RaidKillHow.Shot): void {
     this.stats.kills++;
+    const now = performance.now();
     const s = this.d.session;
     const killer = s.playerByPid(killerPid);
     const mine = killerPid !== 0 && killerPid === s.mine?.pid;
-    this.d.ghud.killFeed(killer?.name ?? '?', hunterName(kind), how === RaidKillHow.Splash ? 'dunked' : 'bagged', head, mine);
+    // Minions fall by the dozen: they stay out of the kill feed (the damage numbers and the combo tell it).
+    const minion = kind === HunterKind.Beater || kind === HunterKind.Recruit;
+    if (!minion) this.d.ghud.killFeed(killer?.name ?? '?', hunterName(kind), how === RaidKillHow.Splash ? 'dunked' : 'bagged', head, mine);
+    if (mine && how !== RaidKillHow.Splash) this.feel.kill(at[0], at[1], at[2], !minion);
     this.tmp.set(at[0], at[1] + 1, at[2]);
     if (how === RaidKillHow.Splash) {
       // Into the moat: a big splash where it stood (the moat is below the deck).
@@ -255,7 +353,11 @@ export class RaidClient {
       this.tmp.y = at[1] - 1.5;
       this.d.fx.splash(this.tmp, 1.2);
       this.d.sound.splash(this.tmp);
-    } else this.d.fx.toonPop(this.tmp, kind === HunterKind.Boss ? 2.5 : 1.2);
+    } else if (!minion || now - this.lastPopAt > 60) {
+      // A horde falls in a heap: small pops for minions (and not more than one every few frames), bigger for elites.
+      this.lastPopAt = now;
+      this.d.fx.toonPop(this.tmp, kind === HunterKind.Boss ? 2.5 : minion ? 0.5 : 1.0, !minion);
+    }
     if (kind === HunterKind.Boss) this.d.sound.waveClear();
   }
 
@@ -290,14 +392,22 @@ export class RaidClient {
     const now = performance.now();
     const s = this.d.session;
     const byName = (pid: number): string => (pid ? (s.playerByPid(pid)?.name ?? '') : '');
-    if (ev === RaidEvent.WaveStart) {
+    if (ev === RaidEvent.GoalStart) {
       this.stats.waves = Math.max(this.stats.waves, a);
-      this.d.sound.horn(b === 1);
-      if (b === 1) this.hud.say(t('Here comes the Big Hunter'), t('Wave {n}', { n: a }), 3200, 'boss');
-      else this.hud.say(a === 1 ? t('Hunting season is open') : t('Wave {n}', { n: a }), a === 1 ? t('Hold Pond Keep and its QoreChain core') : '', 2600);
-    } else if (ev === RaidEvent.WaveClear) {
+      const g = GOAL_TEXT[b] ?? GOAL_TEXT[Goal.Trench]!;
+      this.d.sound.horn(b === Goal.Camp);
+      this.hud.say(t(g.name), a === 1 ? `${t('Hunting season is open')}. ${t(g.line)}` : t(g.line), 3400, b === Goal.Camp ? 'boss' : '');
+    } else if (ev === RaidEvent.GoalClear) {
+      this.stats.waves = Math.max(this.stats.waves, a);
+      this.stats.cleared = Math.max(this.stats.cleared, a);
       this.d.sound.waveClear();
-      this.hud.say(t('Wave {n} cleared', { n: a }), a < RAID.waves ? t('Pick an upgrade') : '', 2400);
+      this.hud.say(t('Objective taken!'), a < RAID.objectives ? t('The hunters flee. Pick an upgrade') : '', 2400);
+    } else if (ev === RaidEvent.TargetDone) {
+      this.stats.targetsDone++;
+      this.d.sound.waveClear();
+      this.hud.say(a === 1 ? t('Crate smashed!') : a === 2 ? t('Watchtower taken!') : t('Camp taken!'), '', 1600);
+    } else if (ev === RaidEvent.Streak) {
+      this.feel.streak(a, now);
     } else if (ev === RaidEvent.Whistle) {
       this.d.sound.whistle(this.tmp.set(a, 8, b));
       this.hud.say(t('The Big Hunter whistles for help!'), '', 2000, 'warn');
@@ -370,6 +480,8 @@ export class RaidClient {
     this.endView = v;
     this.offer = [];
     this.hud.showEnd(v, this.d.session.room.state.timeLeft);
+    // The combo, the call-outs and the damage numbers stop with the run (they would float over the end screen).
+    this.bladeHud.root.hidden = true;
     if (document.pointerLockElement) document.exitPointerLock();
     if (v.reason === 1) this.d.sound.victory();
   }
@@ -409,8 +521,35 @@ export class RaidClient {
     return [back, fill];
   }
 
+  /**
+   * Once the art is in: a few minion looks made ahead, one a frame, so the
+   * first packs do not clone a dozen skinned models in one frame (a hitch).
+   */
+  private prewarm(): void {
+    if (!this.art) return;
+    for (const [kind, want] of [[HunterKind.Beater, 10], [HunterKind.Recruit, 8], [HunterKind.Rifleman, 3]] as const) {
+      const list = this.lookPool.get(kind) ?? [];
+      if (this.warmed(kind) >= want) continue;
+      const look = createHunterLook(kind, this.art, isPhone());
+      look.reset();
+      list.push(look);
+      this.lookPool.set(kind, list);
+      this.warmedCount.set(kind, (this.warmedCount.get(kind) ?? 0) + 1);
+      return;
+    }
+  }
+
+  private readonly warmedCount = new Map<number, number>();
+  private warmed(kind: number): number {
+    return this.warmedCount.get(kind) ?? 0;
+  }
+
+  /** Looks of gone hunters, by kind, to dress the next ones (a clone of a skinned model costs a few ms; a horde comes and goes). */
+  private readonly lookPool = new Map<number, HunterLook[]>();
+
   private addView(id: string, h: Hunter): View {
-    const look = createHunterLook(h.kind, this.art, isPhone());
+    const pooled = this.lookPool.get(h.kind)?.pop();
+    const look = pooled ?? createHunterLook(h.kind, this.art, isPhone());
     this.group.add(look.object);
     const [barBack, barFill] = this.bar();
     let laser: THREE.Mesh | null = null;
@@ -426,15 +565,41 @@ export class RaidClient {
       glint.visible = false;
       this.group.add(glint);
     }
-    const v: View = { look, kind: h.kind, lastAct: -1, lastHp: h.hp, px: h.x, pz: h.z, speed: 0, laser, glint, barBack: barBack!, barFill: barFill!, raft: null, goneAt: 0 };
+    // Elites (every hunter that is not a minion or the boss) stand in a glowing ring.
+    let ring: THREE.Object3D | null = null;
+    if ((h.fx & HunterFx.Elite) !== 0) {
+      const art = meleeArt()?.eliteRing ?? null;
+      ring = art ? art.clone() : new THREE.Mesh(this.ringGeo, this.ringMat);
+      ring.scale.setScalar(h.kind === HunterKind.Dog ? 1.1 : 1.35);
+      this.group.add(ring);
+      this.stats.elites++;
+    } else if (h.kind === HunterKind.Beater || h.kind === HunterKind.Recruit) this.stats.minions++;
+    const v: View = { look, kind: h.kind, lastAct: -1, lastHp: h.hp, px: h.x, pz: h.z, speed: 0, laser, glint, barBack: barBack!, barFill: barFill!, raft: null, goneAt: 0, ring };
     if (isGreybox(look)) this.stats.greybox++;
     else this.stats.models++;
     this.views.set(id, v);
     return v;
   }
 
-  private dropView(v: View): void {
-    v.look.dispose();
+  private readonly ringGeo = (() => {
+    const g = new THREE.RingGeometry(0.5, 0.62, 32);
+    g.rotateX(-Math.PI / 2);
+    return g;
+  })();
+  private readonly ringMat = new THREE.MeshBasicNodeMaterial({ color: 0xff8a3d, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending });
+
+  private dropView(v: View, keep = false): void {
+    v.ring?.removeFromParent();
+    // Kept for the next hunter of its kind (models only; greybox ones are cheap and go when the art arrives).
+    if (keep && !isGreybox(v.look)) {
+      v.look.object.removeFromParent();
+      v.look.reset();
+      const list = this.lookPool.get(v.kind) ?? [];
+      if (list.length < 24) {
+        list.push(v.look);
+        this.lookPool.set(v.kind, list);
+      } else v.look.dispose();
+    } else v.look.dispose();
     v.raft?.removeFromParent();
     v.laser?.removeFromParent();
     v.glint?.removeFromParent();
@@ -447,6 +612,11 @@ export class RaidClient {
     const st = this.d.session.room.state;
     const cam = this.d.camera.position;
     const now = performance.now();
+    this.myPos.copy(myPos);
+    const c = this.d.camera;
+    c.updateMatrixWorld();
+    this.frustumM.multiplyMatrices(c.projectionMatrix, c.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.frustumM);
     // Hunters gone from the state finish their defeat, then go.
     for (const [id, v] of this.views) {
       if (st.hunters.has(id)) continue;
@@ -456,8 +626,9 @@ export class RaidClient {
       v.barFill.visible = false;
       if (v.laser) v.laser.visible = false;
       if (v.glint) v.glint.visible = false;
+      if (v.ring) v.ring.visible = false;
       if (now - v.goneAt > 900) {
-        this.dropView(v);
+        this.dropView(v, true);
         this.views.delete(id);
       }
     }
@@ -469,13 +640,25 @@ export class RaidClient {
       if (h.act !== HunterAct.Down) n++;
       const o = v.look.object;
       const sp = Math.hypot(p.x - v.px, p.z - v.pz) / Math.max(1e-3, dt);
+      // Smoothness probe (perf:raid): a walking hunter drawn standing still for a frame, or jumping ahead, is a visible hitch.
+      if ((h.act === HunterAct.Walk || h.act === HunterAct.Run) && v.speed > 1.5) {
+        this.stats.hMove++;
+        if (sp < v.speed * 0.25) this.stats.hStall++;
+        else if (sp > Math.max(4, v.speed * 2.5)) this.stats.hJump++;
+      }
       v.speed += (Math.min(9, sp) - v.speed) * Math.min(1, dt * 8);
       v.px = p.x;
       v.pz = p.z;
       o.position.set(p.x, p.y, p.z);
       o.rotation.y = p.yaw;
+      if (v.ring) {
+        v.ring.visible = h.act !== HunterAct.Down;
+        v.ring.position.set(p.x, p.y + 0.04, p.z);
+        v.ring.rotation.y = now / 900;
+      }
       const dist = cam.distanceTo(o.position);
-      v.look.update(dt, h.act, v.speed, p.pitch, dist);
+      this.sphere.center.set(p.x, p.y + 0.9, p.z);
+      v.look.update(dt, h.act, v.speed, p.pitch, dist, this.frustum.intersectsSphere(this.sphere));
       if (h.hp < v.lastHp && h.act !== HunterAct.Down) v.look.hit();
       v.lastHp = h.hp;
       if (h.act !== v.lastAct) {
@@ -510,6 +693,12 @@ export class RaidClient {
       }
     }
     this.stats.hunters = n;
+    this.stats.peakHunters = Math.max(this.stats.peakHunters, n);
+    this.prewarm();
+    this.frameTargets(st, now);
+    this.frameGoal(myPos);
+    const me = this.d.session.me;
+    this.feel.frame(dt, !!me && stormLeft(me.state as unknown as PlayerSim) > 0, myPos, this.d.camera.rotation.y);
     this.frameTraps(st);
     this.frameDrops(st, now);
     this.frameMarkers(myPos);
@@ -610,6 +799,110 @@ export class RaidClient {
     v.laser.scale.set(0.018, 0.018, len);
   }
 
+  /**
+   * Objective markers in the field: supply crates (a crate prop or a box,
+   * with a health bar, gone in a pop of splinters when smashed), the
+   * watchtowers and the camp (a pulsing beacon over each until taken).
+   */
+  private frameTargets(st: Session['room']['state'], now: number): void {
+    for (const [id, d] of this.targetsDrawn) {
+      if (st.raidTargets.has(id)) continue;
+      d.obj.removeFromParent();
+      d.marker.remove();
+      this.targetsDrawn.delete(id);
+    }
+    const w = window.innerWidth;
+    const hgt = window.innerHeight;
+    for (const [id, e] of st.raidTargets) {
+      let d = this.targetsDrawn.get(id);
+      if (!d) {
+        const obj = new THREE.Group();
+        let bar: THREE.Sprite | null = null;
+        let frame: ((now: number) => void) | undefined;
+        if (e.kind === TargetKind.Crate) {
+          // The kit's large crate with a blaze band (the hunters' supplies); a box until it loads.
+          const box = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 0.9), toonMaterial(0x8b5a2b));
+          box.position.y = 0.45;
+          box.castShadow = true;
+          const band = new THREE.Mesh(new THREE.BoxGeometry(1.14, 0.12, 0.94), toonMaterial(0xff6a13));
+          band.position.y = 0.6;
+          obj.add(box, band);
+          void supplyCrate().then((c) => {
+            if (!c) return;
+            box.removeFromParent();
+            c.scale.setScalar(0.9);
+            obj.add(c);
+          });
+          bar = new THREE.Sprite(this.barFillMat);
+          bar.center.set(0, 0.5);
+          obj.add(bar);
+        } else if (e.kind === TargetKind.Camp) {
+          const sim = this.d.sim;
+          const camp = buildCamp(obj, 0, 0, 0, (x, z) => groundHeightAt(sim, e.x + x, e.y + 20, e.z + z) - e.y);
+          frame = camp.frame;
+        }
+        obj.position.set(e.x, e.y, e.z);
+        this.group.add(obj);
+        const marker = document.createElement('div');
+        marker.className = `raid-target-marker kind-${e.kind}`;
+        this.hud.markers.append(marker);
+        d = { obj, kind: e.kind, done: -1, bar, marker, frame };
+        this.targetsDrawn.set(id, d);
+      }
+      if (d.done !== e.done) {
+        if (d.done === 0 && e.done === 1 && e.kind === TargetKind.Crate) {
+          this.tmp.set(e.x, e.y + 0.6, e.z);
+          this.d.fx.toonPop(this.tmp, 1.8);
+          this.d.fx.crumbBurst(this.tmp, 1.2);
+        }
+        d.done = e.done;
+        d.obj.visible = e.done === 0 || e.kind === TargetKind.Camp;
+      }
+      d.frame?.(now);
+      if (d.bar) {
+        const f = e.hp / 255;
+        d.bar.visible = f < 1 && e.done === 0;
+        d.bar.scale.set(1.1 * f, 0.09, 1);
+        d.bar.position.set(-0.55, 1.35, 0);
+      }
+      // The beacon on screen while it stands.
+      this.tmp.set(e.x, e.y + (e.kind === TargetKind.Tower ? 7 : 2.2), e.z).project(this.d.camera);
+      const behind = this.tmp.z > 1;
+      d.marker.hidden = e.done === 1 || behind;
+      if (!d.marker.hidden) {
+        d.marker.style.left = `${Math.max(16, Math.min(w - 16, (this.tmp.x * 0.5 + 0.5) * w))}px`;
+        d.marker.style.top = `${Math.max(16, Math.min(hgt - 16, (-this.tmp.y * 0.5 + 0.5) * hgt))}px`;
+        d.marker.style.opacity = String(0.75 + Math.sin(now / 260) * 0.25);
+      }
+    }
+  }
+
+  /** The objective's ground: a marker on screen (or at the edge, pointing to it) with its distance. */
+  private frameGoal(myPos: THREE.Vector3): void {
+    const r = this.d.session.room.state.raid;
+    const m = this.goalMarker;
+    if (r.stage !== RaidStage.Fight || r.goal === 0 || this.targetsDrawn.size > 0) {
+      m.hidden = true;
+      return;
+    }
+    const dist = Math.hypot(r.gx - myPos.x, r.gz - myPos.z);
+    m.hidden = dist < 14;
+    if (m.hidden) return;
+    const w = window.innerWidth;
+    const hgt = window.innerHeight;
+    this.tmp.set(r.gx, myPos.y + 3, r.gz).project(this.d.camera);
+    const behind = this.tmp.z > 1;
+    let x = (this.tmp.x * 0.5 + 0.5) * w;
+    let y = (-this.tmp.y * 0.5 + 0.5) * hgt;
+    if (behind) {
+      x = w - x;
+      y = hgt - 40;
+    }
+    m.style.left = `${Math.max(24, Math.min(w - 24, x))}px`;
+    m.style.top = `${Math.max(24, Math.min(hgt - 24, y))}px`;
+    m.textContent = `${Math.round(dist)} m`;
+  }
+
   private frameTraps(st: Session['room']['state']): void {
     for (const [id, tr] of this.traps) {
       if (st.traps.has(id)) continue;
@@ -694,7 +987,7 @@ export class RaidClient {
   /** Markers on screen: hunters hammering the gate or the core, aiming snipers, and every hunter once a wave is down to its last three. */
   private frameMarkers(myPos: THREE.Vector3): void {
     const st = this.d.session.room.state;
-    const showAll = st.raid.stage === RaidStage.Wave && st.raid.left <= 3;
+    const showAll = st.raid.stage === RaidStage.Fight && st.raid.left <= 3;
     const want = new Set<string>();
     const w = window.innerWidth;
     const hgt = window.innerHeight;
@@ -746,12 +1039,20 @@ export class RaidClient {
     const now = performance.now();
     const serverNow = s.room.clock.serverNow();
     const counting = r.stage === RaidStage.Lobby || r.stage === RaidStage.Break;
-    const secs = counting ? Math.max(0, (r.ends - serverNow) / 1000) : r.stage === RaidStage.Wave ? Math.max(0, (serverNow - r.waveAt) / 1000) : 0;
-    const nextWave = r.stage === RaidStage.Break ? r.wave + 1 : r.wave;
-    this.hud.bar(nextWave, isBossWave(nextWave), counting && r.ends > 0 ? Math.ceil(secs) : secs, counting, r.left, r.stage === RaidStage.Wave);
-    this.hud.core(r.coreHp, r.coreMax, now);
-    this.hud.gate(r.gateHp, r.gateMax, r.gate, now);
-    this.hud.bridge(this.bridgeLine(serverNow), r.bridge !== BridgeState.Down);
+    const secs = counting ? Math.max(0, (r.ends - serverNow) / 1000) : r.stage === RaidStage.Fight ? Math.max(0, (serverNow - r.waveAt) / 1000) : 0;
+    const g = GOAL_TEXT[r.goal];
+    const fighting = r.stage === RaidStage.Fight;
+    this.hud.goal(r.wave, fighting && g ? t(g.name) : '', fighting ? r.gDone : 0, fighting ? r.gNeed : 0, counting && r.ends > 0 ? Math.ceil(secs) : secs, counting, r.left, fighting);
+    // The castle's parts only while they matter: the gate once hunters hurt it, the drawbridge near the keep.
+    const nearKeep = this.g ? Math.hypot(this.myPos.x - this.g.core.x, this.myPos.z - this.g.core.z) < 60 : false;
+    this.hud.gate(r.gateHp, r.gateMax, r.gate, now, r.gateHp < r.gateMax);
+    this.hud.bridge(nearKeep ? this.bridgeLine(serverNow) : '', r.bridge !== BridgeState.Down);
+    const mySim = s.me?.state as unknown as PlayerSim | undefined;
+    if (mySim && isBladeDuck(mySim) && s.mine?.alive === 1) {
+      const storm = stormLeft(mySim);
+      this.bladeHud.skillsFrame({ dash: dashTimer(mySim) / DASH.cooldown, quack: quackTimer(mySim) / QUACK.cooldown, meter: stormMeter(mySim) / STORM.meterFull, storm: storm / STORM.ticks, pistol: mySim.weapon === WeaponId.Pistol });
+    } else this.bladeHud.skillsFrame(null);
+    this.bladeHud.frame(1 / 60, this.d.camera, now, 3000);
     const i = this.manning;
     const c = i >= 0 ? r.cannons.get(String(i)) : undefined;
     this.hud.cannon(i >= 0 && !!c, (c?.heat ?? 0) / 255, (c?.hot ?? 0) === 1, (c?.ready ?? 0) <= serverNow, this.d.touch && document.body.classList.contains('touch-ui'));
@@ -763,22 +1064,22 @@ export class RaidClient {
       this.lastStage = r.stage;
       if (r.stage !== RaidStage.Break && this.offer.length === 0) this.hud.offer([], 0, false);
     }
-    if (r.stage === RaidStage.Lobby) this.hud.idle(r.ends > 0 ? t('The hunt starts in {n}', { n: Math.ceil(secs) }) : t('Waiting for ducks'), t('Hold the keep. Friends can still join.'));
-    else if (r.stage === RaidStage.Break && !this.hud.cardsOpen) this.hud.idle(t('Next wave in {n}', { n: Math.ceil(secs) }), '');
+    if (r.stage === RaidStage.Lobby) this.hud.idle(r.ends > 0 ? t('The hunt starts in {n}', { n: Math.ceil(secs) }) : t('Waiting for ducks'), t('Katana drawn. Friends can still join.'));
+    else if (r.stage === RaidStage.Break && !this.hud.cardsOpen) this.hud.idle(t('Next objective in {n}', { n: Math.ceil(secs) }), '');
     else this.hud.idle('', '');
     if (this.hud.endOpen) this.hud.endCountdown(st.timeLeft);
     // Our own state: knocked, out, caught in a trap.
     const mine = s.mine;
     const me = s.me;
     if (mine && me && !this.hud.endOpen) {
-      if (mine.alive === 0 && r.stage === RaidStage.Wave) {
+      if (mine.alive === 0 && r.stage === RaidStage.Fight) {
         const w = mine.watch ? s.playerByPid(mine.watch) : null;
         this.hud.noteLine(t('You are out until the next break.'), w ? t('You are out until the next break. Watching {name}.', { name: w.name }) : '');
       } else if (me.state.down === 1) {
         const bleed = `${Math.ceil((me.state.hp / KNOCK.hp) * KNOCK.bleedSeconds)} s`;
         const touch = document.body.classList.contains('touch-ui');
         // Alone in the run: a second wind (once a wave), else a friend revives you.
-        const hint = r.ducks === 1 ? (touch ? t('Hold Use to get back up (once a wave).') : t('Hold E to get back up (once a wave).')) : t('A friend holds E next to you to revive you.');
+        const hint = r.ducks === 1 ? (touch ? t('Hold Use to get back up (once an objective).') : t('Hold E to get back up (once an objective).')) : t('A friend holds E next to you to revive you.');
         const self = s.mate(s.sessionId);
         const rev = self && self.rev > 0 ? ` ${Math.round((self.rev / 255) * 100)}%` : '';
         this.hud.noteLine(t('Down!'), `${hint}${rev} ${bleed}`);
@@ -815,7 +1116,7 @@ export class RaidClient {
     if (c >= 0) return (exOcc(sim) & (1 << c)) !== 0 ? 'taken' : 'cannon';
     if (leverInReach(g, x, y, z)) return 'lever';
     const r = s.room.state.raid;
-    if (gateInReach(g, x, y, z) && r.gateHp < r.gateMax && r.stage === RaidStage.Wave) return 'repair';
+    if (gateInReach(g, x, y, z) && r.gateHp < r.gateMax && r.stage === RaidStage.Fight) return 'repair';
     return '';
   }
 
@@ -875,7 +1176,7 @@ export class RaidClient {
     if (!me) return '';
     const act = this.useAction();
     if (act && act !== 'taken') return 'E';
-    if (st.raid.stage !== RaidStage.Wave) return '';
+    if (st.raid.stage !== RaidStage.Fight) return '';
     if (me.state.down === 1) return st.raid.ducks === 1 ? 'E' : '';
     for (const [id, m] of st.mates) {
       if (id === s.sessionId || m.down !== 1) continue;
@@ -901,23 +1202,25 @@ export class RaidClient {
   targets(): HitTarget[] {
     const out: HitTarget[] = [];
     const st = this.d.session.room.state;
-    if (st.raid.stage !== RaidStage.Wave) return out;
+    if (st.raid.stage !== RaidStage.Fight) return out;
     for (const [id, h] of st.hunters) {
       if (h.act === HunterAct.Down) continue;
       const p = this.d.session.hunterPose(id);
       if (p) out.push({ id, x: p.x, y: p.y, z: p.z, crouch: 0, yaw: p.yaw, shape: hunterShape(h.kind, h.act) });
     }
     for (const [id, e] of st.traps) if (e.state !== 2) out.push({ id, x: e.x, y: e.y, z: e.z, crouch: 0, yaw: 0, shape: TRAP_SHAPE });
+    for (const [id, e] of st.raidTargets) if (e.kind === TargetKind.Crate && e.done === 0) out.push({ id, x: e.x, y: e.y, z: e.z, crouch: 0, yaw: 0, shape: CRATE_SHAPE });
     return out;
   }
 
   /** Is a predicted hit on this id a hunter (not a duck)? */
   isHunter(id: string): boolean {
-    return this.d.session.room.state.hunters.has(id) || this.d.session.room.state.traps.has(id);
+    const st = this.d.session.room.state;
+    return st.hunters.has(id) || st.traps.has(id) || st.raidTargets.has(id);
   }
 
   /** Dev autopilot: hunters as drawn, an open offer, and a knocked friend nearby. */
-  autopilotView(): { hunters: SeenDuck[]; offer: number; knocked: { x: number; z: number } | null; home: { x: number; z: number }; core: { x: number; z: number; r: number } } {
+  autopilotView(): { hunters: SeenDuck[]; offer: number; knocked: { x: number; z: number } | null; home: { x: number; z: number }; core: { x: number; z: number; r: number }; rally: { x: number; z: number } | null; crates: { x: number; z: number }[]; gate: { x: number; z: number; nx: number; nz: number } | null } {
     const s = this.d.session;
     const hunters: SeenDuck[] = [];
     for (const [id, h] of s.room.state.hunters) {
@@ -934,7 +1237,11 @@ export class RaidClient {
     // Home: inside the gate, a few meters back (the hunters come through it).
     const g = this.g;
     const home = g ? { x: g.gate.x - g.gate.nx * 7, z: g.gate.z - g.gate.nz * 7 } : { x: 0, z: 0 };
-    return { hunters, offer: this.offer.length, knocked, home, core: g ? { x: g.core.x, z: g.core.z, r: g.core.r } : { x: 0, z: 0, r: 1 } };
+    const r = s.room.state.raid;
+    const rally = r.stage === RaidStage.Fight && r.goal > 0 ? { x: r.gx, z: r.gz } : null;
+    const crates: { x: number; z: number }[] = [];
+    for (const e of s.room.state.raidTargets.values()) if (e.kind === TargetKind.Crate && e.done === 0) crates.push({ x: e.x, z: e.z });
+    return { hunters, offer: this.offer.length, knocked, home, core: g ? { x: g.core.x, z: g.core.z, r: g.core.r } : { x: 0, z: 0, r: 1 }, rally, crates, gate: g ? { x: g.gate.x, z: g.gate.z, nx: g.gate.nx, nz: g.gate.nz } : null };
   }
 
   /** Pick card `i`, exactly as a click or a key does (the dev autopilot uses it too). */
@@ -956,10 +1263,15 @@ export class RaidClient {
   }
 
   dispose(): void {
+    this.feel.dispose();
+    this.bladeHud.dispose();
+    for (const d of this.targetsDrawn.values()) d.marker.remove();
     window.removeEventListener('keydown', this.onKey);
     this.keep?.dispose();
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
+    for (const list of this.lookPool.values()) for (const l of list) l.dispose();
+    this.lookPool.clear();
     for (const m of this.markers.values()) m.remove();
     this.group.removeFromParent();
     this.hud.dispose();

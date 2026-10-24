@@ -181,7 +181,7 @@ describe('movement feel', () => {
 
 describe('input sanitizing', () => {
   it('clamps axes, normalizes diagonals, masks buttons and rejects junk', () => {
-    const f = sanitizeInput({ seq: 5, tick: 1, mx: 9, mz: 9, buttons: 0xffff, yaw: 100, pitch: 99 })!;
+    const f = sanitizeInput({ seq: 5, tick: 1, mx: 9, mz: 9, buttons: 0xfffffff, yaw: 100, pitch: 99 })!;
     expect(Math.hypot(f.mx, f.mz)).toBeCloseTo(1, 6);
     expect(f.buttons).toBe(ALL_BUTTONS);
     expect(f.yaw).toBeGreaterThanOrEqual(-Math.PI);
@@ -224,6 +224,46 @@ describe('controller robustness', () => {
     stepPlayer(sim, p, { seq: 0, tick: 0, mx: 0.07142890922957867, mz: 0.9974456932215773, buttons: Button.Sprint, yaw: 0.22499999403953552, pitch: -0.1 });
     expect(Math.hypot(p.x - x0, p.z - z0)).toBeGreaterThan(0.2);
     expect(Math.hypot(p.vx, p.vz)).toBeGreaterThan(6);
+  });
+
+  /** A floor high above the map plus one extra box; counts the controller's calls. */
+  function boxWorld(extra: ShapeDef): { sim: SimWorld; calls: () => number } {
+    const base = 100;
+    const shapes: ShapeDef[] = [{ type: 'box', bits: SOLID_BITS, kind: 'floor', c: [0, base - 0.5, 0], h: [30, 0.5, 30], q: [0, 0, 0, 1] }, extra];
+    const sim = createSimWorld({ ...generateMap(SEED), shapes, boxes: [] });
+    let calls = 0;
+    const ctl = sim.controller;
+    const orig = ctl.computeColliderMovement.bind(ctl);
+    ctl.computeColliderMovement = ((...a: Parameters<typeof orig>) => {
+      calls++;
+      return orig(...a);
+    }) as typeof ctl.computeColliderMovement;
+    return { sim, calls: () => calls };
+  }
+
+  it('the stuck-on-ground retry never climbs a face steeper than the slope limit', () => {
+    for (const deg of [55, 70, 80]) {
+      const a = (deg * Math.PI) / 180;
+      const { sim } = boxWorld({ type: 'box', bits: SOLID_BITS, kind: 'wall', c: [6, 100, 0], h: [8, 0.2, 5], q: [0, 0, Math.sin(a / 2), Math.cos(a / 2)] });
+      const duck = createPlayerSim(0, 100.05, 0);
+      let top = duck.y;
+      for (let t = 1; t <= 30 * 60; t++) {
+        stepPlayer(sim, duck, { seq: t, tick: t, mx: 0, mz: 1, buttons: Button.Sprint, yaw: -Math.PI / 2, pitch: 0 });
+        top = Math.max(top, duck.y);
+      }
+      // A minute of sprinting into it: the controller's skin lets it up a few centimeters at most.
+      expect(top - 100, `${deg} degrees`).toBeLessThan(0.1);
+      sim.dispose();
+    }
+  });
+
+  it('a duck pushing into a wall costs one controller call a step (no retry against walls)', () => {
+    const { sim, calls } = boxWorld({ type: 'box', bits: SOLID_BITS, kind: 'wall', c: [3, 101.5, 0], h: [0.5, 1.5, 5], q: [0, 0, 0, 1] });
+    const duck = createPlayerSim(0, 100.05, 0);
+    for (let t = 1; t <= 150; t++) stepPlayer(sim, duck, { seq: t, tick: t, mx: 0, mz: 1, buttons: Button.Sprint, yaw: -Math.PI / 2, pitch: 0 });
+    expect(duck.x).toBeLessThan(2.5);
+    expect(calls() / 150).toBeLessThan(1.1);
+    sim.dispose();
   });
 });
 

@@ -5,6 +5,6 @@
  */
 export * from './constants.ts';
 export * from './hunters.ts';
-export * from './waves.ts';
+export * from './push.ts';
 export * from './progress.ts';
 export * from './upgrades.ts';

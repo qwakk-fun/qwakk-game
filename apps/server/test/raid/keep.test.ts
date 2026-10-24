@@ -26,6 +26,9 @@ async function raid(ducks = 1, rules = {}, events: Partial<RaidEvents> = {}): Pr
   const h = await headlessRaid({ ducks: 0, rules, events });
   const bots = Array.from({ length: ducks }, () => puppet());
   for (const b of bots) h.raid.addBotDuck(b);
+  // No packs: these tests place their own hunters; and the castle's gate is their goal at once (no grace).
+  h.raid.push.quiet = true;
+  h.raid.push.castleRaidAfter = 0;
   h.raid.beginTick(0, 0);
   return { h, seats: [...h.raid.seats.values()], bots };
 }
@@ -41,17 +44,23 @@ function away(h: HeadlessRaid): void {
   for (const s of h.raid.seats.values()) Object.assign(s.sim, { x: -100 + s.pid * 2, y: 30, z: -100 });
 }
 
+/** v3: the ducks fall back into the castle (by the lever, out of sight behind the walls): the hunters outside go for the gate. */
+function hide(h: HeadlessRaid): void {
+  for (const s of h.raid.seats.values()) h.raid.moveForTest(s, 5);
+}
+
 beforeAll(async () => {
   await keepNav();
 }, 180_000);
 
 describe('the gate', () => {
-  it('hunters at the gate hammer it: intact, damaged, broken; broken lets them in for the core', async () => {
+  it('with the ducks fallen back into the castle, hunters at the gate hammer it: intact, damaged, broken; broken lets them in', async () => {
     const events: string[] = [];
-    const { h } = await raid(1, { gateHp: 200 }, { gateBroken: () => void events.push('broken') });
+    const { h } = await raid(1, { gateHp: 200, hunterDamageScale: 0.2 }, { gateBroken: () => void events.push('broken') });
     h.raid.skipTo(1);
     h.raid.hunts.clear();
-    away(h);
+    h.raid.hold = true;
+    hide(h);
     h.raid.huntersAtGate(4);
     expect(h.raid.keep.gateState).toBe(GateState.Intact);
     h.run(4);
@@ -62,11 +71,9 @@ describe('the gate', () => {
     h.run(30, (r) => r.keep.gateBroken);
     expect(h.raid.keep.gateState).toBe(GateState.Broken);
     expect(events).toEqual(['broken']);
-    // Now they go in: some hunter gets inside the walls and hammers the core.
-    const core = h.raid.coreHp;
-    h.run(25, (r) => r.coreHp < core);
+    // Now they go in after the ducks: some hunter gets inside the walls.
+    h.run(25, (r) => [...r.hunts.hunters.values()].some((x) => inKeep(r.geometry, x.x, x.z)));
     expect([...h.raid.hunts.hunters.values()].some((x) => inKeep(h.raid.geometry, x.x, x.z))).toBe(true);
-    expect(h.raid.coreHp).toBeLessThan(core);
   }, 60_000);
 
   it('never lets a hunter through while it holds (not even a stuck one)', async () => {
@@ -248,11 +255,12 @@ describe('the drawbridge', () => {
     expect(h.raid.keep.gateHp).toBe(gate);
   });
 
-  it('while it is up, hunters bound for the gate paddle across a raft lane and wait on the island', async () => {
+  it('while it is up, hunters bound for the gate (the ducks hide in the castle) paddle across a raft lane and wait on the island', async () => {
     const { h } = await raid(1, { bridgeUpMaxSeconds: 120, raftSpeed: 3 });
     h.raid.skipTo(1);
     h.raid.hunts.clear();
-    away(h);
+    h.raid.hold = true;
+    hide(h);
     h.raid.keep.forceBridge(BridgeState.Up, h.raid.currentTick);
     const lane = h.raid.geometry.mark.raftLanes[0]!;
     const x = h.raid.hunts.spawnForTest(HunterKind.Rifleman, lane.from[0] + (lane.from[0] - lane.to[0]) * 0.8, lane.from[1] + (lane.from[1] - lane.to[1]) * 0.8);
@@ -295,10 +303,10 @@ describe('the stuck safety net', () => {
     return x;
   }
 
-  it('waiting at a raised drawbridge is busy (no regroup); stuck while it is down, a hunter regroups, alive, and the wave does not clear', async () => {
+  it('waiting at a raised drawbridge is busy (no regroup); stuck while it is down, a hunter regroups, alive, and the objective gets nothing', async () => {
     const cleared: number[] = [];
     const downs: number[] = [];
-    const { h, seats } = await raid(1, { bridgeUpMaxSeconds: 120 }, { waveClear: (w) => void cleared.push(w), hunterDown: (x) => void downs.push(x.kind) });
+    const { h, seats } = await raid(1, { bridgeUpMaxSeconds: 120 }, { goalClear: (w) => void cleared.push(w), hunterDown: (x) => void downs.push(x.kind) });
     h.raid.skipTo(1);
     h.raid.hunts.clear();
     // The duck hides in the keep (no hunter sees it).
@@ -310,7 +318,7 @@ describe('the stuck safety net', () => {
     expect(h.raid.hunts.regrouped).toBe(0);
     expect(h.raid.hunts.hunters.has(x.id)).toBe(true);
     expect(cleared).toEqual([]);
-    expect(h.raid.stage).toBe(RaidStage.Wave);
+    expect(h.raid.stage).toBe(RaidStage.Fight);
     // Bridge down, still wedged: after 20 s it goes back to a trench exit (not defeated), the wave goes on.
     h.raid.keep.forceBridge(BridgeState.Down, h.raid.currentTick);
     const hp = x.hp;
@@ -322,7 +330,7 @@ describe('the stuck safety net', () => {
     expect(x.hp).toBe(hp);
     expect(downs).toEqual([]);
     expect(cleared).toEqual([]);
-    expect(h.raid.stage).toBe(RaidStage.Wave);
+    expect(h.raid.stage).toBe(RaidStage.Fight);
     expect(h.raid.ducks.get(seats[0]!.id)!.wavesCleared).toBe(0);
     expect(h.raid.ducks.get(seats[0]!.id)!.kills).toBe(0);
   }, 120_000);
@@ -472,6 +480,6 @@ describe('the bread cannons', () => {
     expect(h.raid.keep.loaves.size + 1).toBeGreaterThan(0);
     expect(b!.sim.hp).toBe(100);
     expect(a!.sim.hp).toBe(100);
-    expect(h.raid.stage).toBe(RaidStage.Wave);
+    expect(h.raid.stage).toBe(RaidStage.Fight);
   });
 });

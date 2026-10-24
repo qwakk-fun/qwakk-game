@@ -20,17 +20,14 @@ import {
   hunterHpScale,
   hunterShape,
   inGateway,
+  isMinion,
   inKeep,
-  isBossWave,
   MOVE_QUERY_GROUPS,
-  onIsland,
   RAID,
-  spawnGapSeconds,
   stepGrenade,
   TRAP_SHAPE,
   TICK_RATE,
   waterSurfaceAt,
-  waveComposition,
   type Flight,
   type HitTarget,
   type KeepGeometry,
@@ -44,7 +41,7 @@ import { BITE, DECOY, KIND, newHunter, TRAP, WHISTLE, type GunNumbers, type Hunt
 import { HunterHistory } from './hunterHistory.ts';
 import type { RaidRules } from './rules.ts';
 import type { DuckTarget } from './sight.ts';
-import { atCore, atGate, coreSpot, gateSpot, holdSpot, raftLanes, trenchPoints } from './spawns.ts';
+import { atCore, atGate, gateSpot, holdSpot, raftLanes, trenchPoints } from './spawns.ts';
 import { keepBarrier, type Objective } from './travel.ts';
 import type { Barrier } from './hunterMover.ts';
 
@@ -94,15 +91,13 @@ export interface HuntHost {
   /** `how`: RaidKillHow (shot, splashed into the moat, a bread loaf). */
   hunterDown(h: HunterAgent, killerId: string | null, head: boolean, how: number): void;
   whistle(h: HunterAgent): void;
+  /** A minion's swing hit a duck (its kind's damage, the rules' scale). */
+  swingHit(h: HunterAgent, duckId: string): void;
   decoyLaunched(d: DecoyState): void;
   decoyBoom(d: DecoyState, x: number, y: number, z: number): void;
 }
 
-type Unit = { kind: number; count: number };
-
-/** A wave past this long: the rest push in (no more sniping from afar), so a wave never drags on. */
-const PUSH_AFTER_TICKS = 60 * TICK_RATE;
-/** While pushing, a hunter stuck this long without moving or fighting regroups at a trench exit (checkStuck). */
+/** A hunter stuck this long without moving or fighting regroups at a trench exit (checkStuck). */
 const GIVE_UP_TICKS = 20 * TICK_RATE;
 
 export class HuntWorld {
@@ -113,14 +108,15 @@ export class HuntWorld {
   readonly history = new HunterHistory();
   /** Hunters a boss whistled up (still standing ones count against its next whistle). */
   private readonly helperIds = new Set<string>();
-  private queue: Unit[] = [];
-  private nextSpawn = 0;
   private serial = 0;
-  private wave = 0;
+  /** The objective in play (1-based) and the ducks in the run: how tough new hunters are. */
+  private goal = 1;
   private ducksInRun = 1;
   private tick = 0;
-  /** Tick the wave began (stragglers stop sniping after a while). */
-  private waveStartTick = 0;
+  /** Where packs head for while no duck holds their attention (the objective's ground; the push director sets it). */
+  rally: P3 | null = null;
+  /** From this tick on, ducks hiding in the castle bring the hunters to its gate (slow ducks get raided; the push director sets it). */
+  castleRaidFrom = 0;
   private readonly host: HuntHost;
   readonly keep: KeepGeometry;
   private readonly spawns: P3[];
@@ -148,14 +144,6 @@ export class HuntWorld {
     this.barrier = keepBarrier(keep, this.keepState, (x, z) => inGateway(keep, x, z, 0.4), (x, y, z) => !!water && y < waterSurfaceAt(water, x, z) - 0.6);
   }
 
-  /** Hunters still to beat this wave: standing and still to come. */
-  get left(): number {
-    let n = 0;
-    for (const h of this.hunters.values()) if (h.downTicks === 0) n++;
-    for (const u of this.queue) n += u.count;
-    return n;
-  }
-
   get alive(): number {
     let n = 0;
     for (const h of this.hunters.values()) if (h.downTicks === 0) n++;
@@ -167,38 +155,63 @@ export class HuntWorld {
     return null;
   }
 
-  /** Every hunter of this wave is spawned and beaten. */
-  get cleared(): boolean {
-    return this.queue.length === 0 && this.alive === 0;
+  /** The server tick now (set at the start of every tick, so hunters spawned between steps know when they were born). */
+  setTick(tick: number): void {
+    this.tick = tick;
   }
 
-  /** A new wave's spawn queue (shuffled, the boss early; the admin wave size scales the counts). */
-  startWave(wave: number, ducks: number, tick: number): void {
-    this.wave = wave;
-    this.ducksInRun = ducks;
-    this.waveStartTick = tick;
-    const c = waveComposition(wave, ducks);
-    const scale = this.host.rules.waveScale;
-    const n = (v: number): number => (v > 0 ? Math.max(1, Math.round(v * scale)) : 0);
-    const units: Unit[] = [];
-    for (let i = 0; i < n(c.rifleman); i++) units.push({ kind: HunterKind.Rifleman, count: 1 });
-    for (let i = 0; i < n(c.trapper); i++) units.push({ kind: HunterKind.Trapper, count: 1 });
-    for (let i = 0; i < n(c.decoy); i++) units.push({ kind: HunterKind.Decoy, count: 1 });
-    for (let i = 0; i < n(c.dog / 3); i++) units.push({ kind: HunterKind.Dog, count: 3 });
-    // Snipers only as many as there are perches (the rest come as riflemen).
-    const snipers = n(c.sniper);
-    for (let i = 0; i < snipers; i++) units.push({ kind: i < this.perches.length ? HunterKind.Sniper : HunterKind.Rifleman, count: 1 });
-    for (let i = units.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [units[i], units[j]] = [units[j]!, units[i]!];
-    }
-    // The opening spawn is always a rifleman (readable start), the boss comes third.
-    const first = units.findIndex((u) => u.kind === HunterKind.Rifleman);
-    if (first > 0) units.unshift(...units.splice(first, 1));
-    if (c.boss) units.splice(Math.min(2, units.length), 0, { kind: HunterKind.Boss, count: 1 });
-    this.queue = units;
-    this.nextSpawn = tick + Math.round(1.5 * TICK_RATE);
+  /** Most hunters alive at once for this run: `raid.maxLive` for four ducks, fewer for fewer (solo about half). */
+  get liveCap(): number {
+    return Math.max(6, Math.round(this.host.rules.maxLive * (0.55 + 0.15 * (Math.min(RAID.maxDucks, this.ducksInRun) - 1))));
+  }
+
+  /** A new objective: how tough the hunters it sends are. */
+  setStage(goal: number, ducks: number): void {
+    this.goal = Math.max(1, goal);
+    this.ducksInRun = Math.max(1, ducks);
     this.helperIds.clear();
+  }
+
+  /** Spawn points (trench exits, dugout doors) within `range` of a spot and away from standing ducks, nearest first. */
+  spawnsNear(x: number, z: number, range: number, minFromDucks = 25): P3[] {
+    const ducks = this.host.ducks().filter((d) => d.standing);
+    return this.spawns
+      .filter((p) => Math.hypot(p.x - x, p.z - z) <= range && ducks.every((d) => Math.hypot(d.x - p.x, d.z - p.z) > minFromDucks))
+      .sort((a, b) => Math.hypot(a.x - x, a.z - z) - Math.hypot(b.x - x, b.z - z));
+  }
+
+  /**
+   * A pack: `count` hunters of `kind` around a spot (a loose blob), heading
+   * for `rally`. Returns them. Never past `raid.maxLive` alive.
+   */
+  spawnGroup(kind: number, count: number, at: P3, rally: P3 | null, spread = 1.3, force = false): HunterAgent[] {
+    const out: HunterAgent[] = [];
+    const room = force ? count : Math.max(0, this.liveCap - this.alive);
+    const n = Math.min(count, room);
+    const baseHp = HUNTER_HP[kind] ?? 90;
+    const hp = Math.round(baseHp * hunterHpScale(this.goal, this.ducksInRun, kind) * this.host.rules.hunterHpScale);
+    const sim = this.host.sim;
+    for (let i = 0; i < n; i++) {
+      const id = `h${++this.serial}`;
+      // A sunflower: packs come out as a crowd, not a line.
+      const a = i * 2.39996;
+      const r = n > 1 ? spread * Math.sqrt(i + 0.5) : 0;
+      let x = at.x + Math.cos(a) * r;
+      let z = at.z + Math.sin(a) * r;
+      const nav = this.host.nav();
+      const p = nav?.closest({ x, y: at.y, z }, { x: 2, y: 3, z: 2 });
+      if (p && Math.hypot(p.x - x, p.z - z) < 2.5) {
+        x = p.x;
+        z = p.z;
+      }
+      const y = groundHeightAt(sim, x, at.y + 2, z);
+      const yaw = rally ? Math.atan2(x - rally.x, z - rally.z) : Math.atan2(x - this.keep.core.x, z - this.keep.core.z);
+      const h = newHunter(id, this.serial, kind, x, y, z, yaw, hp, this.tick);
+      h.rally = rally;
+      this.hunters.set(id, h);
+      out.push(h);
+    }
+    return out;
   }
 
   /** Everything gone (the run ended or a test reset). */
@@ -207,39 +220,33 @@ export class HuntWorld {
     this.traps.clear();
     this.decoys.clear();
     this.drops.clear();
-    this.queue = [];
     this.history.clear();
     this.helperIds.clear();
   }
 
-  /** Tests and the e2e (test hooks): beat every hunter of this wave now. */
+  /** Tests and the e2e (test hooks): beat every hunter standing now. */
   defeatAll(killerId: string | null): void {
-    this.queue = [];
     for (const h of this.hunters.values()) if (h.downTicks === 0) this.defeat(h, killerId, false);
   }
 
-  private spawnAt(kind: number, count: number, near?: P3): void {
-    const ducks = this.host.ducks().filter((d) => d.standing);
-    const pts = near ? [near] : this.spawns.filter((p) => ducks.every((d) => Math.hypot(d.x - p.x, d.z - p.z) > 25));
-    const at = (pts.length > 0 ? pts : this.spawns)[Math.floor(Math.random() * Math.max(1, (pts.length > 0 ? pts : this.spawns).length))] ?? { x: 0, y: 10, z: 60 };
-    const baseHp = HUNTER_HP[kind] ?? 90;
-    const hp = Math.round(baseHp * hunterHpScale(this.wave, this.ducksInRun, kind) * this.host.rules.hunterHpScale);
-    for (let i = 0; i < count; i++) {
-      const id = `h${++this.serial}`;
-      const ox = count > 1 ? (i - (count - 1) / 2) * 1.2 : 0;
-      const x = at.x + ox;
-      const z = at.z + (count > 1 ? (i % 2) * 0.8 : 0);
-      const y = groundHeightAt(this.host.sim, x, at.y + 2, z);
-      const core = this.keep.core;
-      const yaw = Math.atan2(x - core.x, z - core.z);
-      const h = newHunter(id, this.serial, kind, x, y, z, yaw, hp, this.tick);
-      // At the core: on the side it comes from (through the gate), spread a little.
-      h.slot = Math.atan2(this.keep.gate.z - core.z, this.keep.gate.x - core.x) + (Math.random() - 0.5) * 2.4;
-      this.hunters.set(id, h);
-      if (near) {
-        this.helperIds.add(id);
-        h.helper = true;
-      }
+  /** An objective was taken: the hunters still standing flee the field (gone without a kill or a drop). */
+  scatter(): number {
+    let n = 0;
+    for (const h of [...this.hunters.values()]) {
+      if (h.downTicks > 0) continue;
+      this.hunters.delete(h.id);
+      n++;
+    }
+    for (const t of [...this.traps.values()]) this.traps.delete(t.id);
+    this.decoys.clear();
+    return n;
+  }
+
+  /** The Big Hunter's whistled helpers: next to the spawn point nearest to him. They give no kill XP and drop nothing. */
+  private spawnHelpers(kind: number, count: number, near: P3): void {
+    for (const h of this.spawnGroup(kind, count, near, this.rally)) {
+      this.helperIds.add(h.id);
+      h.helper = true;
     }
   }
 
@@ -262,7 +269,6 @@ export class HuntWorld {
       const id = this.perchedBy[i];
       if (id && !(this.hunters.get(id)?.downTicks === 0)) this.perchedBy[i] = null;
     }
-    if (live) this.director(tick);
     const ducks = this.host.ducks();
     const avoid: { x: number; z: number }[] = [];
     for (const h of this.hunters.values()) if (h.downTicks === 0) avoid.push(h);
@@ -278,6 +284,11 @@ export class HuntWorld {
         continue;
       }
       if (h.mover.anchor === null) h.mover.anchor = this.anchor;
+      // Bleeding (the bleed card): a little damage every half second, credited to the duck that cut it.
+      if (h.bleedTicks > 0) {
+        h.bleedTicks--;
+        if (h.bleedTicks % 15 === 0 && this.hurt(h.id, h.bleedDps / 2, h.bleedBy, false, h.x, h.z, RaidKillHow.Skill)) continue;
+      }
       thinkHunter(h, ctx);
       this.checkStuck(h, tick, ctx.push);
     }
@@ -286,24 +297,27 @@ export class HuntWorld {
     this.history.record(nowMs, [...this.hunters.values()].map((h) => ({ id: h.id, x: h.x, y: h.y, z: h.z, yaw: h.yaw, kind: h.kind, act: h.act, alive: h.downTicks === 0 })));
   }
 
-  private director(tick: number): void {
-    if (this.queue.length === 0 || tick < this.nextSpawn) return;
-    const unit = this.queue[0]!;
-    if (this.alive + unit.count > this.host.rules.maxLive) return;
-    this.queue.shift();
-    this.spawnAt(unit.kind, unit.count);
-    this.nextSpawn = tick + Math.round(spawnGapSeconds(this.wave) * TICK_RATE * (unit.count > 1 ? 1.6 : 1));
-  }
-
-  /** What a hunter is after with no duck in mind (travel.ts rules). */
+  /**
+   * What a hunter is after with no duck in mind (travel.ts rules). The push:
+   * its pack's rally point on the objective's ground. The castle is the
+   * ducks' fallback: while ducks hide inside, hunters outside go for the gate
+   * (hammering it while the drawbridge is down), or wait on the bank while it
+   * is up; inside, they go for the ducks' ground.
+   */
   objective(h: HunterAgent): Objective {
     const g = this.keep;
     const nav = this.host.nav();
-    if (inKeep(g, h.x, h.z)) return { spot: coreSpot(g, h.slot, nav), hammer: 2 };
-    // A raised (or moving) drawbridge covers the gateway: wait on the island's bank (or paddle over to it).
-    if (!this.keepState.bridgeDown) return { spot: holdSpot(g, h.x, h.z, h.serial, nav), hammer: 0 };
-    if (this.keepState.gateOpen) return { spot: coreSpot(g, h.slot, nav), hammer: 2 };
-    return { spot: gateSpot(g, h.serial), hammer: 1 };
+    const meIn = inKeep(g, h.x, h.z);
+    let hiding = false;
+    if (this.tick >= this.castleRaidFrom) for (const d of this.host.ducks()) if (d.standing && inKeep(g, d.x, d.z)) hiding = true;
+    if (hiding && !meIn) {
+      if (!this.keepState.bridgeDown) return { spot: holdSpot(g, h.x, h.z, h.serial, nav), hammer: 0 };
+      if (!this.keepState.gateOpen) return { spot: gateSpot(g, h.serial), hammer: 1 };
+      return { spot: { x: g.core.x, y: g.core.y, z: g.core.z }, hammer: 0 };
+    }
+    const r = h.rally ?? this.rally;
+    if (r && !meIn) return { spot: r, hammer: 0 };
+    return { spot: { x: g.core.x, y: g.core.y, z: g.core.z }, hammer: 0 };
   }
 
   private context(tick: number, ducks: readonly DuckTarget[], avoid: { x: number; z: number }[]): HuntContext {
@@ -324,9 +338,9 @@ export class HuntWorld {
       rules: host.rules,
       ducks,
       avoid,
-      lastWave: this.wave >= RAID.waves,
-      // The last few of a wave, or a wave past a minute: no more sniping from afar.
-      push: (this.queue.length === 0 && this.alive <= 3) || tick - this.waveStartTick > PUSH_AFTER_TICKS,
+      lastWave: this.goal >= RAID.objectives,
+      // v3: hunters come at the ducks (no cover, no sniping from afar), except snipers the director placed on a perch.
+      push: true,
       objective: (h) => this.objective(h),
       atObjective: (h, what) => (what === 1 ? atGate(g, h.x, h.y, h.z) : atCore(g, h.x, h.y, h.z, RAID.coreReach)),
       perch: (h) => this.perchOf(h),
@@ -338,11 +352,18 @@ export class HuntWorld {
         host.whistle(h);
         const near = this.spawns.slice().sort((a, b) => Math.hypot(a.x - h.x, a.z - h.z) - Math.hypot(b.x - h.x, b.z - h.z))[0];
         // The same cap as the wave's own spawns: never more than raid.maxLive alive.
-        const max = host.rules.maxLive;
-        if (this.alive + 3 <= max) this.spawnAt(HunterKind.Dog, 3, near);
-        if (this.wave >= 6 && this.alive + 1 <= max) this.spawnAt(HunterKind.Rifleman, 1, near);
+        const max = this.liveCap;
+        if (!near) return;
+        if (this.alive + 3 <= max) this.spawnHelpers(HunterKind.Dog, 3, near);
+        if (this.alive + 4 <= max) this.spawnHelpers(HunterKind.Beater, 4, near);
       },
-      whistleOpen: tick - this.waveStartTick < WHISTLE.stopAfterTicks,
+      whistleOpen: this.helperIds.size < 24,
+      swing: (h, d) => host.swingHit(h, d.id),
+      attackers: (id) => {
+        let n = 0;
+        for (const o of this.hunters.values()) if (o.phase === 'tell' && o.targetId === id && o.downTicks === 0 && isMinion(o.kind)) n++;
+        return n;
+      },
       hammer: (h, what) => {
         h.hammerTicks++;
         if (what === 1) host.damageGate(((RAID.gateDps[h.kind] ?? 4) * host.rules.gateDamageScale) / TICK_RATE, h);
@@ -362,7 +383,7 @@ export class HuntWorld {
    */
   private checkStuck(h: HunterAgent, tick: number, push: boolean): void {
     if (h.downTicks > 0) return;
-    const busy = h.targetId !== null || h.act === HunterAct.Hammer || h.act === HunterAct.Aim || h.act === HunterAct.Fire || h.raft !== null || h.swim > 0 || !this.keepState.bridgeDown;
+    const busy = h.stun > 0 || h.targetId !== null || h.act === HunterAct.Hammer || h.act === HunterAct.Aim || h.act === HunterAct.Fire || h.raft !== null || h.swim > 0 || !this.keepState.bridgeDown;
     if (busy || Math.hypot(h.x - h.checkX, h.z - h.checkZ) > 2) {
       h.checkX = h.x;
       h.checkZ = h.z;
@@ -530,9 +551,11 @@ export class HuntWorld {
     const r = this.host.rules;
     const roll = Math.random() * 100;
     let kind = 0;
+    // Minions fall by the dozen: a third of the chance each (the field would be full of drops), heals before ammo.
+    const k = isMinion(h.kind) ? 1 / 3 : 1;
     if (h.kind === HunterKind.Boss) kind = RaidDrop.Heal;
-    else if (roll < r.dropHealPercent) kind = RaidDrop.Heal;
-    else if (roll < r.dropHealPercent + r.dropAmmoPercent) kind = RaidDrop.Ammo;
+    else if (roll < r.dropHealPercent * k) kind = RaidDrop.Heal;
+    else if (roll < (r.dropHealPercent + r.dropAmmoPercent) * k) kind = RaidDrop.Ammo;
     if (!kind) return;
     const add = (k: number, ox: number): void => {
       const id = `d${++this.serial}`;
@@ -685,17 +708,9 @@ export class HuntWorld {
   /** Tests: spawn one hunter of a kind at a point. */
   spawnForTest(kind: number, x: number, z: number): HunterAgent {
     const before = new Set(this.hunters.keys());
-    this.spawnAt(kind, 1, { x, y: groundHeightAt(this.host.sim, x, 40, z), z });
+    this.spawnGroup(kind, 1, { x, y: groundHeightAt(this.host.sim, x, 40, z), z }, this.rally, 0, true);
     const id = [...this.hunters.keys()].find((k) => !before.has(k))!;
-    this.helperIds.delete(id);
-    const h = this.hunters.get(id)!;
-    h.helper = false;
-    return h;
-  }
-
-  /** Is the boss wave's boss out (for the rocket pickup)? */
-  get bossWave(): boolean {
-    return isBossWave(this.wave);
+    return this.hunters.get(id)!;
   }
 
   /** The kind numbers (tests). */

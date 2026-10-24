@@ -49,7 +49,10 @@ export class FrameTimer {
 export class MotionProbe {
   maxSpeed = 0;
   snapFrames = 0;
+  /** Frames drawn standing (nearly) still in the middle of a run: a stop-start hitch. */
+  stallFrames = 0;
   frames = 0;
+  private smooth = 0;
   private lastX = Number.NaN;
   private lastZ = Number.NaN;
 
@@ -60,6 +63,8 @@ export class MotionProbe {
         this.frames += 1;
         if (v > this.maxSpeed) this.maxSpeed = v;
         if (v > MOVE.sprintSpeed * 1.6) this.snapFrames += 1;
+        if (this.smooth > MOVE.runSpeed * 0.6 && v < this.smooth * 0.3) this.stallFrames += 1;
+        this.smooth += (v - this.smooth) * Math.min(1, dt * 10);
       }
     }
     this.lastX = x;
@@ -75,6 +80,7 @@ export class MotionProbe {
   reset(): void {
     this.maxSpeed = 0;
     this.snapFrames = 0;
+    this.stallFrames = 0;
     this.frames = 0;
   }
 }

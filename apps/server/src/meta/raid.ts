@@ -1,7 +1,8 @@
 /**
- * Hunt Season results into PostgreSQL (004_raid.sql, 005_raid_keep.sql): the
- * run, each account duck's part, its XP and level (players.xp,
- * players.level) and its personal best on Pond Keep (raid_keep_bests), in
+ * Hunt Season results into PostgreSQL (004_raid.sql, 005_raid_keep.sql,
+ * 006_raid_push.sql): the run, each account duck's part, its XP and level
+ * (players.xp, players.level) and its personal best of the v3 push
+ * (raid_push_bests: most objectives, the fastest time to take them), in
  * one transaction. Only the game server calls this, at the end of a
  * run (RaidRoom.recordResult); no HTTP route writes any of it. The run id is
  * unique, so a retried write never grants XP twice. Guests and dev identities
@@ -16,7 +17,7 @@ export interface RaidRunResult {
   mapId: string;
   startedAt: number;
   endedAt: number;
-  /** Most waves any duck cleared (the run's result). */
+  /** Most objectives any duck saw taken (the run's result; the database's waves). */
   wavesCleared: number;
   won: boolean;
   /** Time to clear the last cleared wave (ms): the personal best time. */
@@ -25,7 +26,11 @@ export interface RaidRunResult {
     playerId: string | null;
     name: string;
     wavesCleared: number;
+    /** Hunters bagged that are not minions, and the minions. */
     kills: number;
+    minionKills: number;
+    /** The combo bonus the room added up kill by kill (capped by the shared formula). */
+    comboXp: number;
     bossKills: number;
     revives: number;
     /** What the room computed (shown at once); the stored grant is recomputed here from the same numbers. */
@@ -54,12 +59,12 @@ export function normalizeRaid(r: RaidRunResult, nowMs = Date.now()): RaidRunResu
   if (!Array.isArray(r.players) || r.players.length === 0 || r.players.length > RAID.maxDucks * 2) return null;
   return {
     ...r,
-    wavesCleared: int(r.wavesCleared, 0, RAID.waves),
+    wavesCleared: int(r.wavesCleared, 0, RAID.objectives),
     bestMs: int(r.bestMs, 0, 24 * 3600_000),
     players: r.players.map((p) => {
-      const row = { playerId: isUuid(p.playerId) ? p.playerId : null, name: String(p.name ?? '').slice(0, 32), wavesCleared: int(p.wavesCleared, 0, RAID.waves), kills: int(p.kills, 0, 9999), bossKills: int(p.bossKills, 0, 3), revives: int(p.revives, 0, 999), xp: 0, won: p.won === true };
+      const row = { playerId: isUuid(p.playerId) ? p.playerId : null, name: String(p.name ?? '').slice(0, 32), wavesCleared: int(p.wavesCleared, 0, RAID.objectives), kills: int(p.kills, 0, 9999), minionKills: int(p.minionKills, 0, 99999), comboXp: int(p.comboXp, 0, RAID_XP.maxPerRun), bossKills: int(p.bossKills, 0, 3), revives: int(p.revives, 0, 999), xp: 0, won: p.won === true };
       // The grant is recomputed from the numbers, so it always follows the shared formula.
-      row.xp = Math.min(RAID_XP.maxPerRun, raidXp({ wavesCleared: row.wavesCleared, kills: row.kills, bossKills: row.bossKills, revives: row.revives, won: row.won }));
+      row.xp = Math.min(RAID_XP.maxPerRun, raidXp({ wavesCleared: row.wavesCleared, kills: row.kills, minionKills: row.minionKills, comboXp: row.comboXp, bossKills: row.bossKills, revives: row.revives, won: row.won }));
       return row;
     }),
   };
@@ -84,8 +89,8 @@ export async function insertRaid(sql: Sql, r: RaidRunResult): Promise<Map<string
     let slot = 0;
     for (const p of r.players) {
       const id = p.playerId && known.has(p.playerId) ? p.playerId : null;
-      await tx`insert into raid_run_players (run_id, slot, player_id, waves_cleared, kills, boss_kills, revives, xp)
-        values (${runId}, ${slot++}, ${id}, ${p.wavesCleared}, ${p.kills}, ${p.bossKills}, ${p.revives}, ${id ? p.xp : 0})`;
+      await tx`insert into raid_run_players (run_id, slot, player_id, waves_cleared, kills, boss_kills, revives, xp, minion_kills, combo_xp)
+        values (${runId}, ${slot++}, ${id}, ${p.wavesCleared}, ${p.kills}, ${p.bossKills}, ${p.revives}, ${id ? p.xp : 0}, ${p.minionKills}, ${p.comboXp})`;
       if (!id || out.has(id)) continue;
       const before = known.get(id) ?? 0;
       const after = before + p.xp;
@@ -93,17 +98,17 @@ export async function insertRaid(sql: Sql, r: RaidRunResult): Promise<Map<string
       await tx`update players set xp = ${after}, level = ${level}, last_seen = now() where id = ${id}`;
       const ms = r.bestMs;
       const [best] = await tx<{ best_wave: number; best_ms: number; was_wave: number | null; was_ms: number | null }[]>`
-        with old as (select best_wave, best_ms from raid_keep_bests where player_id = ${id})
-        insert into raid_keep_bests (player_id, best_wave, best_ms, runs, wins)
+        with old as (select best_wave, best_ms from raid_push_bests where player_id = ${id})
+        insert into raid_push_bests (player_id, best_wave, best_ms, runs, wins)
         values (${id}, ${p.wavesCleared}, ${ms}, 1, ${p.won ? 1 : 0})
         on conflict (player_id) do update set
           best_ms = case
-            when excluded.best_wave > raid_keep_bests.best_wave then excluded.best_ms
-            when excluded.best_wave = raid_keep_bests.best_wave then least(raid_keep_bests.best_ms, excluded.best_ms)
-            else raid_keep_bests.best_ms end,
-          best_wave = greatest(raid_keep_bests.best_wave, excluded.best_wave),
-          runs = raid_keep_bests.runs + 1,
-          wins = raid_keep_bests.wins + excluded.wins,
+            when excluded.best_wave > raid_push_bests.best_wave then excluded.best_ms
+            when excluded.best_wave = raid_push_bests.best_wave then least(raid_push_bests.best_ms, excluded.best_ms)
+            else raid_push_bests.best_ms end,
+          best_wave = greatest(raid_push_bests.best_wave, excluded.best_wave),
+          runs = raid_push_bests.runs + 1,
+          wins = raid_push_bests.wins + excluded.wins,
           updated_at = now()
         returning best_wave, best_ms, (select best_wave from old) as was_wave, (select best_ms from old) as was_ms`;
       const newBest = !!best && p.wavesCleared > 0 && (best.was_wave === null || p.wavesCleared > best.was_wave || (p.wavesCleared === best.was_wave && ms < (best.was_ms ?? Infinity)));

@@ -1,12 +1,13 @@
 /**
- * Hunt Season rules, headless on Pond Keep with its navmesh: the stages, the
- * core and the fail and win rules, the boss schedule, the upgrades (server
- * only numbers, no sim change), the trap root and the hunters' sight (never
- * through walls). The keep's moving parts are in keep.test.ts.
+ * Hunt Season rules, headless on Pond Keep with its navmesh: the stages (v3:
+ * the push's objectives in order, the break, the win), the fail rule, a lone
+ * duck's second wind, the upgrades (server only numbers, no sim change), the
+ * trap root and the hunters' sight (never through walls). The katana's hits
+ * are in blade.test.ts, the keep's moving parts in keep.test.ts.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
-import { Button, COMBAT, emptyInput, exRoot, HunterKind, RAID, RaidEndReason, RaidStage, SIGHT_QUERY_GROUPS, TICK_RATE, Upgrade } from '@qwakk/shared';
-import type { BotLike } from '../../src/arena.ts';
+import { Button, COMBAT, createPlayerSim, emptyInput, exRoot, Goal, groundHeightAt, hasHeadroom, HunterKind, isBladeDuck, RAID, RaidEndReason, RaidStage, SIGHT_QUERY_GROUPS, stepPlayer, TICK_RATE, Upgrade, WeaponId } from '@qwakk/shared';
+import type { BotLike, Seat } from '../../src/arena.ts';
 import { headlessRaid, keepNav, type HeadlessRaid } from '../../bench/raidHeadless.ts';
 import { KIND } from '../../src/raid/hunter.ts';
 import { sees } from '../../src/raid/sight.ts';
@@ -17,9 +18,11 @@ const still = (): BotLike => {
   return { think: () => f, respawned: () => undefined, damagedFrom: () => undefined };
 };
 
-async function raidOf(ducks: number, rules = {}): Promise<HeadlessRaid> {
+/** A run with `ducks` still bot ducks; the push sends no packs (quiet) unless `packs`. */
+async function raidOf(ducks: number, rules = {}, packs = false): Promise<HeadlessRaid> {
   const h = await headlessRaid({ ducks: 0, rules });
   for (let i = 0; i < ducks; i++) h.raid.addBotDuck(still());
+  h.raid.push.quiet = !packs;
   h.raid.beginTick(0, 0);
   return h;
 }
@@ -29,7 +32,7 @@ beforeAll(async () => {
 }, 180_000);
 
 describe('stages', () => {
-  it('counts the lobby down from the first duck, more ducks add a little, then wave 1 starts', async () => {
+  it('counts the lobby down from the first duck, more ducks add a little, then objective 1 starts', async () => {
     const h = await raidOf(0, { lobbySeconds: 10 });
     expect(h.raid.stage).toBe(RaidStage.Lobby);
     expect(h.raid.stageTicks).toBe(-1);
@@ -42,71 +45,131 @@ describe('stages', () => {
     expect(h.raid.stageTicks).toBe(RAID.fullLobbySeconds * TICK_RATE);
     expect(h.raid.addBotDuck(still())).toBeNull(); // four is the most
     h.run(RAID.fullLobbySeconds + 0.1);
-    expect(h.raid.stage).toBe(RaidStage.Wave);
+    expect(h.raid.stage).toBe(RaidStage.Fight);
     expect(h.raid.wave).toBe(1);
+    expect(h.raid.push.goal).toBe(Goal.Trench);
     expect(h.raid.locked).toBe(true);
   });
 
-  it('sends the Big Hunter on waves 3, 6 and 10 only', async () => {
-    const h = await raidOf(1);
-    for (const w of [2, 3, 5, 6, 10]) {
-      h.raid.skipTo(w);
-      h.run(8);
-      const boss = [...h.raid.hunts.hunters.values()].some((x) => x.kind === HunterKind.Boss);
-      expect(boss, `wave ${w}`).toBe(w === 3 || w === 6 || w === 10);
+  it('every duck carries the katana (in hand) and the pistol, never the rifle or grenades', async () => {
+    const h = await raidOf(2);
+    h.raid.skipTo(1);
+    for (const s of h.raid.seats.values()) {
+      expect(isBladeDuck(s.sim)).toBe(true);
+      expect(s.sim.weapon).toBe(WeaponId.Katana);
+      expect(s.sim.arms & (1 << WeaponId.Rifle)).toBe(0);
+      expect(s.sim.arms & (1 << WeaponId.Pistol)).not.toBe(0);
+      expect(s.sim.ex & 0x7ffff).toBe(0);
     }
   });
 
-  it('a cleared wave gives a short break with cards, then the next wave; wave 10 cleared is a win', async () => {
-    const h = await raidOf(2, { breakSeconds: 3 });
-    const offers: number[][] = [];
-    h.raid.skipTo(9);
-    (h.raid as unknown as { rev: { offer: (s: unknown, c: [number, number][] | null) => void } }).rev.offer = (_s, c) => void (c && offers.push(c.map((x) => x[0])));
-    h.raid.defeatWave();
-    h.run(0.2);
-    expect(h.raid.stage).toBe(RaidStage.Break);
-    expect(offers).toHaveLength(2);
-    for (const o of offers) expect(new Set(o).size).toBe(3);
-    h.run(3.5);
-    expect(h.raid.stage).toBe(RaidStage.Wave);
-    expect(h.raid.wave).toBe(10);
-    h.raid.defeatWave();
-    h.run(0.2);
-    expect(h.raid.stage).toBe(RaidStage.Won);
-    expect(h.raid.endReason).toBe(RaidEndReason.Won);
-    const d = [...h.raid.ducks.values()][0]!;
-    expect(d.wavesCleared).toBe(2);
+  it('the objectives go in order, each by its own rule: the trench (kills on its ground), the crates, the towers (their snipers), the camp (the Big Hunter)', async () => {
+    const h = await raidOf(1, { breakSeconds: 1 });
+    const raid = h.raid;
+    const seat = [...raid.seats.values()][0]!;
+    raid.skipTo(1);
+    const p = raid.push;
+    expect(p.need).toBe(raid.rules.push.trenchKills);
+    // Kills away from the trench do not count; on its ground they do.
+    const far = raid.hunts.spawnForTest(HunterKind.Beater, -80, -60);
+    raid.hunts.hurt(far.id, 999, seat.id, false, 0, 0);
+    expect(p.done).toBe(0);
+    for (let i = 0; i < p.need; i++) {
+      const m = raid.hunts.spawnForTest(HunterKind.Recruit, p.rally.x + (i % 5), p.rally.z + Math.floor(i / 5));
+      raid.hunts.hurt(m.id, 999, seat.id, false, 0, 0);
+    }
+    h.run(0.1);
+    expect(raid.stage).toBe(RaidStage.Break);
+    h.run(1.2);
+    expect(raid.wave).toBe(2);
+    expect(p.goal).toBe(Goal.Crates);
+    const crates = [...p.targets.values()];
+    expect(crates).toHaveLength(raid.rules.push.crates);
+    for (const c of crates) expect(p.hitCrate(c.id, 99999)).toBe(true);
+    h.run(0.1);
+    h.run(1.2);
+    expect(p.goal).toBe(Goal.Towers);
+    const snipers = [...raid.hunts.hunters.values()].filter((x) => x.kind === HunterKind.Sniper);
+    expect(snipers).toHaveLength(2 * raid.rules.push.snipersPerTower);
+    for (const s of snipers) expect(s.perchFixed).toBe(true);
+    // Riflemen at the towers do not count; the snipers do.
+    for (const r of [...raid.hunts.hunters.values()].filter((x) => x.kind === HunterKind.Rifleman)) raid.hunts.hurt(r.id, 9999, seat.id, false, 0, 0);
+    expect(p.done).toBe(0);
+    for (const s of snipers) raid.hunts.hurt(s.id, 9999, seat.id, false, 0, 0);
+    h.run(0.1);
+    h.run(1.2);
+    expect(p.goal).toBe(Goal.Camp);
+    const boss = raid.hunts.boss!;
+    expect(boss).toBeTruthy();
+    expect(Math.hypot(boss.x - p.rally.x, boss.z - p.rally.z)).toBeLessThan(4);
+    raid.hunts.hurt(boss.id, 99999, seat.id, false, 0, 0);
+    h.run(0.1);
+    expect(raid.stage).toBe(RaidStage.Won);
+    expect(raid.endReason).toBe(RaidEndReason.Won);
+    const d = raid.ducks.get(seat.id)!;
+    expect(d.wavesCleared).toBe(RAID.objectives);
+    expect(d.bossKills).toBe(1);
   });
 
-  it('the default break is 10 s', () => {
-    expect(RAID.breakSeconds).toBe(10);
+  it('packs of 6 to 12 minions come with ringed elites; a taken objective scatters the rest (no kills, no drops)', async () => {
+    const h = await raidOf(1, {}, true);
+    h.raid.skipTo(1);
+    h.run(2);
+    const minions = [...h.raid.hunts.hunters.values()].filter((x) => x.kind === HunterKind.Beater || x.kind === HunterKind.Recruit);
+    expect(minions.length).toBeGreaterThanOrEqual(6);
+    expect(minions.length).toBeLessThanOrEqual(12);
+    for (const m of minions) expect(m.elite).toBe(false);
+    for (const e of [...h.raid.hunts.hunters.values()].filter((x) => !minions.includes(x))) expect(e.elite).toBe(true);
+    const kills = h.raid.teamKills;
+    h.raid.defeatWave();
+    h.run(0.1);
+    expect(h.raid.hunts.alive).toBe(0);
+    expect(h.raid.teamKills).toBe(kills);
+    expect(h.raid.hunts.drops.size).toBe(0);
+  });
+
+  it('never has more hunters alive than the cap for the ducks in the run (solo about half of raid.maxLive)', async () => {
+    const h = await raidOf(1, { maxLive: 40 }, true);
+    h.raid.skipTo(1);
+    let most = 0;
+    h.run(60, (r) => ((most = Math.max(most, r.hunts.alive)), false));
+    expect(h.raid.hunts.liveCap).toBe(22);
+    expect(most).toBeLessThanOrEqual(22);
+    expect(most).toBeGreaterThan(12);
+  });
+
+  it('a small raid.maxLive or a big raid.waveScale shrinks an oversize pack instead of stopping the packs (the trench still falls)', async () => {
+    for (const [ducks, rules] of [[4, { maxLive: 11 }], [1, { maxLive: 5, waveScale: 1.5 }]] as const) {
+      const h = await raidOf(ducks, rules, true);
+      h.raid.skipTo(1);
+      const cap = h.raid.hunts.liveCap;
+      let most = 0;
+      let rounds = 0;
+      // Packs come, run to the trench and are bagged there, until the trench is taken.
+      while (h.raid.push.index === 1 && rounds < 80) {
+        h.run(5, (r) => ((most = Math.max(most, r.hunts.alive)), false));
+        h.raid.hunts.defeatAll(null);
+        rounds++;
+      }
+      expect(most, JSON.stringify(rules)).toBeGreaterThan(0);
+      expect(most, JSON.stringify(rules)).toBeLessThanOrEqual(cap);
+      expect(h.raid.push.index, JSON.stringify(rules)).not.toBe(1);
+    }
+  }, 120_000);
+
+  it('the default break is 8 s', () => {
+    expect(RAID.breakSeconds).toBe(8);
   });
 });
 
-describe('the core and losing', () => {
-  it('hunters inside the walls hammer the QoreChain core; at 0 the run is lost', async () => {
-    const h = await raidOf(1, { coreHp: 100 });
-    h.raid.skipTo(1);
-    // The one duck stands far away on the mainland, out of every hunter's sight: they go for the core.
-    const duck = [...h.raid.seats.values()][0]!;
-    Object.assign(duck.sim, { x: -90, z: -10, y: 30 });
-    const c = h.raid.geometry.core;
-    for (let i = 0; i < 6; i++) {
-      const a = (i / 6) * Math.PI * 2;
-      h.raid.hunts.spawnForTest(HunterKind.Rifleman, c.x + Math.cos(a) * (c.r + 1.2), c.z + Math.sin(a) * (c.r + 1.2));
-    }
-    const before = h.raid.coreHp;
-    h.run(2);
-    expect(h.raid.coreHp).toBeLessThan(before);
-    h.run(60, (r) => r.over);
-    expect(h.raid.stage).toBe(RaidStage.Lost);
-    expect(h.raid.endReason).toBe(RaidEndReason.CoreFell);
-  });
-
-  it('all ducks down at once loses the run; a knocked duck can be revived by holding Use', async () => {
+describe('losing', () => {
+  it('the core no longer ends a run; all ducks down at once does; a knocked duck can be revived by holding Use', async () => {
     const h = await raidOf(2);
     h.raid.skipTo(1);
     h.raid.hunts.clear();
+    h.raid.keep.damageCore(99999);
+    h.run(0.1);
+    expect(h.raid.over).toBe(false);
     const [a, b] = [...h.raid.seats.values()];
     // B is knocked: the run goes on while A stands.
     h.raid.hurtDuck(b!.id, 500, 0, 0, HunterKind.Rifleman, false);
@@ -128,10 +191,60 @@ describe('the core and losing', () => {
     expect(h.raid.stage).toBe(RaidStage.Lost);
     expect(h.raid.endReason).toBe(RaidEndReason.AllDown);
   });
+
+  it('a duck out at a break comes back beside a friend still standing', async () => {
+    const h = await raidOf(2, { breakSeconds: 2 });
+    h.raid.skipTo(1);
+    const [a, b] = [...h.raid.seats.values()];
+    Object.assign(a!.sim, { x: 40, z: 60, y: 3 });
+    h.raid.hurtDuck(b!.id, 500, 0, 0, HunterKind.Dog, false);
+    h.raid.hurtDuck(b!.id, 500, 0, 0, HunterKind.Dog, false);
+    expect(b!.sim.alive).toBe(0);
+    h.raid.defeatWave();
+    h.run(0.1);
+    expect(b!.sim.alive).toBe(1);
+    expect(Math.hypot(b!.sim.x - a!.sim.x, b!.sim.z - a!.sim.z)).toBeLessThan(4);
+    expect(b!.sim.weapon).toBe(WeaponId.Katana);
+  });
+
+  it('the spot beside a friend is never in a wall, off a parapet or across one (checked around the whole castle)', async () => {
+    const h = await raidOf(1);
+    const sim = h.sim;
+    let tried = 0;
+    let placed = 0;
+    for (let x = -21; x <= 21; x += 1.5) {
+      for (let z = -21; z <= 21; z += 1.5) {
+        const y0 = groundHeightAt(sim, x, 14, z);
+        if (!(y0 > -5) || !hasHeadroom(sim, x, y0, z)) continue;
+        // Where a friend can stand: it settles there and stays.
+        const f = createPlayerSim(x, y0, z);
+        for (let i = 0; i < 30; i++) stepPlayer(sim, f, emptyInput());
+        if (Math.hypot(f.x - x, f.z - z) > 0.2 || Math.abs(f.y - y0) > 0.3 || !f.grounded) continue;
+        const y = f.y;
+        for (const yaw of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+          for (const pid of [1, 2, 3, 4]) {
+            tried++;
+            const spot = h.raid.besideFriend({ pid } as Seat, { x, y, z, yaw });
+            if (!spot) continue;
+            placed++;
+            expect(hasHeadroom(sim, spot.x, spot.y, spot.z), `${x},${y},${z}`).toBe(true);
+            expect(Math.abs(spot.y - y), `${x},${y},${z}`).toBeLessThan(0.8);
+            // Standing there for a second it neither drops nor gets pushed out of geometry.
+            const d = createPlayerSim(spot.x, spot.y, spot.z, yaw);
+            for (let i = 0; i < 30; i++) stepPlayer(sim, d, emptyInput());
+            expect(Math.hypot(d.x - spot.x, d.z - spot.z), `${x},${y},${z}`).toBeLessThan(0.3);
+            expect(Math.abs(d.y - spot.y), `${x},${y},${z}`).toBeLessThan(0.6);
+          }
+        }
+      }
+    }
+    expect(tried).toBeGreaterThan(1000);
+    expect(placed / tried).toBeGreaterThan(0.9);
+  }, 120_000);
 });
 
 describe('a lone duck', () => {
-  it('gets a second wind once a wave: knocked alone is not lost, holding Use gets it up; the next knock is', async () => {
+  it('gets a second wind once an objective: knocked alone is not lost, holding Use gets it up; the next knock is', async () => {
     const h = await raidOf(1);
     h.raid.skipTo(1);
     h.raid.hunts.clear();
@@ -187,7 +300,7 @@ describe('upgrades (server only)', () => {
     expect(d.upgrades.list()).toHaveLength(1);
   });
 
-  it('damage and headshot upgrades hit hunters harder', async () => {
+  it('the damage card makes pistol bullets hit hunters harder', async () => {
     const h = await raidOf(1);
     h.raid.skipTo(1);
     h.raid.hunts.clear();
@@ -330,6 +443,7 @@ describe('hunters and hidden ducks', () => {
     const shots: number[] = [];
     const h = await headlessRaid({ ducks: 0, events: { hunterShot: () => void shots.push(1) } });
     h.raid.addBotDuck(still());
+    h.raid.push.quiet = true;
     h.raid.beginTick(0, 0);
     const sim = h.raid.world;
     const { a, b, gy } = wallPair(sim);
@@ -347,12 +461,13 @@ describe('hunters and hidden ducks', () => {
 });
 
 describe('the Big Hunter', () => {
-  it('its whistle respects the hunters-at-once cap, stops late in the wave, and its helpers give no XP or drops', async () => {
+  it('its whistle respects the hunters-at-once cap and its helpers give no XP or drops', async () => {
     let whistles = 0;
-    const h = await headlessRaid({ ducks: 0, rules: { maxLive: 5 }, events: { whistle: () => void whistles++ } });
+    const h = await headlessRaid({ ducks: 0, rules: { maxLive: 9 }, events: { whistle: () => void whistles++ } });
     h.raid.addBotDuck(still());
+    h.raid.push.quiet = true;
     h.raid.beginTick(0, 0);
-    h.raid.skipTo(6);
+    h.raid.skipTo(4);
     h.raid.hunts.clear();
     const seat = [...h.raid.seats.values()][0]!;
     // The duck far off in a corner of the mainland; the boss and two riflemen out on the other side.
@@ -364,14 +479,9 @@ describe('the Big Hunter', () => {
     h.run(3, () => whistles > 0);
     expect(whistles).toBe(1);
     h.run(0.2);
-    // 3 alive + 3 dogs would be 6 > 5: no dogs came.
-    expect(h.raid.hunts.alive).toBeLessThanOrEqual(5);
-    // Late in the wave: no more whistles.
-    (h.raid.hunts as unknown as { waveStartTick: number }).waveStartTick = h.raid.currentTick - 151 * TICK_RATE;
-    boss.whistleCd = 0;
-    boss.phase = 'advance';
-    h.run(3);
-    expect(whistles).toBe(1);
+    // Solo, the cap is about half of raid.maxLive (at least 6): the helpers never pass it.
+    expect(h.raid.hunts.liveCap).toBe(6);
+    expect(h.raid.hunts.alive).toBeLessThanOrEqual(6);
     // A helper bagged by the duck: no kill XP, no drop.
     const dog = h.raid.hunts.spawnForTest(HunterKind.Dog, 10, 60);
     dog.helper = true;
@@ -397,7 +507,7 @@ describe('the lobby clock', () => {
       if (extra) h.raid.remove(extra.id);
     }
     h.run(RAID.lobbyMaxSeconds + 1);
-    expect(h.raid.stage).toBe(RaidStage.Wave);
+    expect(h.raid.stage).toBe(RaidStage.Fight);
     expect(h.raid.startTick - start).toBeLessThanOrEqual(cap + 1);
   });
 });

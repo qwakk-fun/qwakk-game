@@ -53,7 +53,9 @@
     "e2e:localization": "node --disable-warning=ExperimentalWarning e2e/localization.ts",
     "shots:characters": "node --disable-warning=ExperimentalWarning e2e/character-review.ts",
     "e2e:hub": "node --disable-warning=ExperimentalWarning e2e/hub.ts",
-    "bench:hub": "npm run bench:hub -w @qwakk/server --"
+    "bench:hub": "npm run bench:hub -w @qwakk/server --",
+    "perf:raid": "node --disable-warning=ExperimentalWarning e2e/raid-perf.ts",
+    "anim:raid": "node --disable-warning=ExperimentalWarning e2e/raid-anim.ts"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

@@ -50,6 +50,12 @@ export interface TouchFrame {
   rocketOut?: boolean;
   /** Duck Plaza (no combat): only the stick, look, Jump and the pause button. */
   hub?: boolean;
+  /**
+   * Hunt Season katana: the skill buttons, each with the share of its
+   * cooldown left (0: ready; the storm: 1 until its meter is full), and the
+   * katana in hand (Fire slashes; Aim and Reload only with the pistol).
+   */
+  skills?: { dash: number; quack: number; storm: number; katana: boolean };
 }
 
 export interface TouchHooks {
@@ -63,7 +69,7 @@ export interface TouchHooks {
 
 // Jump is held (a tap still latches one press): the deathmatch hero flies while it is held.
 const HOLD: Partial<Record<ButtonId, number>> = { fire: Button.Fire, fireL: Button.Fire, use: Button.Use, jump: Button.Jump, grenade: Button.Grenade };
-const TAP: Partial<Record<ButtonId, number>> = { reload: Button.Reload, deploy: Button.Deploy, heal1: Button.Heal1, heal2: Button.Heal2 };
+const TAP: Partial<Record<ButtonId, number>> = { reload: Button.Reload, deploy: Button.Deploy, heal1: Button.Heal1, heal2: Button.Heal2, dash: Button.Dash, quack: Button.Quack, storm: Button.Storm };
 const TOGGLE: Partial<Record<ButtonId, number>> = { aim: Button.Aim, crouch: Button.Crouch };
 
 export class TouchControls {
@@ -274,7 +280,9 @@ export class TouchControls {
       if (ground) {
         show.add('jump');
         show.add('crouch');
-        if (t.armed) for (const id of ['fire', 'fireL', 'aim', 'reload'] as const) show.add(id);
+        const k = t.skills;
+        if (t.armed) for (const id of k?.katana ? (['fire', 'fireL'] as const) : (['fire', 'fireL', 'aim', 'reload'] as const)) show.add(id);
+        if (k) for (const id of ['dash', 'quack', 'storm'] as const) show.add(id);
         if (t.otherWeapon) show.add('swap');
         if (t.bandages > 0) show.add('heal1');
         if (t.medkits > 0) show.add('heal2');
@@ -315,6 +323,15 @@ export class TouchControls {
       if (!stick && this.fingers.holding('stick')) this.release(this.fingers.up(this.fingers.holding('stick')!.id)!);
     }
     for (const [id, bits] of Object.entries(TOGGLE) as [ButtonId, number][]) this.ui.buttons.get(id)!.classList.toggle('on', c.touchHeldHas(bits));
+    if (t.skills) {
+      for (const id of ['dash', 'quack', 'storm'] as const) {
+        const left = t.skills[id];
+        const b = this.ui.buttons.get(id)!;
+        const v = left.toFixed(2);
+        if (b.style.getPropertyValue('--cd') !== v) b.style.setProperty('--cd', v);
+        b.classList.toggle('ready', left <= 0);
+      }
+    }
     this.ui.buttons.get('board')!.classList.toggle('on', this.boardOn);
     this.rocketOut = t.rocketOut === true;
     this.ui.buttons.get('rocket')!.classList.toggle('on', this.rocketOut);

@@ -28,9 +28,17 @@ export const Button = {
   Grenade: 1 << 14,
   /** Equip the rocket launcher (key 3), while the deathmatch pickup's rockets last. Held for one tick like the slots. */
   Slot3: 1 << 15,
+  /** Hunt Season katana: Dash (Shift tap). Read only by a duck that carries the katana (raid/blade.ts). */
+  Dash: 1 << 16,
+  /** Hunt Season katana: the "VAK!" Quack Shockwave (Q). */
+  Quack: 1 << 17,
+  /** Hunt Season katana: the Blade Storm, the ultimate (F). */
+  Storm: 1 << 18,
 } as const;
 
-export const ALL_BUTTONS = (1 << 16) - 1;
+export const ALL_BUTTONS = (1 << 19) - 1;
+/** The Hunt Season skill buttons: masked off in every other mode (gameRoom sanitize), never pressed by a stand-in step. */
+export const SKILL_BUTTONS = Button.Dash | Button.Quack | Button.Storm;
 
 /** One sim tick of player intent. This is all a client ever sends. */
 export interface InputFrame {

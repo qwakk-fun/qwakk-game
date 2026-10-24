@@ -22,6 +22,9 @@ export const HUNTER_FILES: Record<number, string> = {
   [HunterKind.Trapper]: 'hunter_trapper.glb',
   [HunterKind.Decoy]: 'hunter_decoy.glb',
   [HunterKind.Boss]: 'hunter_boss.glb',
+  // Hunt Season v3 minions (the Recruit's Root carries its 0.72 scale in the file).
+  [HunterKind.Beater]: 'hunter_beater.glb',
+  [HunterKind.Recruit]: 'hunter_recruit.glb',
 };
 
 export interface AttachPose {
@@ -106,11 +109,12 @@ export function loadHunterArt(): Promise<HunterArt | null> {
         load('hunter_fx.glb').catch(() => null),
         load('decoy.glb').catch(() => null),
         load('trap.glb').catch(() => null),
-        ...Object.values(HUNTER_FILES).map((f) => load(f)),
+        ...Object.values(HUNTER_FILES).map((f) => load(f).catch(() => null)),
       ]);
       const models = new Map<number, THREE.Object3D>();
       Object.keys(HUNTER_FILES).forEach((k, i) => {
-        const g = looks[i]!;
+        const g = looks[i];
+        if (!g) return;
         dress(g.scene, true);
         models.set(Number(k), facing(g.scene));
       });

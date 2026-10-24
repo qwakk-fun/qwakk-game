@@ -23,9 +23,9 @@
  * while it is up (paddling a raft across). Server only (Math.random,
  * Math.atan2).
  */
-import { HunterAct, HunterKind } from '@qwakk/shared';
+import { HunterAct, HunterKind, isMinion } from '@qwakk/shared';
 import type { P3 } from '../nav/botNav.ts';
-import { BITE, DECOY, GUN, KIND, TRAP, WHISTLE, type GunNumbers, type HunterAgent } from './hunter.ts';
+import { BITE, DECOY, GUN, KIND, SWING, TRAP, WHISTLE, type GunNumbers, type HunterAgent } from './hunter.ts';
 import { hunterMuzzle } from './gun.ts';
 import { clearSight, sees, type DuckTarget } from './sight.ts';
 import type { RaidRules } from './rules.ts';
@@ -52,6 +52,10 @@ export interface HuntContext extends TravelContext {
   placeTrap(h: HunterAgent, x: number, y: number, z: number): void;
   throwDecoy(h: HunterAgent, x: number, y: number, z: number): void;
   whistle(h: HunterAgent): void;
+  /** A minion's swing lands on a duck. */
+  swing(h: HunterAgent, duck: DuckTarget): void;
+  /** Minions winding up a swing at this duck right now (at most SWING.maxAttackers at once: a horde, not a blender). */
+  attackers(duckId: string): number;
   hammer(h: HunterAgent, what: 1 | 2): void;
   /** Reinforcements a boss whistled up that are still standing. */
   helpers(): number;
@@ -81,7 +85,8 @@ function perceive(h: HunterAgent, ctx: HuntContext): void {
     h.targetId = null;
     h.lastSeen = null;
   }
-  const range = ctx.push ? Math.min(k.engage, 22) : k.engage;
+  // Pushing in, gunners fight only what is close (they come at the ducks); minions and placed snipers use their whole range.
+  const range = ctx.push && !h.perchFixed && !isMinion(h.kind) ? Math.min(k.engage, 22) : k.engage;
   if (cur && ctx.push && Math.hypot(cur.x - h.x, cur.z - h.z) > range + 4) {
     h.targetId = null;
     h.lastSeen = null;
@@ -454,6 +459,44 @@ function thinkDog(h: HunterAgent, ctx: HuntContext, target: DuckTarget | undefin
   } else if (h.reaction > 0) h.reaction -= 1;
 }
 
+/**
+ * A minion (Beater, Recruit): charges the duck it knows of, and swings once
+ * in reach after a short, readable wind-up (the tell: the club goes up); the
+ * hit needs the duck still in reach and in sight when the club lands. No duck
+ * in mind: it runs for its pack's rally point (the objective's ground).
+ */
+function thinkMinion(h: HunterAgent, ctx: HuntContext, target: DuckTarget | undefined): void {
+  const k = KIND[h.kind]!;
+  if (h.phase === 'tell') {
+    h.act = HunterAct.Swing;
+    if (target) faceDuck(h, target, 0.35);
+    if (--h.phaseTicks > 0) return;
+    if (target && seesNow(h, ctx, target.id) && Math.hypot(target.x - h.x, target.z - h.z) < SWING.reach && Math.abs(target.y - h.y) < 1.4) ctx.swing(h, target);
+    h.phase = 'kneel';
+    h.phaseTicks = SWING.cooldown;
+    return;
+  }
+  if (h.phase === 'kneel' && h.phaseTicks > 0) h.phaseTicks--;
+  if (!target) {
+    chaseOrAdvance(h, ctx, true);
+    if (h.act === HunterAct.Run) h.act = HunterAct.Charge;
+    return;
+  }
+  const dist = Math.hypot(target.x - h.x, target.z - h.z);
+  if (dist > k.close) {
+    go(h, ctx, { x: target.x, y: target.y, z: target.z }, k.run, k.close);
+    if (h.act === HunterAct.Run) h.act = HunterAct.Charge;
+  } else {
+    h.act = HunterAct.Idle;
+    faceDuck(h, target, 0.4);
+  }
+  if (h.reaction > 0) h.reaction -= 2;
+  if (dist < k.close + 0.6 && h.phaseTicks <= 0 && h.reaction <= 0 && ctx.attackers(target.id) < SWING.maxAttackers) {
+    h.phase = 'tell';
+    h.phaseTicks = SWING.tell;
+  }
+}
+
 /** Does this hunter see this duck (the real one, where it is now) at this moment? */
 function seesNow(h: HunterAgent, ctx: HuntContext, id: string): boolean {
   if (h.lostTicks !== 0) return false;
@@ -478,7 +521,7 @@ export function knownTarget(h: HunterAgent, ctx: HuntContext): DuckTarget | unde
  * down to its last few, it fights like a rifleman pushing in.
  */
 function thinkSniper(h: HunterAgent, ctx: HuntContext, target: DuckTarget | undefined): void {
-  const perch = ctx.push ? null : ctx.perch(h);
+  const perch = ctx.push && !h.perchFixed ? null : ctx.perch(h);
   if (!perch) {
     thinkGunner(h, ctx, target);
     return;
@@ -531,9 +574,20 @@ export function thinkHunter(h: HunterAgent, ctx: HuntContext): void {
     return;
   }
   stepKnock(h, ctx);
+  // Reeling from a cut, or knocked off its feet: no thinking until it recovers.
+  if (h.stun > 0) {
+    h.stun--;
+    h.act = h.stunAct;
+    if (h.phase === 'aim' || h.phase === 'fire' || h.phase === 'tell' || h.phase === 'throw') {
+      h.phase = 'kneel';
+      h.phaseTicks = 4;
+    }
+    return;
+  }
   if ((ctx.tick + h.serial) % 3 === 0) perceive(h, ctx);
   const target = knownTarget(h, ctx);
-  if (h.kind === HunterKind.Dog) thinkDog(h, ctx, target);
+  if (isMinion(h.kind)) thinkMinion(h, ctx, target);
+  else if (h.kind === HunterKind.Dog) thinkDog(h, ctx, target);
   else if (h.kind === HunterKind.Decoy) thinkDecoy(h, ctx, target);
   else if (h.kind === HunterKind.Sniper) thinkSniper(h, ctx, target);
   else thinkGunner(h, ctx, target);

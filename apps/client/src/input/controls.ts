@@ -51,6 +51,16 @@ export class Controls {
   private heal2Latch = false;
   /** G went down since the last sample (a tap shorter than a tick still throws: down this step, up the next). */
   private grenadeLatch = false;
+  /**
+   * Hunt Season katana skills (on in a Hunt Season run): X dashes, Q quacks,
+   * F lets the Blade Storm go. Shift only ever sprints (the owner's call: a
+   * sprint key that sometimes lunges reads as a bug). Latched like the other
+   * presses, so a tap shorter than a tick still counts.
+   */
+  skills = false;
+  private dashLatch = false;
+  private quackLatch = false;
+  private stormLatch = false;
   /** Weapon slot asked for since the last sample (-1 none). */
   private slotLatch = -1;
   /** Which slot the player is on, for the mouse wheel toggle. */
@@ -126,7 +136,8 @@ export class Controls {
       'wheel',
       (e) => {
         if (!this.locked || this.typing || e.deltaY === 0) return;
-        this.slotLatch = this.currentSlot === 0 ? 1 : 0;
+        // Toggle between the two slots (the katana counts as slot 1: the pistol is the other one).
+        this.slotLatch = this.currentSlot === 1 ? 0 : 1;
       },
       { passive: true, signal: this.abort.signal },
     );
@@ -262,6 +273,11 @@ export class Controls {
       if (code === 'KeyG' && live) this.grenadeLatch = true;
       if (code === 'KeyE' && live) this.useLatch = true;
       if (code === 'KeyF' && live) this.deployLatch = true;
+      if (this.skills && live) {
+        if (code === 'KeyX') this.dashLatch = true;
+        if (code === 'KeyQ') this.quackLatch = true;
+        if (code === 'KeyF') this.stormLatch = true;
+      }
       if (code === 'Digit4' && live) this.heal1Latch = true;
       if (code === 'Digit5' && live) this.heal2Latch = true;
       if (code === 'KeyM') this.emit('map');
@@ -317,6 +333,12 @@ export class Controls {
     if (this.deployLatch || k.has('KeyF')) buttons |= Button.Deploy;
     if (this.heal1Latch) buttons |= Button.Heal1;
     if (this.heal2Latch) buttons |= Button.Heal2;
+    if (this.dashLatch) buttons |= Button.Dash;
+    if (this.quackLatch) buttons |= Button.Quack;
+    if (this.stormLatch) buttons |= Button.Storm;
+    this.dashLatch = false;
+    this.quackLatch = false;
+    this.stormLatch = false;
     this.jumpLatch = false;
     this.fireLatch = false;
     this.reloadLatch = false;

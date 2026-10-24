@@ -28,6 +28,8 @@ import { attachPose, createWeapon, disposeWeapon, magTimeline, type WeaponInstan
 import { createLauncher, type LauncherInstance } from './launcherModel.ts';
 import { ReloadMag, type MagEvent } from './reloadMag.ts';
 import { createBackpackMesh, createGlider, createHelmetMesh, createVestMesh } from '../world/sainte/glider.ts';
+import type { MeleeArt } from './meleeArt.ts';
+import { MeleeRig } from './meleeRig.ts';
 
 export interface AvatarPose {
   x: number;
@@ -54,6 +56,9 @@ export interface AvatarPose {
   pack?: number;
   /** Knocked (team modes): drawn crouched, gun away, swaying. The hitbox stays the crouched one. */
   down?: boolean;
+  /** Hunt Season: the duck carries a katana (melee clips, the blade in hand or on its back) and holds it now. */
+  katana?: boolean;
+  holdingKatana?: boolean;
 }
 
 /** Shadows stop at 35 m; character outlines stay to 75 m for readability. */
@@ -148,6 +153,12 @@ export class Avatar {
   /** One-shots asked for between frames; started inside the next frame (see blendClips). */
   private pendingQuack = false;
   private pendingHit = false;
+  /** Hunt Season: the katana, its clips and trail (made by enableMelee). */
+  private melee: MeleeRig | null = null;
+  private meleeArt: MeleeArt | null = null;
+  private meleeScene: THREE.Object3D | null = null;
+  /** Locomotion's share of the legs this frame (the melee clips take the rest). */
+  private lowerShare = 1;
 
   constructor() {
     this.mag.onEvent = (e) => {
@@ -181,6 +192,27 @@ export class Avatar {
     const distance = this.detailDistance;
     this.detailDistance = -1;
     this.setDetail(distance);
+    if (this.meleeArt && this.meleeScene) this.enableMelee(this.meleeArt, this.meleeScene);
+  }
+
+  /** Hunt Season: give this duck its katana (on the current model; again after a model swap). The trail lives in `scene`. */
+  enableMelee(art: MeleeArt, scene: THREE.Object3D): void {
+    this.meleeArt = art;
+    this.meleeScene = scene;
+    this.melee?.dispose();
+    const b = this.rig?.bones;
+    this.melee = new MeleeRig(art, this.body, b ? { RightHand: b.RightHand, Spine1: b.Spine1 } : null, scene);
+    this.melee.attachMixer(this.rig?.mixer ?? null);
+  }
+
+  /** A cut landed (feel only): the swing holds still a moment. */
+  hitStop(seconds: number): void {
+    this.melee?.hitStop(seconds);
+  }
+
+  /** The katana's world position (sparks), or null without one. */
+  bladeWorld(out: THREE.Vector3): THREE.Vector3 | null {
+    return this.melee ? this.melee.katana.getWorldPosition(out) : null;
   }
 
   /**
@@ -399,7 +431,11 @@ export class Avatar {
 
   private downT = 0;
 
+  /** The frame's dt (the melee blend reads it inside blendClips). */
+  private lastDt = 1 / 60;
+
   update(p: AvatarPose, dt: number): void {
+    this.lastDt = dt;
     this.object.position.set(p.x, p.y, p.z);
     this.object.rotation.set(0, p.yaw, 0);
 
@@ -434,8 +470,10 @@ export class Avatar {
     const adsTarget = !p.alive || p.act === Act.Reload ? 0 : (p.aim ?? (p.act === Act.Aim ? 1 : 0));
     this.adsBlend = p.aim !== undefined && p.act !== Act.Reload ? adsTarget : this.adsBlend + (adsTarget - this.adsBlend) * (1 - Math.exp(-dt / ADS_TAU));
 
+    if (this.melee && !this.rig?.mixer) this.melee.blend(p.alive && !p.down ? p.act : 0, !!p.holdingKatana && p.alive && !p.down, speed, dt, this.body);
     if (this.rig) this.updateRig(this.rig, p, dt, speed, vf, vr);
     else this.updatePlaceholder(p, speed);
+    this.melee?.frame(p.alive && !p.down ? p.act : 0, dt);
     // Freefall: dive head first; gliding: lean into the glider a little.
     const lean = p.fly === 2 ? 1.0 : p.fly === 3 ? 0.25 : 0;
     this.body.rotation.x += (-lean - this.body.rotation.x) * (this.deathT >= 0 ? 0 : 1 - Math.exp(-dt * 6));
@@ -566,6 +604,8 @@ export class Avatar {
     rotateBoneWorld(b.Head, _q.setFromAxisAngle(right, pitch * 0.1));
 
     const inst = this.weapons[this.weapon];
+    // The katana's clips own the arms (no gun to hold, no wings down).
+    if (!inst && this.melee && rig.mixer && p.katana) return;
     if (!inst) {
       // Unarmed: wings down at the sides with a small swing, instead of the T-pose rest.
       const fwd = _v.set(0, 0, -1).applyQuaternion(this.object.quaternion);
@@ -666,6 +706,18 @@ export class Avatar {
         if (ra) ra.timeScale = Math.max(0.6, speed / 5.2);
       }
     }
+    // Hunt Season: the katana's clips over the locomotion (the swing may take the legs too).
+    if (this.melee) {
+      const act = p.down ? 0 : p.act;
+      // The run's phase (Run_F, or the sprint when it leads) keeps the katana's running arms in step with the legs.
+      const runF = rig.lower.get('Run_F');
+      const spr = rig.lower.get('Sprint');
+      const src = spr && spr.getEffectiveWeight() > (runF?.getEffectiveWeight() ?? 0) ? spr : runF;
+      const dur = src?.getClip().duration ?? 0;
+      const phase = src && dur > 0 ? (((src.time % dur) + dur) % dur) / dur : -1;
+      this.lowerShare = this.melee.blend(act, !!p.holdingKatana && !p.down, speed, this.lastDt, this.body, phase);
+      if (this.lowerShare < 1) for (const a of rig.lower.values()) a.setEffectiveWeight(a.getEffectiveWeight() * this.lowerShare);
+    }
     // Unarmed: the arms swing with the legs, no aim pose.
     if (this.weapon !== WeaponId.Rifle && this.weapon !== WeaponId.Pistol) return;
     // Upper body: aim pose, or the reload or equip while they run.
@@ -702,6 +754,7 @@ export class Avatar {
   }
 
   dispose(): void {
+    this.melee?.dispose();
     this.object.removeFromParent();
     if (this.rig?.mixer && this.glb) {
       this.rig.mixer.stopAllAction();

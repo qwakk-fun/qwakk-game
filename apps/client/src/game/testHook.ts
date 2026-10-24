@@ -4,7 +4,7 @@
  * build-time DEVTOOLS constant, so public bundles do not contain it.
  */
 import * as THREE from 'three/webgpu';
-import { mapDefHash, simSelfTestHash, simSelfTestHashOn } from '@qwakk/shared';
+import { actionOf, mapDefHash, simSelfTestHash, simSelfTestHashOn } from '@qwakk/shared';
 import type { PlayerState } from '@qwakk/shared/net';
 import type { Session } from '../net/session.ts';
 import type { Avatar } from '../player/avatar.ts';
@@ -43,7 +43,63 @@ function renderStats(v: TestView): { drawCalls: number; triangles: number; world
   return { drawCalls: r.drawCalls ?? r.calls ?? 0, triangles: r.triangles ?? 0, world: w ? { drawCalls: w.drawCalls, triangles: w.triangles } : null };
 }
 
+/** One frame of the local duck's drawn animation (animTrace): bone positions in the duck's own frame. */
+interface AnimFrame {
+  t: number;
+  act: number;
+  /** The duck's drawn ground speed (m/s). */
+  v: number;
+  bones: number[];
+}
+const TRACE_BONES = ['Hips', 'Head', 'RightHand', 'LeftHand', 'LeftFoot', 'RightFoot'] as const;
+
+/** Per-frame recorder of the local avatar's bones, run after the game's own frame (its rAF callback was registered first). */
+function animTracer(v: TestView): { start(): void; stop(): { names: readonly string[]; frames: AnimFrame[] } } {
+  let on = false;
+  let frames: AnimFrame[] = [];
+  const w = new THREE.Vector3();
+  let lx = NaN;
+  let lz = NaN;
+  let lt = 0;
+  const tick = (t: number): void => {
+    if (!on) return;
+    const a = v.localAvatar;
+    const st = v.session.me?.state;
+    const bones: number[] = [];
+    for (const n of TRACE_BONES) {
+      const b = a.bone(n);
+      if (!b) {
+        bones.push(0, 0, 0);
+        continue;
+      }
+      b.getWorldPosition(w);
+      a.object.worldToLocal(w);
+      bones.push(w.x, w.y, w.z);
+    }
+    const p = a.object.position;
+    const sp = Number.isNaN(lx) || t <= lt ? 0 : Math.hypot(p.x - lx, p.z - lz) / ((t - lt) / 1000);
+    lx = p.x;
+    lz = p.z;
+    lt = t;
+    frames.push({ t, act: st ? actionOf(st as never) : -1, v: sp, bones });
+    requestAnimationFrame(tick);
+  };
+  return {
+    start() {
+      frames = [];
+      lx = NaN;
+      on = true;
+      requestAnimationFrame(tick);
+    },
+    stop() {
+      on = false;
+      return { names: TRACE_BONES, frames };
+    },
+  };
+}
+
 export function exposeTestHook(v: TestView): void {
+  const tracer = animTracer(v);
   (window as unknown as { __qwakk: unknown }).__qwakk = {
     snapshot: () => {
       const s = v.session;
@@ -72,7 +128,7 @@ export function exposeTestHook(v: TestView): void {
         remotes,
         prediction: { ...s.prediction, avgErrM: s.prediction.reconciles ? s.prediction.sumErrM / s.prediction.reconciles : 0, driftEma: me?.drift.ema ?? 0, driftPeak: me?.drift.peak ?? 0 },
         pendingInputs: me?.pendingCount ?? 0,
-        localMotion: { drawnMaxSpeed: v.localMotion.maxSpeed, snapFrames: v.localMotion.snapFrames, frames: v.localMotion.frames },
+        localMotion: { drawnMaxSpeed: v.localMotion.maxSpeed, snapFrames: v.localMotion.snapFrames, stallFrames: v.localMotion.stallFrames, frames: v.localMotion.frames },
         netsim: { ...s.netsim.settings },
         combat: { ...v.combat.stats, now: performance.now() },
         kills: [...s.room.state.players.values()].reduce((n, p) => n + p.kills, 0),
@@ -118,6 +174,11 @@ export function exposeTestHook(v: TestView): void {
         ...r.stats, artLoaded: r.artLoaded, artChecked: r.artChecked, cardsOpen: r.hud.cardsOpen, endOpen: r.endOpen, maxHp: r.maxHp,
         hp: v.session.me?.state.hp ?? 0, alive: v.session.mine?.alive ?? 0, down: v.session.me?.state.down ?? 0,
         serverNow: v.session.room.clock.serverNow(), waveAt: st.raid.waveAt, ends: st.raid.ends,
+        // v3: the objective, the katana's feel and the server's numbers as this client saw them.
+        goal: st.raid.goal, gDone: st.raid.gDone, gNeed: st.raid.gNeed, gx: st.raid.gx, gz: st.raid.gz,
+        targets: [...st.raidTargets.values()].map((t) => ({ kind: t.kind, x: t.x, z: t.z, hp: t.hp, done: t.done })),
+        blade: { ...r.feel.stats, combo: r.bladeHud.comboShown },
+        weapon: v.session.me?.state.weapon ?? -1, ex: v.session.me?.state.ex ?? 0, meter: v.session.me?.state.dmEnergy ?? 0, act: v.session.me ? (v.session.me.state as unknown as { mag0: number }).mag0 & 15 : 0,
       };
     },
     /** Hunt Season: Pond Keep's layout as loaded (the map's markup): the gate, the lever, the cannons, the core. */
@@ -209,6 +270,26 @@ export function exposeTestHook(v: TestView): void {
     },
     /** Hold these input buttons (Button bits) for `ms`, on top of the autopilot or the keys; `mz` walks forward (1) or back. */
     press: (buttons: number, ms: number, mz = 0) => v.press(buttons, ms, mz),
+    /** What the scene graph holds (the per-frame matrix work grows with it): objects, bones, skinned meshes. */
+    sceneStats: () => {
+      let root: THREE.Object3D = v.localAvatar.object;
+      while (root.parent) root = root.parent;
+      const out = { objects: 0, bones: 0, skinned: 0, meshes: 0, instanced: 0, autoUpdate: 0, topLevel: root.children.length };
+      root.traverse((o) => {
+        out.objects++;
+        if ((o as THREE.Bone).isBone) out.bones++;
+        if ((o as THREE.SkinnedMesh).isSkinnedMesh) out.skinned++;
+        else if ((o as THREE.InstancedMesh).isInstancedMesh) out.instanced++;
+        else if ((o as THREE.Mesh).isMesh) out.meshes++;
+        if (o.matrixAutoUpdate) out.autoUpdate++;
+      });
+      return out;
+    },
+    /** The dev autopilot off for `ms` (scripted input through `press`). */
+    hold: (ms: number) => v.hold(ms),
+    /** Record the local duck's drawn bones every frame (animation smoothness checks): start, then stop returns the frames. */
+    animTraceStart: () => tracer.start(),
+    animTraceStop: () => tracer.stop(),
     /** Remote ducks in view and what they are doing (pose action), for screenshots of their reloads. */
     remoteActs: () => {
       const out: { id: string; act: number; dist: number; magState: string }[] = [];

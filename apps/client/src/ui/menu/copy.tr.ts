@@ -10,9 +10,9 @@ export const TR = {
   playBr: 'Hızlı Oyna', playBrSub: 'Uygun bir Battle Royale odasına katıl',
   playDm: 'Deathmatch', playDmSub: 'Yeniden doğ, en kalabalık odaya katıl',
   raid: {
-    title: 'Av Sezonu', sub: 'Ortak mod: Gölet Kalesini ve QoreChain çekirdeğini 10 avcı dalgasına karşı koru. XP kazandırır.',
+    title: 'Av Sezonu', sub: 'Ortak mod: katananı çek, Gölet Kalesinden Koca Avcının kampına kadar avcı sürülerini biçerek ilerle. XP kazandırır.',
     party: (n: number) => `${n} kişilik grubunla ava başla`, locked: 'Av Sezonu için giriş yap',
-    lockedNote: 'Av Sezonu ördeğine XP kazandırır, bu yüzden hesap gerekir.', best: (wave: number) => `Rekor: dalga ${wave}`,
+    lockedNote: 'Av Sezonu ördeğine XP kazandırır, bu yüzden hesap gerekir.', best: (n: number) => `Rekor: ${n} hedef`,
     xp: (into: number, need: number) => `${into} / ${need} XP`, maxLevel: 'En yüksek seviye', xpLabel: (level: number) => `Seviye ${level} ilerlemesi`,
   },
   finding: 'Oda aranıyor...', loadingGame: 'Adaya gidiliyor...',
@@ -42,7 +42,7 @@ export const TR = {
   touch: {
     menuNote: 'Telefonda mı oynuyorsun? Yatay çevir. Sol parmakla yürü, sağ parmakla nişan al.',
     rotateTitle: 'Telefonunu yatay çevir', rotateSub: 'Qwakk Adası yatay oynanır.', tapToPlay: 'Oynamak için dokun', paused: 'Duraklatıldı. Devam etmek için dokun.',
-    buttons: { fire: 'Ateş', aim: 'Nişan', jump: 'Zıpla', crouch: 'Eğil', reload: 'Doldur', swap: 'Değiştir', use: 'Kullan', bandage: 'Sargı', medkit: 'İlk yardım', pause: 'Duraklat', board: 'Skor', map: 'Harita', bag: 'Çanta', next: 'Sonraki', prev: 'Önceki', deploy: 'Atla', glider: 'Süzül', grenade: 'Bomba', rocket: 'Roket' },
+    buttons: { fire: 'Ateş', aim: 'Nişan', jump: 'Zıpla', crouch: 'Eğil', reload: 'Doldur', swap: 'Değiştir', use: 'Kullan', bandage: 'Sargı', medkit: 'İlk yardım', pause: 'Duraklat', board: 'Skor', map: 'Harita', bag: 'Çanta', next: 'Sonraki', prev: 'Önceki', deploy: 'Atla', glider: 'Süzül', grenade: 'Bomba', rocket: 'Roket', dash: 'Atıl', quack: 'VAK!', storm: 'Fırtına' },
     keys: { E: 'Kullan', F: '', Space: '', 'W / S': 'Çubuk', I: 'Çanta' } as Record<string, string>,
     hints: {
       plane: 'Bakmak için sürükle. Haritadan iniş yeri seç.', freefall: 'Süzülme kanadını aç (dalmak için çubuğu ileri it)',
@@ -155,7 +155,7 @@ export const TR = {
   result: {
     heading: 'Son maç', win: 'Kazanana ekmek ziyafeti!', placed: (p: number, n?: number) => n ? `${n} ördek arasında #${p}` : `#${p}`,
     kills: (k: number) => `${k} eleme`, points: (p: number) => `+${p} puan`, ended: 'Maç bitti. Bir el daha?',
-    raidHeld: (n: number) => `${n} dalga dayandın`, raidXp: (n: number) => `+${n} XP`, raidWon: 'Gölet Kalesi savunuldu! 10 dalganın hepsi geçildi.', raidEnded: 'Av bitti. Bir tur daha?',
+    raidHeld: (n: number) => `${n} hedef alındı`, raidXp: (n: number) => `+${n} XP`, raidWon: 'Saha bizim! Koca Avcı yere serildi.', raidEnded: 'Av bitti. Bir tur daha?',
     left: 'Maçtan ayrıldın. Ada seni bekliyor.', disconnected: 'Bağlantın koptu.', removed: 'Bu maçtan çıkarıldın.', closed: 'Oda kapandı. Başka bir oda seç.',
   },
   leaderboard: {
@@ -172,12 +172,13 @@ export const TR = {
     fov: 'Görüş açısı', volume: 'Ana ses', quality: 'Grafikler', qualities: { low: 'Düşük (daha hızlı)', high: 'Yüksek' }, reset: 'Varsayılana dön', saved: 'Kaydedildi',
   },
   howto: {
-    heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır. Av Sezonu ortak moddur: en fazla 3 arkadaşınla Gölet Kalesini ve QoreChain çekirdeğini 10 avcı dalgasına karşı koru. Surlardan savaş, kulelerdeki ekmek toplarıyla somun fırlat (E), kolla asma köprüyü kaldır ve kapıyı onarmak için yanında E tuşunu basılı tut. Tüfekli avcı veya keskin nişancı ateş etmeden önce kırmızı lazere dikkat et, dalgalar arasında bir güçlendirme seç ve ördeğine XP kazandır.',
+    heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır. Av Sezonu ortak moddur: en fazla 3 arkadaşınla katananı çek ve hedef hedef (siper, ikmal sandıkları, gözetleme kuleleri, Koca Avcının kampı) avcı sürülerini biçerek Gölet Kalesinden dışarı ilerle. Kesmek için tıkla (üçlü kombo için tıklamaya devam et), ağır dönüş için basılı tutup bırak, aralarından atılmak için X, "VAK!" şok dalgası için Q, göstergesi dolunca Kılıç Fırtınası için F, keskin nişancılara karşı tabanca için 2. Hedefler arasında bir güçlendirme seç ve ördeğine XP kazandır.',
     keys: [
       ['T', 'Oda sohbeti. Enter ile gönder, Esc ile kapat'],
       ['Tıkla', 'Fareyi kilitle ve oyna'], ['W A S D', 'Yürü'], ['Shift', 'Koş'], ['Alt', 'Yavaş yürü'], ['C', 'Eğil (basılı tut)'], ['Space', 'Zıpla'],
       ['Sol fare', 'Ateş et'], ['Sağ fare', 'Nişan al (basılı tut)'], ['R', 'Şarjör değiştir'], ['1 / 2 / tekerlek', 'Silah değiştir'], ['V', 'Omuz değiştir'],
       ['E', 'Eşya al, kasa aç. Düşen arkadaşını kaldırmak için yanında basılı tut'], ['I', 'Envanter: eşya bırak ve al'], ['F / Space', 'Uçaktan atla / süzülme kanadını aç'], ['4 / 5', 'Sargı bezi / ilk yardım'], ['M', 'Harita'], ['Tab', 'Skor tablosu'], ['Esc', 'Fareyi serbest bırak'],
+      ['Av Sezonu', 'Tıkla: kes (basılı tutup bırak: ağır dönüş). X: atıl. Q: "VAK!" şok dalgası. F: Kılıç Fırtınası. 2: tabanca'],
     ] as [string, string][],
     touchHeading: 'Telefon veya tablette', touchIntro: 'Yatay çevir. Tarayıcın izin verirse oyun tam ekran açılır.',
     touch: [
@@ -186,6 +187,7 @@ export const TR = {
       ['Zıpla / Eğil', 'Zıpla, eğil (ayağa kalkmak için tekrar dokun)'], ['Doldur / Değiştir', 'Şarjör ve silah değiştir'],
       ['Kullan', 'Eşya yanındayken al veya kasa aç. Düşen arkadaşını kaldırmak için basılı tut'], ['Atla / Süzül', 'Uçaktan atla, süzülme kanadını aç'],
       ['Sargı / İlk yardım', 'Sargı bezi ve ilk yardım çantası'], ['Harita / Çanta / Skor', 'Harita, envanter ve skor tablosu'], ['Duraklat', 'Duraklat ve maçtan ayrıl'],
+      ['Atıl / VAK! / Fırtına', 'Av Sezonu: avcıların arasından atıl, şok dalgası, Kılıç Fırtınası (Ateş keser; basılı tutunca ağır dönüş)'],
     ] as [string, string][],
     fair: 'Adil oyun: Her vuruşa sunucu karar verir, sıralama yalnızca sunucunun sayılarını kabul eder.',
   },
@@ -197,7 +199,7 @@ export const TR = {
     portals: {
       dm: { name: 'Deathmatch', sub: 'Kavren · yeniden doğarsın' },
       br: { name: 'Battle Royale', sub: 'Yelova · son ördek kazanır' },
-      raid: { name: 'Av Sezonu', sub: 'Ortak mod · kuleyi koru' },
+      raid: { name: 'Av Sezonu', sub: 'Ortak mod · katanayla sürüye karşı' },
     },
     signIn: 'Girmek için giriş yap', signInAction: 'Giriş yap', entering: (mode: string) => `${mode} yolunda...`,
     invite: 'Takıma davet et', quack: 'Vakla', dance: 'Dans et', leaveTeam: 'Takımdan ayrıl', teammate: 'Takım arkadaşı', close: 'Kapat',
