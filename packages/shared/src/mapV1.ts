@@ -7,7 +7,8 @@
  *
  * Kept tolerant on purpose: unknown top-level fields are ignored, optional
  * ones get defaults (`dmSpawns`, the deathmatch spawn points, see dmSpawns.ts), so a small format tweak from the map workstream is a
- * small change here (all field reads are in this file).
+ * small change here (all field reads are in this file, apart from the Hunt
+ * Season castle markup `raid`, read and checked by raid/markup.ts).
  */
 import type { BrMapData, CircleCandidate, CirclePhase, FlightPath, LootPoint, MapZone, RiverPoint, Vec2, WaterDef } from './brMapData.ts';
 import { Container } from './brMapData.ts';
@@ -17,6 +18,8 @@ import type { BoxDef, MapDef, Quat, ShapeDef, TerrainDef, Vec3 } from './map.ts'
 import { terrainHeightAt } from './map.ts';
 import { dcos, dsin } from './math.ts';
 import { MATCH } from './constants.ts';
+import { buildKeep, keepShapes, mapHasDeck } from './raid/keep.ts';
+import { parseRaidMarkup } from './raid/markup.ts';
 
 type Json = Record<string, unknown>;
 
@@ -334,6 +337,10 @@ export function buildMapDef(id: string, rawJson: unknown, heightBytes: Uint8Arra
       })
     : [];
 
+  // Hunt Season castle (Pond Keep): its markup, and its own colliders after the props (raid/keep.ts).
+  const raid = json.raid === undefined || json.raid === null ? null : buildKeep(parseRaidMarkup(json.raid));
+  if (raid) shapes.push(...keepShapes(raid, propShapes.get('castle_gate') ?? [], mapHasDeck(raid, shapes)));
+
   const def: MapDef = {
     id,
     seed: Math.round(num(json.seed, 'seed', 0)),
@@ -350,6 +357,7 @@ export function buildMapDef(id: string, rawJson: unknown, heightBytes: Uint8Arra
     shapes,
     water,
     br,
+    ...(raid ? { raid } : {}),
   };
   return {
     def,

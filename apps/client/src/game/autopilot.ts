@@ -55,10 +55,11 @@ export class Autopilot {
   }
 
   /**
-   * Hunt Season: fight the hunters it sees (as fight()), revive a knocked
-   * friend close by (hold E), else hold a spot by the tower.
+   * Hunt Season (Pond Keep): fight the hunters it sees (as fight()), revive
+   * a knocked friend close by (hold E), else hold a spot inside the gate
+   * (the hunters come through it once it breaks).
    */
-  raid(me: PlayerSim, view: { yaw: number; pitch: number }, v: { hunters: readonly SeenDuck[]; knocked: { x: number; z: number } | null; tower: { x: number; z: number } }): { mx: number; mz: number; buttons: number } {
+  raid(me: PlayerSim, view: { yaw: number; pitch: number }, v: { hunters: readonly SeenDuck[]; knocked: { x: number; z: number } | null; home: { x: number; z: number }; core: { x: number; z: number; r: number } }): { mx: number; mz: number; buttons: number } {
     // Knocked and alone: the second wind (hold E).
     if (me.down) return { mx: 0, mz: 0, buttons: Button.Use };
     if (v.knocked && Math.hypot(v.knocked.x - me.x, v.knocked.z - me.z) < 18) {
@@ -72,11 +73,29 @@ export class Autopilot {
         return d > 1.4 ? { mx: 0, mz: 1, buttons: 0 } : { mx: 0, mz: 0, buttons: Button.Use };
       }
     }
-    // Nobody in sight: go for the nearest hunter (they are public in a hunt), else hold by the tower.
-    let near: SeenDuck | null = null;
-    for (const h of v.hunters) if (!near || Math.hypot(h.x - me.x, h.z - me.z) < Math.hypot(near.x - me.x, near.z - me.z)) near = h;
-    const home = near && Math.hypot(near.x - me.x, near.z - me.z) > 6 ? { x: near.x, z: near.z } : { x: v.tower.x + 4, z: v.tower.z + 14 };
-    return this.fight(me, view, v.hunters, home);
+    // Nobody in sight: hold the spot inside the gate, going round the core's plinth rather than over it.
+    return this.fight(me, view, v.hunters, this.aroundCore(me, v.home, v.core));
+  }
+
+  /** The home spot, or a point beside the core first when the straight way runs over its plinth. */
+  private aroundCore(me: PlayerSim, home: { x: number; z: number }, core: { x: number; z: number; r: number }): { x: number; z: number } {
+    const dx = home.x - me.x;
+    const dz = home.z - me.z;
+    const len2 = dx * dx + dz * dz || 1;
+    const t = Math.max(0, Math.min(1, ((core.x - me.x) * dx + (core.z - me.z) * dz) / len2));
+    const px = me.x + dx * t - core.x;
+    const pz = me.z + dz * t - core.z;
+    const clear = core.r + 2;
+    if (Math.hypot(px, pz) >= clear) return home;
+    // Step out sideways from the line on the duck's side of the core.
+    const l = Math.sqrt(len2);
+    let sx = -dz / l;
+    let sz = dx / l;
+    if (sx * (me.x - core.x) + sz * (me.z - core.z) < 0) {
+      sx = -sx;
+      sz = -sz;
+    }
+    return { x: core.x + sx * (clear + 1.5), z: core.z + sz * (clear + 1.5) };
   }
 
   fight(me: PlayerSim, view: { yaw: number; pitch: number }, ducks: readonly SeenDuck[], home?: { x: number; z: number }): { mx: number; mz: number; buttons: number } {

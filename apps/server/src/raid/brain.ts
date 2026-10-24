@@ -13,39 +13,46 @@
  *   dog       fast packs, bite after a short lunge
  *   boss      the Big Hunter: double barrel after a long wind-up, whistles
  *             for help
+ *   sniper    walks to a free perch (a watchtower or a hill, 90 to 140 m
+ *             out) and fires one long shot after a long, readable laser
+ *             and glint (longer the farther the duck)
  *
- * Without a duck in sight every hunter walks to its spot at the tower and
- * hammers it. Server only (Math.random, Math.atan2).
+ * Without a duck in sight every hunter goes for its objective on Pond Keep
+ * (travel.ts): the gate while the drawbridge is down (it hammers it), the
+ * QoreChain core once the gate is broken, the island's bank by the bridge
+ * while it is up (paddling a raft across). Server only (Math.random,
+ * Math.atan2).
  */
-import { DT, HunterAct, HunterKind, type SimWorld } from '@qwakk/shared';
-import type { BotNav, P3 } from '../nav/botNav.ts';
+import { HunterAct, HunterKind } from '@qwakk/shared';
+import type { P3 } from '../nav/botNav.ts';
 import { BITE, DECOY, GUN, KIND, TRAP, WHISTLE, type GunNumbers, type HunterAgent } from './hunter.ts';
 import { hunterMuzzle } from './gun.ts';
 import { clearSight, sees, type DuckTarget } from './sight.ts';
 import type { RaidRules } from './rules.ts';
+import { stepKnock, stepRaft, travel, type TravelContext } from './travel.ts';
 
-export interface HuntContext {
-  sim: SimWorld;
-  nav: BotNav | null;
+export interface HuntContext extends TravelContext {
   tick: number;
   rules: RaidRules;
   ducks: readonly DuckTarget[];
-  /** Everyone a hunter steers around (hunters and ducks). */
-  avoid: readonly { x: number; z: number }[];
   lastWave: boolean;
   /**
    * The wave is down to its last few hunters (or drags on): they stop
-   * sniping from afar and push for the tower, fighting only what is close.
+   * sniping from afar and push for the keep, fighting only what is close.
    */
   push: boolean;
-  towerSpot(h: HunterAgent): P3;
-  atTower(h: HunterAgent): boolean;
+  /** At its objective (the gate or the core) close enough to hammer it. */
+  atObjective(h: HunterAgent, hammer: 1 | 2): boolean;
+  /** Trench points riflemen take cover in. */
+  trench: readonly P3[];
+  /** A sniper's perch (claimed once, kept while it lives), or null when none is free. */
+  perch(h: HunterAgent): P3 | null;
   fire(h: HunterAgent, gun: GunNumbers, yaw: number, pitch: number): void;
   bite(h: HunterAgent, duck: DuckTarget): void;
   placeTrap(h: HunterAgent, x: number, y: number, z: number): void;
   throwDecoy(h: HunterAgent, x: number, y: number, z: number): void;
   whistle(h: HunterAgent): void;
-  hammer(h: HunterAgent): void;
+  hammer(h: HunterAgent, what: 1 | 2): void;
   /** Reinforcements a boss whistled up that are still standing. */
   helpers(): number;
   /** The boss may still whistle this wave (stops WHISTLE.stopAfterTicks into it). */
@@ -63,6 +70,8 @@ function turnToward(h: HunterAgent, yaw: number, rate: number): void {
 function faceDuck(h: HunterAgent, d: { x: number; z: number }, rate = 0.25): void {
   turnToward(h, Math.atan2(-(d.x - h.x), -(d.z - h.z)), rate);
 }
+
+const lookList: { d: DuckTarget; dist: number }[] = [];
 
 /** Look around for a target every third tick (staggered), keep the one it has while it stays in sight. */
 function perceive(h: HunterAgent, ctx: HuntContext): void {
@@ -86,15 +95,22 @@ function perceive(h: HunterAgent, ctx: HuntContext): void {
     if (h.lostTicks <= 75) return;
     h.targetId = null;
   }
-  let best: DuckTarget | null = null;
-  let bestD = Infinity;
+  // Look at no more than two ducks in range per look-around (the nearest first, then turn by turn through
+  // the rest): with snipers seeing 160 m most of them are behind the walls, and every look costs rays.
+  const near = lookList;
+  near.length = 0;
   for (const d of ctx.ducks) {
     if (!d.standing) continue;
     const dist = Math.hypot(d.x - h.x, d.z - h.z);
-    if (dist > range || dist >= bestD) continue;
-    if (!sees(ctx.sim, h, k, d)) continue;
-    best = d;
-    bestD = dist;
+    if (dist <= range) near.push({ d, dist });
+  }
+  if (near.length === 0) return;
+  near.sort((a, b) => a.dist - b.dist);
+  let best: DuckTarget | null = null;
+  const turn = Math.floor(ctx.tick / 3) + h.serial;
+  for (let i = 0; i < Math.min(2, near.length) && !best; i++) {
+    const c = near[i === 0 ? 0 : 1 + (turn % Math.max(1, near.length - 1))]!;
+    if (sees(ctx.sim, h, k, c.d)) best = c.d;
   }
   if (!best) return;
   h.targetId = best.id;
@@ -111,41 +127,54 @@ function perceive(h: HunterAgent, ctx: HuntContext): void {
   }
 }
 
-/** Walk (or run) toward a point; the act follows the speed. Returns true while still on the way. */
+/** Walk (or run) toward a point by the keep's route rules (travel.ts); the act follows the speed. Returns true while still on the way. */
 function go(h: HunterAgent, ctx: HuntContext, p: P3, speed: number, arrive: number): boolean {
-  h.mover.setGoal(p);
-  const on = h.mover.step(ctx.sim, ctx.nav, h, speed, DT, arrive, ctx.avoid);
+  const on = travel(h, ctx, p, speed, arrive);
+  if (h.raft) return true;
   const k = KIND[h.kind]!;
   h.act = !on || h.mover.speed === 0 ? HunterAct.Idle : speed >= k.run - 0.01 ? HunterAct.Run : HunterAct.Walk;
   return on;
 }
 
-/** Rifleman cover: a nearby walkable spot where a wall hides a kneeling hunter from the duck but standing up clears it. */
+/**
+ * Rifleman cover: a nearby spot where a wall (a trench parapet, a sandbag
+ * line) hides a kneeling hunter from the duck but standing up clears it.
+ * Trench points first, then random walkable points, bounding toward the keep.
+ */
 function pickCover(h: HunterAgent, ctx: HuntContext, d: DuckTarget): P3 | null {
   const nav = ctx.nav;
-  if (!nav) return null;
-  let best: P3 | null = null;
-  let bestD = Infinity;
-  // Bounding forward: the spots are looked for a few meters toward the tower.
-  const tx = towerCenter.x - h.x;
-  const tz = towerCenter.z - h.z;
+  const core = ctx.keep.core;
+  const tx = core.x - h.x;
+  const tz = core.z - h.z;
   const tl = Math.hypot(tx, tz) || 1;
-  const step = Math.min(7, Math.max(0, tl - 14));
-  for (let i = 0; i < 6; i++) {
-    const c = nav.randomInCircle(h.x + (tx / tl) * step, h.y, h.z + (tz / tl) * step, 8);
-    if (!c) continue;
+  const step = Math.min(7, Math.max(0, tl - 30));
+  const bx = h.x + (tx / tl) * step;
+  const bz = h.z + (tz / tl) * step;
+  const cands: P3[] = [];
+  for (const p of ctx.trench) if (Math.abs(p.x - bx) < 12 && Math.abs(p.z - bz) < 12) cands.push(p);
+  cands.sort((a, b) => Math.hypot(a.x - bx, a.z - bz) - Math.hypot(b.x - bx, b.z - bz));
+  cands.length = Math.min(cands.length, 6);
+  if (nav) for (let i = 0; i < 5; i++) {
+    const c = nav.randomInCircle(bx, h.y, bz, 8);
+    if (c) cands.push(c);
+  }
+  const good: { c: P3; d: number }[] = [];
+  for (const c of cands) {
     const dd = Math.hypot(c.x - d.x, c.z - d.z);
     if (dd < 12 || dd > KIND[HunterKind.Rifleman]!.engage) continue;
-    const lowBlocked = !clearSight(ctx.sim, c.x, c.y + 0.9, c.z, d.x, d.y + 0.9, d.z);
-    if (!lowBlocked) continue;
+    if (clearSight(ctx.sim, c.x, c.y + 0.9, c.z, d.x, d.y + 0.9, d.z)) continue;
     if (!clearSight(ctx.sim, c.x, c.y + 1.6, c.z, d.x, d.y + 1.0, d.z)) continue;
-    const mine = Math.hypot(c.x - h.x, c.z - h.z);
-    if (mine < bestD) {
-      best = c;
-      bestD = mine;
-    }
+    good.push({ c, d: Math.hypot(c.x - h.x, c.z - h.z) });
   }
-  return best;
+  good.sort((a, b) => a.d - b.d);
+  // Only a spot the hunter can really walk to (a trench the navmesh does not join up is a trap).
+  for (const { c } of good.slice(0, 3)) {
+    if (!nav) return c;
+    const path = nav.path(h, c);
+    const end = path?.[path.length - 1];
+    if (end && Math.hypot(end.x - c.x, end.z - c.z) < 1.2) return c;
+  }
+  return null;
 }
 
 /** Aim at the tracked point (chest), from the muzzle: yaw and pitch of the line. */
@@ -220,7 +249,7 @@ function gunCycle(h: HunterAgent, ctx: HuntContext, target: DuckTarget, g: GunNu
 }
 
 function endShot(h: HunterAgent, g: GunNumbers): void {
-  // A rifleman moves to new cover (a bound toward the tower) every two shots.
+  // A rifleman moves to new cover (a bound toward the keep) every two shots.
   if (h.kind === HunterKind.Rifleman && h.shotsSinceMove >= 2 && h.shotsSinceReload < g.reloadEvery) {
     h.shotsSinceMove = 0;
     h.cover = null;
@@ -236,36 +265,44 @@ function endShot(h: HunterAgent, g: GunNumbers): void {
   }
 }
 
-function startAim(h: HunterAgent, g: GunNumbers): void {
+function startAim(h: HunterAgent, g: GunNumbers, dist = 0): void {
   h.phase = 'aim';
-  // The first shot at a new target waits out the reaction too.
-  h.phaseTicks = g.aimTicks + h.reaction;
+  // The first shot at a new target waits out the reaction too; a sniper's wind-up grows with the range.
+  h.phaseTicks = g.aimTicks + Math.round(dist * (g.aimPerMeter ?? 0)) + h.reaction;
   h.reaction = 0;
 }
 
-/** No target: walk to the tower spot, then hammer the tower. */
+/** No target: go for the objective (travel.ts), and hammer it once there. */
 function advance(h: HunterAgent, ctx: HuntContext): void {
   const k = KIND[h.kind]!;
-  if (ctx.atTower(h)) {
+  const o = ctx.objective(h);
+  if (o.hammer !== 0 && ctx.atObjective(h, o.hammer)) {
     h.phase = 'hammer';
     h.act = HunterAct.Hammer;
-    faceDuck(h, towerCenter, 0.2);
-    ctx.hammer(h);
+    const face = o.hammer === 1 ? ctx.keep.gate : ctx.keep.core;
+    faceDuck(h, face, 0.2);
+    ctx.hammer(h, o.hammer);
     return;
   }
   h.phase = 'advance';
-  go(h, ctx, ctx.towerSpot(h), k.walk, 0.6);
+  // They charge the keep: running while far from it, walking the last stretch.
+  const far = Math.hypot(o.spot.x - h.x, o.spot.z - h.z) > 22;
+  if (!go(h, ctx, o.spot, far ? k.run : k.walk, o.hammer === 0 ? 1.2 : 0.6) && o.hammer === 0) {
+    // Waiting on the bank for the drawbridge: face the keep.
+    h.act = HunterAct.Idle;
+    faceDuck(h, ctx.keep.core, 0.1);
+  }
 }
-
-/** Set by the raid (the map's tower position). */
-export const towerCenter = { x: 0, z: 0 };
 
 function chaseOrAdvance(h: HunterAgent, ctx: HuntContext, run: boolean): void {
   const k = KIND[h.kind]!;
   if (h.lastSeen && h.lostTicks < 120) {
+    // The chase runs out after a while (the last seen point may be out of reach).
+    h.lostTicks++;
     if (!go(h, ctx, h.lastSeen, run ? k.run : k.walk, 1.2)) h.lastSeen = null;
     return;
   }
+  h.lastSeen = null;
   advance(h, ctx);
 }
 
@@ -308,7 +345,7 @@ function thinkGunner(h: HunterAgent, ctx: HuntContext, target: DuckTarget | unde
     return;
   }
   if (!target) {
-    if (h.kind === HunterKind.Trapper && h.trapCd <= 0 && Math.hypot(h.x - towerCenter.x, h.z - towerCenter.z) < 30) {
+    if (h.kind === HunterKind.Trapper && h.trapCd <= 0 && Math.hypot(h.x - ctx.keep.gate.x, h.z - ctx.keep.gate.z) < 16) {
       h.phase = 'throw';
       h.phaseTicks = TRAP.windup;
       return;
@@ -334,7 +371,7 @@ function thinkGunner(h: HunterAgent, ctx: HuntContext, target: DuckTarget | unde
     h.act = h.flash > 0 ? HunterAct.Fire : HunterAct.Kneel;
     faceDuck(h, target, 0.2);
     if (--h.phaseTicks > 0) return;
-    if (h.lostTicks === 0) startAim(h, g);
+    if (h.lostTicks === 0) startAim(h, g, dist);
     else if (h.lostTicks > 45) {
       h.cover = null;
       h.phase = 'move';
@@ -347,7 +384,7 @@ function thinkGunner(h: HunterAgent, ctx: HuntContext, target: DuckTarget | unde
     h.phase = 'move';
     go(h, ctx, { x: target.x, y: target.y, z: target.z }, h.kind === HunterKind.Trapper ? k.run : k.walk, close * 0.8);
     if (h.flash > 0) h.act = HunterAct.Fire;
-    if (dist <= close * 1.15 && h.lostTicks === 0 && h.phaseTicks <= 0) startAim(h, g);
+    if (dist <= close * 1.15 && h.lostTicks === 0 && h.phaseTicks <= 0) startAim(h, g, dist);
     else if (h.phaseTicks > 0) h.phaseTicks--;
     return;
   }
@@ -357,7 +394,7 @@ function thinkGunner(h: HunterAgent, ctx: HuntContext, target: DuckTarget | unde
     h.phase = 'kneel';
     h.phaseTicks = Math.min(h.phaseTicks, 6);
   }
-  if (--h.phaseTicks <= 0) startAim(h, g);
+  if (--h.phaseTicks <= 0) startAim(h, g, dist);
 }
 
 function thinkDecoy(h: HunterAgent, ctx: HuntContext, target: DuckTarget | undefined): void {
@@ -435,16 +472,70 @@ export function knownTarget(h: HunterAgent, ctx: HuntContext): DuckTarget | unde
   return { ...live, x: h.lastSeen.x, y: h.lastSeen.y, z: h.lastSeen.z, vx: 0, vz: 0 };
 }
 
+/**
+ * A sniper: to a free perch, then long shots from there (the laser and glint
+ * wind up longer the farther the duck). Without a perch, or once the wave is
+ * down to its last few, it fights like a rifleman pushing in.
+ */
+function thinkSniper(h: HunterAgent, ctx: HuntContext, target: DuckTarget | undefined): void {
+  const perch = ctx.push ? null : ctx.perch(h);
+  if (!perch) {
+    thinkGunner(h, ctx, target);
+    return;
+  }
+  const g = GUN[h.kind]!;
+  const k = KIND[h.kind]!;
+  if (h.phase === 'aim' || h.phase === 'fire' || h.phase === 'reload') {
+    if (target || h.phase === 'reload') {
+      gunCycle(h, ctx, (target ?? ctx.ducks[0]) as DuckTarget, g);
+      return;
+    }
+    h.phase = 'kneel';
+    h.phaseTicks = 10;
+  }
+  // At the perch: on it, or as close as the walk gets (the platform's middle may be off the navmesh).
+  const off = Math.hypot(perch.x - h.x, perch.z - h.z);
+  if (off > 1.4 && !(off < 4 && Math.abs(perch.y - h.y) < 1.5 && h.phase !== 'move')) {
+    h.phase = 'move';
+    if (!go(h, ctx, perch, k.run, 0.8) && off < 4 && Math.abs(perch.y - h.y) < 1.5) h.phase = 'kneel';
+    return;
+  }
+  h.act = h.flash > 0 ? HunterAct.Fire : HunterAct.Kneel;
+  if (!target) {
+    faceDuck(h, ctx.keep.core, 0.08);
+    return;
+  }
+  faceDuck(h, target, 0.15);
+  if (h.phase !== 'kneel') {
+    h.phase = 'kneel';
+    h.phaseTicks = Math.round(rand(10, 25));
+  }
+  if (--h.phaseTicks > 0) return;
+  if (h.lostTicks === 0) startAim(h, g, Math.hypot(target.x - h.x, target.z - h.z));
+}
+
 /** One tick of one hunter. */
 export function thinkHunter(h: HunterAgent, ctx: HuntContext): void {
   if (h.trapCd > 0) h.trapCd--;
   if (h.throwCd > 0) h.throwCd--;
   if (h.whistleCd > 0) h.whistleCd--;
   if (h.flash > 0) h.flash--;
+  // On a raft: paddling, nothing else. Dunked in the moat: climbing out.
+  if (h.raft) {
+    stepRaft(ctx.sim, h, ctx.rules.raftSpeed);
+    return;
+  }
+  if (h.swim > 0) {
+    h.swim--;
+    h.act = HunterAct.Swim;
+    return;
+  }
+  stepKnock(h, ctx);
   if ((ctx.tick + h.serial) % 3 === 0) perceive(h, ctx);
   const target = knownTarget(h, ctx);
   if (h.kind === HunterKind.Dog) thinkDog(h, ctx, target);
   else if (h.kind === HunterKind.Decoy) thinkDecoy(h, ctx, target);
+  else if (h.kind === HunterKind.Sniper) thinkSniper(h, ctx, target);
   else thinkGunner(h, ctx, target);
   if (h.act !== HunterAct.Aim && h.act !== HunterAct.Fire) h.pitch *= 0.85;
 }

@@ -1,6 +1,6 @@
 # Qwakk game
 
-A browser third-person shooter with ducks, planned to live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Yelova**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck (or one team) is left; server bots on a navmesh fill the empty seats. Rooms play Solo, Duo or Squad; friends group up in a party in the menu (a code and a share link) and land together on one team, with name tags, ally markers through walls, knocks and revives. Next to it run always-on deathmatch rooms of 24 ducks each (at launch one, Kavren; Kumra and Tanoba are ready in the catalog) on **Kavren**, a compact village quarter from the same kit; bots fill every seat a human does not take. **Hunt Season** (Av Sezonu) is the co-op PvE mode on Kavren: 1 to 4 signed-in ducks defend the QoreChain Tower against 15 waves of duck hunters (riflemen, trappers, decoy throwers, hunting dogs and the Big Hunter on waves 5, 10 and 15), pick upgrades between waves and earn XP and levels for their duck (`docs/hunt-season.md`). All modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream. It plays on desktop (keyboard and mouse) and on phones and tablets in landscape with touch controls (see Touch controls); both join the same rooms and parties.
+A browser third-person shooter with ducks, planned to live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Yelova**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck (or one team) is left; server bots on a navmesh fill the empty seats. Rooms play Solo, Duo or Squad; friends group up in a party in the menu (a code and a share link) and land together on one team, with name tags, ally markers through walls, knocks and revives. Next to it run always-on deathmatch rooms of 24 ducks each (at launch one, Kavren; Kumra and Tanoba are ready in the catalog) on **Kavren**, a compact village quarter from the same kit; bots fill every seat a human does not take. **Hunt Season** (Av Sezonu) is the co-op PvE mode on **Pond Keep**, a duck castle on a pond island (`docs/pond-keep.md`): 1 to 4 signed-in ducks defend the QoreChain core in its courtyard against 10 waves of duck hunters (riflemen, snipers on watchtowers and hills, trappers, decoy throwers, hunting dogs and the Big Hunter on waves 3, 6 and 10) from the walls, with four bread cannons on the towers, a drawbridge on a lever and a gate they repair, pick upgrades between waves and earn XP and levels for their duck (`docs/hunt-season.md`). All modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream. It plays on desktop (keyboard and mouse) and on phones and tablets in landscape with touch controls (see Touch controls); both join the same rooms and parties.
 
 Phase 0 (the foundation: sim, netcode, camera) is described in the netcode section below.
 
@@ -224,12 +224,12 @@ npm run e2e:mobile -- DIR # touch controls on an emulated phone (landscape, mult
 npm run perf:mobile -- DIR # phone frame time under emulation, CPU throttled 4x (THROTTLE=6 for more)
 npm run e2e:party -- DIR # parties: menu party, deathmatch allies, Duo battle royale team, knock and revive (always on port 2567)
 npm run e2e:accounts -- DIR # accounts: guest locks, email sign-up with the dev mail sink, two ducks, battle royale, log out and in, phone shots
-npm run e2e:raid -- DIR # Hunt Season: a solo run on the dev autopilot (waves 1 and 2, a card, the boss, the win, XP stored), then a party run with a phone (port 2567, local PostgreSQL)
+npm run e2e:raid -- DIR # Hunt Season on Pond Keep: a solo run on the dev autopilot (waves 1 and 2, a card), then the keep with test hooks (the wall walk, a bread cannon manned and fired with no prediction corrections, the gate hammered and repaired, the drawbridge lever and the raft lanes, the boss), the win, XP stored; then a party run with a phone (port 2567, local PostgreSQL)
 npm run test:net     # pause and stall recovery against the real server
 npm run test:br      # headless 16-bot battle royale (server workspace)
 npm run bench        # deathmatch benchmark: 32 clients, or 1 client and 31 server bots, in one and in all three catalog rooms, opened with QWAKK_DM_ROOMS=3 (npm run bench -- 4 64 for client counts in one room)
 npm run bench:br     # battle royale benchmark: network clients plus bots, bandwidth, CPU, culling (npm run bench:br -- 4 60 2 for Duo)
-npm run bench:raid   # Hunt Season benchmark: headless waves 13 to 15 and 30 hunters at once, then 4 network clients alone and next to a full deathmatch room (port 2597)
+npm run bench:raid   # Hunt Season benchmark: headless waves 8 to 10 and 30 hunters at once with a duck at a cannon, then 4 network clients (one at a cannon) alone and next to a full deathmatch room (port 2597)
 npm run shots:menu -- DIR # the menu at 1440x900, 1024x768, 390x844 and 844x390 with every tab (build:test first, port 2567)
 npm run shots -- DIR # screenshots of a deathmatch firefight, then hip vs aim down sights and the reloads (two ducks in a battle royale warm-up; build:test first)
 npm run perf:br -- DIR # battle royale frame time, CPU per frame and draw calls in headless Chrome
@@ -377,12 +377,28 @@ The constants stay the defaults: with nothing stored the server runs exactly as 
 | `br.firstCircleRadius` | Battle royale: First circle radius (kept 20 m above the second circle) | 220 m | 160 to 380 | new rooms |  |
 | `raid.maxRooms` | Hunt Season: Runs at once | 3 rooms | 0 to 12 | now | `QWAKK_RAID_MAX_ROOMS` |
 | `raid.lobbySeconds` | Hunt Season: Lobby countdown | 15 s | 3 to 60 | new rooms | `QWAKK_RAID_COUNTDOWN` |
-| `raid.breakSeconds` | Hunt Season: Break between waves | 20 s | 5 to 60 | new rooms |  |
-| `raid.towerHp` | Hunt Season: Tower health | 1000 hp | 100 to 5000 | new rooms |  |
+| `raid.breakSeconds` | Hunt Season: Break between waves | 10 s | 5 to 60 | new rooms |  |
+| `raid.coreHp` | Hunt Season: Core health | 1000 hp | 100 to 5000 | new rooms |  |
 | `raid.maxLive` | Hunt Season: Hunters at once | 30 hunters | 5 to 40 | new rooms |  |
+| `raid.waveScale` | Hunt Season: Wave size | 1 x | 0.3 to 3 | new rooms |  |
 | `raid.hunterHpScale` | Hunt Season: Hunter health | 1 x | 0.3 to 3 | new rooms |  |
 | `raid.hunterDamageScale` | Hunt Season: Hunter damage | 1 x | 0.2 to 3 | new rooms |  |
-| `raid.towerDamageScale` | Hunt Season: Tower damage | 1 x | 0.2 to 3 | new rooms |  |
+| `raid.coreDamageScale` | Hunt Season: Core damage | 1 x | 0.2 to 3 | new rooms |  |
+| `raid.gateHp` | Hunt Season: Gate health | 700 hp | 100 to 5000 | new rooms |  |
+| `raid.gateDamageScale` | Hunt Season: Gate damage | 1 x | 0.2 to 3 | new rooms |  |
+| `raid.gateRepairPerSecond` | Hunt Season: Gate repair | 35 hp/s | 5 to 200 | new rooms |  |
+| `raid.gateBreakRepairPercent` | Hunt Season: Gate patched at a break | 25 % | 0 to 100 | new rooms |  |
+| `raid.bridgeMoveSeconds` | Hunt Season: Drawbridge travel | 2.5 s | 1 to 8 | new rooms |  |
+| `raid.bridgeCooldownSeconds` | Hunt Season: Drawbridge lever cooldown | 10 s | 2 to 60 | new rooms |  |
+| `raid.bridgeUpMaxSeconds` | Hunt Season: Drawbridge up at most | 25 s | 5 to 120 | new rooms |  |
+| `raid.raftSpeed` | Hunt Season: Raft speed | 1.5 m/s | 0.5 to 4 | new rooms |  |
+| `raid.cannon.damage` | Hunt Season: Bread cannon damage | 75 hp | 10 to 400 | new rooms |  |
+| `raid.cannon.radius` | Hunt Season: Bread cannon splash | 3.5 m | 1 to 8 | new rooms |  |
+| `raid.cannon.knockback` | Hunt Season: Bread cannon knockback | 8 m/s | 0 to 20 | new rooms |  |
+| `raid.cannon.reloadSeconds` | Hunt Season: Bread cannon reload | 1.3 s | 0.4 to 5 | new rooms |  |
+| `raid.cannon.heatPerShot` | Hunt Season: Bread cannon heat per loaf | 30 % | 5 to 100 | new rooms |  |
+| `raid.cannon.coolPerSecond` | Hunt Season: Bread cannon cooling | 10 %/s | 1 to 50 | new rooms |  |
+| `raid.cannon.ventBelow` | Hunt Season: Bread cannon vents to | 35 % | 0 to 90 | new rooms |  |
 | `raid.hunterReactionMin` | Hunt Season: Hunter reaction, fastest | 15 ticks | 0 to 90 | new rooms |  |
 | `raid.hunterReactionMax` | Hunt Season: Hunter reaction, slowest | 25 ticks | 0 to 90 | new rooms |  |
 | `raid.hunterAimError` | Hunt Season: Hunter aim error | 0.1 rad | 0 to 0.4 | new rooms |  |
@@ -394,7 +410,7 @@ The constants stay the defaults: with nothing stored the server runs exactly as 
 | `raid.upgrade.revivePercent` | Hunt Season: Upgrade: faster revive | 25 % | 5 to 50 | new rooms |  |
 | `raid.upgrade.headshotPercent` | Hunt Season: Upgrade: headshot | 30 % | 5 to 100 | new rooms |  |
 | `raid.upgrade.lifesteal` | Hunt Season: Upgrade: lifesteal | 6 hp | 1 to 30 | new rooms |  |
-| `raid.upgrade.repair` | Hunt Season: Upgrade: tower repair kit | 250 hp | 50 to 1000 | new rooms |  |
+| `raid.upgrade.repair` | Hunt Season: Upgrade: core repair kit | 250 hp | 50 to 1000 | new rooms |  |
 | `raid.dropAmmoPercent` | Hunt Season: Ammo drop chance | 22 % | 0 to 100 | new rooms |  |
 | `raid.dropHealPercent` | Hunt Season: Heal drop chance | 12 % | 0 to 100 | new rooms |  |
 | `raid.healAmount` | Hunt Season: Heal drop | 25 hp | 5 to 100 | new rooms |  |
@@ -732,23 +748,24 @@ With the culling a client receives on average 3.3 of the 11 enemies alive, so a 
 
 ### Hunt Season
 
-`npm run bench:raid` on the same Apple M4 Pro (Node 24.12). Headless: four bot ducks (`raid/duckBot.ts`, the deathmatch brain shooting hunters through the human input path) hold the tower with the default rules except tower health and hunter damage turned up and down so the run keeps going; the raid's own tick cost with up to `raid.maxLive` (30) hunters and dogs alive:
+`npm run bench:raid` on the same Apple M4 Pro (Node 24.12), Hunt Season v2 on Pond Keep. Headless: four bot ducks (`raid/duckBot.ts`, the deathmatch brain shooting hunters through the human input path) hold the wall walk by the gate with the default rules except core and gate health and hunter damage turned up and down so the run keeps going; the raid's own tick cost with up to `raid.maxLive` (30) hunters and dogs alive (snipers on their perches included); in the second run one duck mans a bread cannon and keeps firing:
 
 | Headless run | Raid tick avg / p95 / max (ms) | Most hunters alive | Sight rays per tick |
 | --- | --- | --- | --- |
-| Waves 13 to 15, 4 bot ducks, 120 s | 0.186 / 0.315 / 4.00 | 30 | 8.3 |
-| 30 hunters at once, 4 bot ducks, 30 s | 0.220 / 0.343 / 0.90 | 30 | 8.6 |
+| Waves 8 to 10, 4 bot ducks, 120 s | 0.213 / 0.370 / 4.21 | 30 | 22.6 |
+| 30 hunters at once, 4 bot ducks (one at a cannon), 30 s | 0.241 / 0.358 / 2.15 | 30 | 21.4 |
 
-Networked: a server process (port 2597, test hooks on), one raid room with 4 network clients sending random inputs at wave 13, the ducks held (no damage) so the wave keeps going, measured over 30 s; alone, and next to a deathmatch room with 1 client and its 23 navmesh bots. CPU is the whole process:
+Networked: a server process (port 2597, test hooks on), one raid room with 4 network clients at wave 8, the ducks held (no damage) so the wave keeps going, measured over 30 s: three send random inputs in the courtyard, one mans a bread cannon and keeps firing; alone, and next to a deathmatch room with 1 client and its 23 navmesh bots. CPU is the whole process:
 
 | Server with | Raid room tick avg / p95 / max (ms) | Patch avg / p95 (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Hunters alive (avg) |
 | --- | --- | --- | --- | --- | --- | --- |
-| Raid (4 clients, wave 13) | 1.501 / 2.417 / 3.25 | 0.221 / 0.333 | 8.6 | 379 | 8.46 | 26 (30 at the end) |
-| Raid (4 clients, wave 13) + deathmatch (1 + 23 bots) | 1.223 / 2.788 / 5.20 | 0.150 / 0.238 | 18.8 | 412 | 9.19 | 27 (30 at the end) |
+| Raid (4 clients, wave 8, one at a cannon) | 1.961 / 3.564 / 11.73 | 0.313 / 0.524 | 10.8 | 388 | 5.93 | 27 (30 at the end) |
+| Raid (4 clients, wave 8, one at a cannon) + deathmatch (1 + 23 bots) | 1.287 / 2.278 / 5.78 | 0.197 / 0.372 | 19.8 | 419 | 6.35 | 27 (30 at the end) |
 
-- Hunters are kinematic navmesh movers (no character controller), see only every third tick and are sent to everyone without culling (the co-op rule), so a full run costs a fraction of a deathmatch room. The networked tick includes the 4 ducks' sim steps, the state writes and the macOS light-load effect noted above (the same room costs 0.2 ms headless).
+- Compared with v1 on Kavren (headless 0.186 / 0.220 ms, networked 1.501 ms alone at 8.6% CPU and 1.223 ms next to a deathmatch room at 18.8%): the raid's own tick is the same; the networked room costs about 0.3 to 0.5 ms a tick and 2% of a core more (two other runs: 1.844 and 2.022 ms alone, 1.336 and 1.388 next to the deathmatch room). A CPU profile shows no single hot spot: it is spread over Rapier's ray and controller work (snipers see 160 m, riflemen 70 m, the routes check their paths against the gate and the drawbridge), the socket writes and the cannon's loaves. Each hunter looks at no more than two ducks per look-around, which halved the sight rays (42 to 22 a tick) without moving the networked number.
+- Hunters are kinematic navmesh movers (no character controller), see only every third tick and are sent to everyone without culling (the co-op rule), so a full run costs a fraction of a deathmatch room. The networked tick includes the 4 ducks' sim steps, the state writes and the macOS light-load effect noted above.
 - An empty raid room sleeps (no tick loop) and disposes when its last client leaves.
-- `npm run bench` after Hunt Season (same machine, same day): 1 x (32 + 0) 9.175 / 10.821 / 11.65 ms, 1 x (1 + 23) 3.498 / 6.253 / 8.36, 3 x (32 + 0) 6.261 / 7.278 / 8.38, 3 x (1 + 23) 2.696 / 5.454 / 8.03: unchanged within run to run noise.
+- `npm run bench` after Hunt Season v1 (same machine): 1 x (32 + 0) 9.175 / 10.821 / 11.65 ms, 1 x (1 + 23) 3.498 / 6.253 / 8.36, 3 x (32 + 0) 6.261 / 7.278 / 8.38, 3 x (1 + 23) 2.696 / 5.454 / 8.03; after v2 (the keep checks in the duck sim step): 9.358 / 10.778 / 11.39, 3.632 / 6.259 / 9.99, 6.294 / 7.969 / 8.43, 2.538 / 6.483 / 7.73: unchanged within run to run noise.
 
 ### Phones (emulated)
 

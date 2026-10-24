@@ -240,8 +240,29 @@ export const DmRoundRow = schema({
 export type DmRoundRow = SchemaType<typeof DmRoundRow>;
 
 /**
- * Hunt Season: the run as everyone in it sees it (stage, wave, tower, boss).
- * Public to the room (every duck in a run is on the same side).
+ * Hunt Season: one of the keep's bread cannons as everyone sees it: who mans
+ * it (pid, 0 for nobody), where its barrel points, its heat and when it may
+ * fire next. Public to the room (every duck in a run is on the same side).
+ */
+export const RaidCannon = schema(
+  {
+    pid: t.uint16(),
+    yaw: t.angle(),
+    pitch: t.quantized({ min: -1.6, max: 1.6, bits: 8 }),
+    /** 0 to 255 of the overheat limit; `hot` 1 while it cools down from an overheat (no firing). */
+    heat: t.uint8(),
+    hot: t.uint8(),
+    /** Server time (ms since room start) it may fire again. */
+    ready: t.uint32(),
+  },
+  'RaidCannon',
+);
+export type RaidCannon = SchemaType<typeof RaidCannon>;
+
+/**
+ * Hunt Season: the run as everyone in it sees it (stage, wave, the core, the
+ * gate, the drawbridge, the boss, the cannons). Public to the room (every
+ * duck in a run is on the same side).
  */
 export const RaidState = schema(
   {
@@ -254,8 +275,19 @@ export const RaidState = schema(
     ends: t.uint32(),
     /** Server time the current wave started (the HUD's wave timer). */
     waveAt: t.uint32(),
-    towerHp: t.uint16(),
-    towerMax: t.uint16(),
+    /** The QoreChain core in the courtyard: the run is lost when it falls. */
+    coreHp: t.uint16(),
+    coreMax: t.uint16(),
+    /** The main gate: health and its look (GateState: intact, damaged, broken). */
+    gateHp: t.uint16(),
+    gateMax: t.uint16(),
+    gate: t.uint8(),
+    /** The drawbridge (BridgeState), the server times its current move started and ends, when the lever may be pulled again, and when a raised bridge comes down by itself (0: not up). */
+    bridge: t.uint8(),
+    bridgeAt: t.uint32(),
+    bridgeEnds: t.uint32(),
+    leverReady: t.uint32(),
+    bridgeDown: t.uint32(),
     /** Hunters still to beat this wave (alive and still to come). */
     left: t.uint16(),
     /** The Big Hunter's health bar (0 and 0 while none is out). */
@@ -264,6 +296,8 @@ export const RaidState = schema(
     /** Ducks in the run, and hunters bagged by the whole team. */
     ducks: t.uint8(),
     kills: t.uint16(),
+    /** The bread cannons, keyed by their index ('0' to '3'). */
+    cannons: t.map(RaidCannon),
   },
   'RaidState',
 );
@@ -467,9 +501,9 @@ export const Msg = {
   RaidPick: 'raid-pick',
   /** To one duck: its own run state [maxHp, damagePct, armorPct, regenPerS, revivePct, headPct, lifesteal, kills, xpSoFar, ...upgradeIdsTaken]. */
   RaidSelf: 'raid-self',
-  /** To everyone: [hunterKind, killerPid, head(0/1), x, y, z (cm)]: a hunter bagged. */
+  /** To everyone: [hunterKind, killerPid, head(0/1), x, y, z (cm), how (RaidKillHow)]: a hunter bagged. */
   RaidKill: 'raid-kill',
-  /** To everyone: [RaidEvent, a, b]: wave start or clear, boss out, the whistle, the tower hit, a duck caught. */
+  /** To everyone (some kinds to one duck): [RaidEvent, a, b]: wave start or clear, the whistle, the core and the gate, the drawbridge, a duck caught. */
   RaidEvent: 'raid-ev',
   /**
    * To one duck at the run end: [reason (RaidEndReason), wavesCleared, kills, bossKills, revives, xpGained,
@@ -486,12 +520,43 @@ export const RaidEvent = {
   WaveClear: 2,
   /** [_, x, z] (m): the Big Hunter whistles for help. */
   Whistle: 3,
-  /** [_, towerHp, 0]: hunters at the tower (throttled). */
-  TowerHit: 4,
+  /** [_, coreHp, 0]: hunters at the QoreChain core (throttled). */
+  CoreHit: 4,
   /** [_, duckPid, 0]: a duck stepped in a trap. */
   Trapped: 5,
-  /** [_, 0, 0]: the tower repair kit was used. */
-  Repaired: 6,
+  /** [_, 0, 0]: the core repair kit was used. */
+  CoreRepaired: 6,
+  /** [_, gateHp, GateState]: hunters at the gate (throttled). */
+  GateHit: 7,
+  /** [_, 0, 0]: the gate broke, hunters can get in. */
+  GateBroken: 8,
+  /** [_, duckPid, 0]: a broken gate was repaired enough to hold again. */
+  GateFixed: 9,
+  /** [_, BridgeState (Raising or Lowering), duckPid (0: by itself)]: the drawbridge starts to move. */
+  Bridge: 10,
+  /** [_, hunters, duckPid]: hunters on the bridge went into the moat. */
+  Splash: 11,
+  /** To one duck: [_, LeverDenied reason, seconds]: the lever did not move. */
+  LeverDenied: 12,
+  /** To one duck: [_, cannon index, 0]: the cannon it mans overheated. */
+  Overheat: 13,
+} as const;
+
+/** Why a lever pull did nothing (`RaidEvent.LeverDenied`). */
+export const LeverDenied = {
+  Cooldown: 1,
+  /** A duck stands on the deck: the bridge does not rise under it. */
+  DuckOnBridge: 2,
+  Moving: 3,
+} as const;
+
+/** How a hunter was bagged (`Msg.RaidKill`, last field). */
+export const RaidKillHow = {
+  Shot: 0,
+  /** Into the moat when the drawbridge rose. */
+  Splash: 1,
+  /** A bread loaf. */
+  Bread: 2,
 } as const;
 
 /** Hunt Season drops (`raidDrops` kind). */

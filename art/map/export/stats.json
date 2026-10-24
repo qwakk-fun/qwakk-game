@@ -422,5 +422,196 @@
   "vertices": 1686,
   "glb_src_bytes": 172128,
   "colliders": 0
+ },
+ "castle_tower": {
+  "category": "landmark",
+  "triangles": 4590,
+  "lodTriangles": [
+   4590
+  ],
+  "vertices": 3370,
+  "glb_src_bytes": 307560,
+  "colliders": 76
+ },
+ "castle_wall": {
+  "category": "landmark",
+  "triangles": 2097,
+  "lodTriangles": [
+   2097
+  ],
+  "vertices": 1459,
+  "glb_src_bytes": 129784,
+  "colliders": 51
+ },
+ "castle_wall_short": {
+  "category": "landmark",
+  "triangles": 602,
+  "lodTriangles": [
+   602
+  ],
+  "vertices": 377,
+  "glb_src_bytes": 36144,
+  "colliders": 16
+ },
+ "castle_gatehouse": {
+  "category": "landmark",
+  "triangles": 2782,
+  "lodTriangles": [
+   2782
+  ],
+  "vertices": 1898,
+  "glb_src_bytes": 174836,
+  "colliders": 41
+ },
+ "castle_bridge": {
+  "category": "landmark",
+  "triangles": 496,
+  "lodTriangles": [
+   496
+  ],
+  "vertices": 308,
+  "glb_src_bytes": 36268,
+  "colliders": 17
+ },
+ "castle_core": {
+  "category": "landmark",
+  "triangles": 1236,
+  "lodTriangles": [
+   1236
+  ],
+  "vertices": 1328,
+  "glb_src_bytes": 94192,
+  "colliders": 10
+ },
+ "castle_well": {
+  "category": "cover",
+  "triangles": 184,
+  "lodTriangles": [
+   184
+  ],
+  "vertices": 112,
+  "glb_src_bytes": 15812,
+  "colliders": 1
+ },
+ "castle_drawbridge": {
+  "category": "animated",
+  "triangles": 752,
+  "lodTriangles": [
+   752
+  ],
+  "vertices": 32,
+  "glb_src_bytes": 57932,
+  "colliders": 0
+ },
+ "castle_gate": {
+  "category": "animated",
+  "triangles": 2076,
+  "lodTriangles": [
+   2076
+  ],
+  "vertices": 72,
+  "glb_src_bytes": 149524,
+  "colliders": 3
+ },
+ "castle_lever": {
+  "category": "animated",
+  "triangles": 280,
+  "lodTriangles": [
+   280
+  ],
+  "vertices": 144,
+  "glb_src_bytes": 25472,
+  "colliders": 0
+ },
+ "bread_cannon": {
+  "category": "animated",
+  "triangles": 762,
+  "lodTriangles": [
+   762
+  ],
+  "vertices": 40,
+  "glb_src_bytes": 43168,
+  "colliders": 0
+ },
+ "bread_loaf": {
+  "category": "animated",
+  "triangles": 136,
+  "lodTriangles": [
+   136
+  ],
+  "vertices": 76,
+  "glb_src_bytes": 8736,
+  "colliders": 0
+ },
+ "moat_reeds": {
+  "category": "foliage",
+  "triangles": 552,
+  "lodTriangles": [
+   552,
+   48
+  ],
+  "vertices": 442,
+  "glb_src_bytes": 32676,
+  "colliders": 1
+ },
+ "raft_lane": {
+  "category": "landmark",
+  "triangles": 2054,
+  "lodTriangles": [
+   2054
+  ],
+  "vertices": 1283,
+  "glb_src_bytes": 140428,
+  "colliders": 5
+ },
+ "raft": {
+  "category": "cover",
+  "triangles": 172,
+  "lodTriangles": [
+   172
+  ],
+  "vertices": 106,
+  "glb_src_bytes": 10528,
+  "colliders": 1
+ },
+ "trench_dugout": {
+  "category": "cover",
+  "triangles": 2498,
+  "lodTriangles": [
+   2498
+  ],
+  "vertices": 1392,
+  "glb_src_bytes": 190884,
+  "colliders": 4
+ },
+ "hunter_watchtower": {
+  "category": "landmark",
+  "triangles": 1548,
+  "lodTriangles": [
+   1548
+  ],
+  "vertices": 929,
+  "glb_src_bytes": 74972,
+  "colliders": 26
+ },
+ "hay_bales": {
+  "category": "cover",
+  "triangles": 204,
+  "lodTriangles": [
+   204
+  ],
+  "vertices": 120,
+  "glb_src_bytes": 19000,
+  "colliders": 3
+ },
+ "hay_cart": {
+  "category": "cover",
+  "triangles": 254,
+  "lodTriangles": [
+   254
+  ],
+  "vertices": 157,
+  "glb_src_bytes": 20984,
+  "colliders": 2
  }
 }

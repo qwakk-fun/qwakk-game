@@ -19,10 +19,12 @@ export const HunterKind = {
   Decoy: 3,
   Dog: 4,
   Boss: 5,
+  /** Hunt Season v2: a long rifle on a watchtower or a hill, 90 to 140 m out (the rifleman's body, a ghillie hat). */
+  Sniper: 6,
 } as const;
 export type HunterKindId = (typeof HunterKind)[keyof typeof HunterKind];
 
-export const HUNTER_KINDS: readonly HunterKindId[] = [HunterKind.Rifleman, HunterKind.Trapper, HunterKind.Decoy, HunterKind.Dog, HunterKind.Boss];
+export const HUNTER_KINDS: readonly HunterKindId[] = [HunterKind.Rifleman, HunterKind.Trapper, HunterKind.Decoy, HunterKind.Dog, HunterKind.Boss, HunterKind.Sniper];
 
 export function isHunterKind(v: unknown): v is HunterKindId {
   return typeof v === 'number' && (HUNTER_KINDS as readonly number[]).includes(v);
@@ -54,6 +56,10 @@ export const HunterAct = {
   Kneel: 10,
   /** Defeated: hat off, poof, stars. The entry goes away a moment later. */
   Down: 11,
+  /** Paddling a raft across the moat (the drawbridge is up): slow, cannot shoot. */
+  Raft: 12,
+  /** Dunked in the moat (the Big Hunter when the drawbridge rose under him): stunned, climbing out. */
+  Swim: 13,
 } as const;
 
 /** Head [forward, up, radius] and body [f0, y0, f1, y1, radius] (m), from hunters.json. */
@@ -70,6 +76,8 @@ export const HUNTER_HITBOX: Record<HunterKindId, Box> = {
   [HunterKind.Trapper]: person(1.552, 0.185, 0.251, 1.313, 0.251, 1.446, 0.107, 1.196),
   [HunterKind.Decoy]: person(1.552, 0.185, 0.231, 1.31, 0.231, 1.446, 0.107, 1.192),
   [HunterKind.Boss]: person(1.924, 0.23, 0.355, 1.603, 0.355, 1.794, 0.133, 1.456),
+  // The sniper is the rifleman's body (its hat stays inside the head sphere).
+  [HunterKind.Sniper]: person(1.552, 0.185, 0.233, 1.312, 0.233, 1.446, 0.107, 1.196),
   // The dog's body lies along it: from 0.35 m behind its feet origin to 0.24 m ahead.
   [HunterKind.Dog]: {
     stand: { head: [0.48, 0.9, 0.16], body: [-0.35, 0.633, 0.243, 0.633, 0.195] },
@@ -93,6 +101,7 @@ export const HUNTER_MUZZLE: Record<HunterKindId, readonly [number, number]> = {
   [HunterKind.Decoy]: [0.75, 1.37],
   [HunterKind.Boss]: [1.3, 1.7],
   [HunterKind.Dog]: [0.55, 0.85],
+  [HunterKind.Sniper]: [1.1, 1.37],
 };
 
 /** Eye height for line of sight (m above the feet). */
@@ -102,4 +111,5 @@ export const HUNTER_EYE: Record<HunterKindId, number> = {
   [HunterKind.Decoy]: 1.6,
   [HunterKind.Boss]: 2.0,
   [HunterKind.Dog]: 0.9,
+  [HunterKind.Sniper]: 1.6,
 };

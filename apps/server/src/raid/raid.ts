@@ -1,36 +1,46 @@
 /**
- * Hunt Season rules on top of the shared combat core (arena.ts):
+ * Hunt Season rules on top of the shared combat core (arena.ts), on Pond
+ * Keep (the duck castle on a pond island):
  *
- *   lobby  ducks gather by the QoreChain Tower (no damage); the first one
- *          starts a short countdown, later ones add a few seconds, a full
- *          room starts soon; at zero the room locks
- *   wave   the director sends the wave's hunters (hunts.ts); the ducks
- *          defend the tower. Knocked ducks crawl and bleed (the battle
- *          royale knock, revive by holding Use); the dead wait for the break
+ *   lobby  ducks gather in the courtyard (no damage); the first one starts
+ *          a short countdown, later ones add a few seconds, a full room
+ *          starts soon; at zero the room locks
+ *   wave   the director sends the wave's hunters (hunts.ts) from the
+ *          trenches; they go for the gate, then the QoreChain core. The
+ *          ducks fight from the walls, man the bread cannons, pull the
+ *          drawbridge lever and repair the gate (keepWorld.ts). Knocked
+ *          ducks crawl and bleed (the battle royale knock, revive by holding
+ *          Use); the dead wait for the break
  *   break  every duck picks one of three upgrades (a timer picks at random),
  *          the fallen come back, then the next wave
- *   won / lost  after wave 15, or when the tower falls or no duck stands
+ *   won / lost  after wave 10, or when the core falls or no duck stands
  *
  * Every duck is on team 1: no friendly fire, always in each other's view.
  * Headless and network free like the other modes; the room mirrors it into
  * the schema and sends the messages. Server only.
  */
 import {
+  BODY,
+  BridgeState,
   Button,
   COMBAT,
   createPlayerSim,
   damageAt,
+  exMan,
   groundHeightAt,
   HunterKind,
   isBossWave,
   isUpgradeId,
   KNOCK,
+  leverInReach,
   Mode,
+  nudgePlayer,
   OPAQUE_QUERY_GROUPS,
   RAID,
   RaidEndReason,
   RaidStage,
   rollOffer,
+  setMan,
   setNades,
   setRoot,
   TICK_RATE,
@@ -39,6 +49,7 @@ import {
   weaponStats,
   type HitTarget,
   type InputFrame,
+  type KeepGeometry,
   type ShotResult,
   type SimWorld,
   type UpgradeId,
@@ -52,9 +63,10 @@ import { rocketPickupRules, serverWeapon, type BlastRules } from '../settings/in
 import { HuntWorld, type DecoyState } from './hunts.ts';
 import type { HunterAgent } from './hunter.ts';
 import type { ShotTrace } from './gun.ts';
+import { KeepWorld, type Loaf } from './keepWorld.ts';
 import type { RaidRules } from './rules.ts';
 import type { DuckTarget } from './sight.ts';
-import { duckSpawns, edgeSpawns, towerOf, type TowerInfo } from './spawns.ts';
+import { duckSpawns, hunterSpawns } from './spawns.ts';
 import { DuckUpgrades, duckStats, upgradeValue, type DuckStats } from './upgrades.ts';
 
 /** One duck's run: upgrades, numbers for the XP, the open card offer. Kept after the duck leaves (results). */
@@ -87,12 +99,25 @@ export interface RaidEvents extends ArenaEvents {
   /** A duck hurt by a hunter, trap or decoy: the direction toward it (never a duck's position). */
   hurtFrom(victim: Seat, damage: number, x: number, z: number): void;
   hunterHit(shooter: Seat, h: HunterAgent, damage: number, head: boolean, killed: boolean, blast: boolean): void;
-  hunterDown(h: HunterAgent, killer: Seat | null, head: boolean): void;
+  /** `how`: RaidKillHow (shot, splashed into the moat, a bread loaf). */
+  hunterDown(h: HunterAgent, killer: Seat | null, head: boolean, how: number): void;
   hunterShot(h: HunterAgent, traces: readonly ShotTrace[], weapon: number): void;
   whistle(h: HunterAgent): void;
-  towerHit(hp: number): void;
+  coreHit(hp: number): void;
+  coreRepaired(): void;
+  gateHit(hp: number, state: number): void;
+  gateBroken(): void;
+  gateFixed(by: Seat | null): void;
+  /** The drawbridge starts to move (Raising or Lowering), by a duck at the lever or by itself. */
+  bridge(state: number, by: Seat | null): void;
+  /** Hunters on the deck went into the moat as it rose. */
+  splash(count: number, by: Seat | null): void;
+  /** The lever did not move for this duck (LeverDenied), with the seconds of cooldown left. */
+  leverDenied(seat: Seat, reason: number, seconds: number): void;
+  overheat(seat: Seat, cannon: number): void;
+  loafLaunched(l: Loaf, owner: Seat | null): void;
+  loafBoom(l: Loaf, x: number, y: number, z: number): void;
   trapped(seat: Seat): void;
-  repaired(): void;
   revived?(seat: Seat, by: Seat): void;
   decoyLaunched(d: DecoyState): void;
   decoyBoom(d: DecoyState, x: number, y: number, z: number): void;
@@ -120,8 +145,6 @@ export class Raid extends Arena {
   /** Ticks left in the lobby countdown or the break (-1: nobody here yet); the end screen after the run. */
   stageTicks = -1;
   endTicks = 0;
-  towerHp: number;
-  towerMax: number;
   endReason = 0;
   startTick = 0;
   /** Tick the last wave was cleared (the personal best time). */
@@ -136,27 +159,40 @@ export class Raid extends Arena {
   readonly ducks = new Map<string, RaidDuck>();
   readonly hunts: HuntWorld;
   readonly explosives: DmExplosives;
-  readonly tower: TowerInfo;
+  /** The keep's moving parts: core, gate, drawbridge, cannons and loaves. */
+  readonly keep: KeepWorld;
+  readonly geometry: KeepGeometry;
   readonly rules: RaidRules;
   private readonly spawnPts: { x: number; y: number; z: number; yaw: number }[];
   private readonly o: RaidOptions;
   private readonly rev: RaidEvents;
   private botCount = 0;
   private readonly duckView: DuckTarget[] = [];
+  /** Each duck's buttons of its last step (Use presses: the lever). */
+  private readonly lastButtons = new Map<string, number>();
 
   constructor(sim: SimWorld, options: RaidOptions, events: RaidEvents) {
     super(sim, options, events);
     this.o = options;
     this.rev = events;
     this.rules = options.rules;
-    this.towerMax = options.rules.towerHp;
-    this.towerHp = this.towerMax;
-    this.tower = towerOf(options.map);
-    this.spawnPts = duckSpawns(options.map, this.tower);
+    const g = options.map.def.raid;
+    if (!g) throw new Error(`Hunt Season needs a castle map: ${options.map.def.id} has no raid markup`);
+    this.geometry = g;
+    this.spawnPts = duckSpawns(g);
     this.explosives = new DmExplosives(sim, this);
     this.explosives.timedPickups = false;
     if (events.explosives) this.explosives.events = events.explosives;
-    this.hunts = new HuntWorld(this.huntHost(), this.tower, edgeSpawns(sim, options.map, this.tower));
+    this.keep = new KeepWorld(sim, g, options.rules, this.keepEvents());
+    this.hunts = new HuntWorld(this.huntHost(), g, hunterSpawns(sim, g));
+  }
+
+  get coreHp(): number {
+    return this.keep.coreHp;
+  }
+
+  get coreMax(): number {
+    return this.keep.coreMax;
   }
 
   // ---- seats ------------------------------------------------------------------
@@ -214,18 +250,24 @@ export class Raid extends Arena {
     if (d) d.left = true;
     for (const o of this.seats.values()) if (o.reviveOf === id) o.reviveOf = null;
     this.seats.delete(id);
+    this.keep.duckLeft(id);
+    this.lastButtons.delete(id);
     if (this.stage === RaidStage.Wave) this.checkFail();
   }
 
-  /** On its feet at a spawn by the tower, with `share` of its full health. */
+  /** On its feet at a spawn in the courtyard, with `share` of its full health. */
   private spawnDuck(seat: Seat, share: number): void {
     const n = this.spawnPts.length;
     const p = this.spawnPts[(seat.pid - 1 + n) % n] ?? this.spawnPts[0]!;
     const y = groundHeightAt(this.sim, p.x, p.y + 0.3, p.z);
     const fresh = createPlayerSim(p.x, y, p.z, p.yaw);
     const ex = seat.sim.ex;
+    const buff = seat.sim.dmBuff;
     Object.assign(seat.sim, fresh);
     seat.sim.ex = ex;
+    // The keep's bits stay (the drawbridge closed); a fresh duck mans nothing.
+    seat.sim.dmBuff = buff;
+    setMan(seat.sim, 0);
     const d = this.ducks.get(seat.id);
     seat.sim.hp = Math.max(1, Math.round((d?.stats.maxHp ?? COMBAT.maxHp) * share));
     seat.protect = 0;
@@ -274,9 +316,66 @@ export class Raid extends Arena {
     this.rev.hunterHit(shooter, h, Math.round(dmg), head, killed, false);
   }
 
+  /**
+   * After a duck's step: a manning duck holding Fire fires its cannon (the
+   * server owns the loaves); otherwise a Use press at the lever pulls it,
+   * holding Use revives a knocked friend in reach, or else repairs the gate.
+   */
   protected override afterStep(seat: Seat, f: InputFrame): void {
     this.explosives.afterStep(seat, this.stage === RaidStage.Wave);
+    const prev = this.lastButtons.get(seat.id) ?? 0;
+    this.lastButtons.set(seat.id, f.buttons);
+    const s = seat.sim;
+    if (exMan(s) > 0) {
+      if (f.buttons & Button.Fire) this.keep.fire(seat, seat.side, this.tick);
+      seat.reviveOf = null;
+      seat.reviveTicks = 0;
+      this.keep.stepRepair(seat, false);
+      return;
+    }
+    if ((f.buttons & Button.Use) !== 0 && (prev & Button.Use) === 0 && s.alive === 1 && s.down === 0 && leverInReach(this.geometry, s.x, s.y, s.z)) {
+      this.pullLever(seat);
+      return;
+    }
     this.stepRevive(seat, f);
+    this.keep.stepRepair(seat, !seat.reviveOf && (f.buttons & Button.Use) !== 0 && (f.buttons & Button.Fire) === 0);
+  }
+
+  /** A duck pulls the drawbridge lever (or the lever says why not). */
+  pullLever(seat: Seat | null): number {
+    const r = this.keep.pullLever(seat, this.tick, this.keep.deckBusy(this.seats.values()));
+    if (r && seat) this.rev.leverDenied(seat, r, this.keep.leverSeconds(this.tick));
+    return r;
+  }
+
+  /** Ducks never get pushed off a cannon they man: the other duck takes the whole push (server only, like the arena's). */
+  protected override separate(): void {
+    const list = [...this.seats.values()].filter((s) => s.sim.alive && s.sim.mode === Mode.Ground);
+    const min = BODY.radius * 2;
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        const a = list[i]!.sim;
+        const b = list[j]!.sim;
+        if (Math.abs(a.y - b.y) > 1.6) continue;
+        let dx = b.x - a.x;
+        let dz = b.z - a.z;
+        const d = Math.hypot(dx, dz);
+        if (d >= min) continue;
+        if (d < 1e-4) {
+          dx = 1;
+          dz = 0;
+        } else {
+          dx /= d;
+          dz /= d;
+        }
+        const fixA = exMan(a) > 0;
+        const fixB = exMan(b) > 0;
+        if (fixA && fixB) continue;
+        const push = (min - d) / (fixA || fixB ? 1 : 2);
+        if (!fixA) nudgePlayer(this.sim, a, -dx * push, -dz * push);
+        if (!fixB) nudgePlayer(this.sim, b, dx * push, dz * push);
+      }
+    }
   }
 
   /** Bot ducks (tests, the benchmark) see the hunters as their targets; the input path is the human one. */
@@ -300,6 +399,7 @@ export class Raid extends Arena {
     const dmg = Math.min(seat.sim.hp, Math.max(1, Math.round(amount * (d?.stats.taken ?? 1) * (down ? KNOCK.damageScale : 1))));
     seat.sim.hp -= dmg;
     if (d) d.hurtTick = this.tick;
+    this.keep.duckHurt(seat.id);
     this.rev.hurtFrom(seat, dmg, fromX, fromZ);
     seat.bot?.damagedFrom(fromX, fromZ);
     if (seat.sim.hp > 0) return;
@@ -352,10 +452,10 @@ export class Raid extends Arena {
     for (const o of this.seats.values()) if (o.reviveOf === victim.id) o.reviveOf = null;
   }
 
-  /** Nobody standing, or the tower down: the run is lost. */
+  /** Nobody standing, or the core down: the run is lost. */
   private checkFail(): void {
     if (this.stage !== RaidStage.Wave) return;
-    if (this.towerHp <= 0) return this.end(RaidEndReason.TowerFell);
+    if (this.keep.coreHp <= 0) return this.end(RaidEndReason.CoreFell);
     let standing = 0;
     for (const s of this.seats.values()) if (s.sim.alive && (!s.sim.down || this.canSelfRevive(s))) standing++;
     if (standing === 0) this.end(RaidEndReason.AllDown);
@@ -494,6 +594,7 @@ export class Raid extends Arena {
     this.stage = RaidStage.Break;
     this.stageTicks = Math.max(1, Math.round(this.rules.breakSeconds * TICK_RATE));
     this.explosives.reset(this.tick);
+    this.keep.breakRepair();
     const deadline = this.now + (this.stageTicks / TICK_RATE) * 1000;
     for (const s of this.seats.values()) {
       const d = this.ducks.get(s.id);
@@ -508,7 +609,7 @@ export class Raid extends Arena {
       s.sim.res0 = weaponStats(WeaponId.Rifle).reserve;
       s.sim.res1 = weaponStats(WeaponId.Pistol).reserve;
       setRoot(s.sim, 0);
-      const cards = rollOffer(Math.random, { maxed: d.upgrades.maxed(), towerHurt: this.towerHp < this.towerMax - 1 });
+      const cards = rollOffer(Math.random, { maxed: d.upgrades.maxed(), coreHurt: this.keep.coreHp < this.keep.coreMax - 1 });
       d.offer = { cards, picked: false };
       this.rev.offer(s, cards.map((id) => [id, upgradeValue(id, this.rules.upgrade)]), deadline);
     }
@@ -533,8 +634,8 @@ export class Raid extends Arena {
     d.stats = duckStats(d.upgrades, this.rules.upgrade);
     if (d.stats.maxHp > before && seat.sim.alive) seat.sim.hp = Math.min(d.stats.maxHp, seat.sim.hp + (d.stats.maxHp - before));
     if (id === Upgrade.Repair) {
-      this.towerHp = Math.min(this.towerMax, this.towerHp + this.rules.upgrade.repair);
-      this.rev.repaired();
+      this.keep.repairCore(this.rules.upgrade.repair);
+      this.rev.coreRepaired();
     }
     this.rev.offer(seat, null, 0);
     this.rev.self(seat);
@@ -560,7 +661,15 @@ export class Raid extends Arena {
 
   // ---- the tick ------------------------------------------------------------------
 
-  /** End of a tick: the stage clock, bot ducks, hunters, drops, regen, the bleed, the lag history. */
+  /** The keep each tick: the drawbridge, who mans which cannon, the loaves. */
+  private stepKeep(): void {
+    const seats = [...this.seats.values()];
+    this.keep.step(this.tick, seats);
+    this.keep.syncManning(seats);
+    this.keep.stepLoaves(this.stage === RaidStage.Wave ? this.hunts.current() : []);
+  }
+
+  /** End of a tick: the stage clock, bot ducks, the keep, hunters, drops, regen, the bleed, the lag history. */
   endTick(): void {
     if (this.stage === RaidStage.Lobby) {
       for (const s of this.seats.values()) {
@@ -569,9 +678,11 @@ export class Raid extends Arena {
         if (s.sim.res1 < 24) s.sim.res1 = weaponStats(WeaponId.Pistol).reserve;
       }
       this.thinkDucks();
+      this.stepKeep();
       if (this.stageTicks > 0 && --this.stageTicks === 0) this.start();
     } else if (this.stage === RaidStage.Wave) {
       this.thinkDucks();
+      this.stepKeep();
       this.hunts.step(this.tick, this.now, true);
       this.explosives.step(this.tick);
       this.hunts.stepDrops(this.tick, (id, kind) => this.takeDrop(id, kind));
@@ -580,10 +691,12 @@ export class Raid extends Arena {
       if (this.stage === RaidStage.Wave && this.hunts.cleared) this.clearWave();
     } else if (this.stage === RaidStage.Break) {
       this.thinkDucks();
+      this.stepKeep();
       this.hunts.step(this.tick, this.now, false);
       this.regen();
       if (--this.stageTicks <= 0) this.endBreak();
     } else {
+      this.stepKeep();
       this.hunts.step(this.tick, this.now, false);
       if (this.endTicks > 0) this.endTicks--;
     }
@@ -655,15 +768,18 @@ export class Raid extends Arena {
         setRoot(seat.sim, RAID.rootTicks);
         this.rev.trapped(seat);
       },
-      damageTower: (amount: number) => {
+      bridgeDown: () => this.keep.bridgeDown,
+      gateOpen: () => this.keep.gateBroken,
+      damageGate: (amount: number) => {
+        if (this.stage === RaidStage.Wave) this.keep.damageGate(amount);
+      },
+      damageCore: (amount: number) => {
         if (this.stage !== RaidStage.Wave) return;
-        const was = this.towerHp;
-        this.towerHp = Math.max(0, this.towerHp - amount);
-        if (Math.floor(was / 25) !== Math.floor(this.towerHp / 25)) this.rev.towerHit(Math.ceil(this.towerHp));
-        if (this.towerHp <= 0) this.checkFail();
+        this.keep.damageCore(amount);
+        if (this.keep.coreHp <= 0) this.checkFail();
       },
       shotFx: (h: HunterAgent, traces: readonly ShotTrace[], weapon: number) => this.rev.hunterShot(h, traces, weapon),
-      hunterDown: (h: HunterAgent, killerId: string | null, head: boolean) => {
+      hunterDown: (h: HunterAgent, killerId: string | null, head: boolean, how: number) => {
         this.teamKills++;
         const killer = killerId ? (this.seats.get(killerId) ?? null) : null;
         const kd = killerId ? this.ducks.get(killerId) : undefined;
@@ -679,12 +795,43 @@ export class Raid extends Arena {
           const d = this.ducks.get(id);
           if (d) d.bossKills++;
         }
-        this.rev.hunterDown(h, killer, head);
+        this.rev.hunterDown(h, killer, head, how);
         if (killer) this.rev.self(killer);
       },
       whistle: (h: HunterAgent) => this.rev.whistle(h),
       decoyLaunched: (d: DecoyState) => this.rev.decoyLaunched(d),
       decoyBoom: (d: DecoyState, x: number, y: number, z: number) => this.rev.decoyBoom(d, x, y, z),
+    };
+  }
+
+  /** The keep's events: most go to the room as they are; a rising bridge splashes the hunters on it, a loaf bursts on the hunters. */
+  private keepEvents() {
+    return {
+      coreHit: (hp: number) => this.rev.coreHit(hp),
+      gateHit: (hp: number, state: number) => this.rev.gateHit(hp, state),
+      gateBroken: () => this.rev.gateBroken(),
+      gateFixed: (by: Seat | null) => this.rev.gateFixed(by),
+      bridgeMoving: (state: number, by: Seat | null) => {
+        this.rev.bridge(state, by);
+        if (state !== BridgeState.Raising) return;
+        const n = this.hunts.splashGateway(by?.id ?? null);
+        if (n > 0) this.rev.splash(n, by);
+      },
+      overheat: (seat: Seat, i: number) => this.rev.overheat(seat, i),
+      loafLaunched: (l: Loaf) => this.rev.loafLaunched(l, this.seats.get(l.owner) ?? null),
+      loafBoom: (l: Loaf, x: number, y: number, z: number, hitId: string) => {
+        this.rev.loafBoom(l, x, y, z);
+        if (this.stage !== RaidStage.Wave) return;
+        const owner = this.seats.get(l.owner) ?? null;
+        const r = this.rules.cannon;
+        const mult = this.ducks.get(l.owner)?.stats.damage ?? 1;
+        for (const hit of this.hunts.blastBread(x, y, z, r.radius, r.damage * mult, r.knockback, l.owner, hitId)) {
+          const h = this.hunts.hunters.get(hit.id);
+          if (!owner || !h || hit.dealt <= 0) continue;
+          owner.dealt += hit.dealt;
+          this.rev.hunterHit(owner, h, hit.dealt, false, hit.killed, true);
+        }
+      },
     };
   }
 
@@ -722,6 +869,76 @@ export class Raid extends Arena {
     if (this.stage !== RaidStage.Wave) return;
     const by = [...this.seats.values()].find((s) => !s.bot)?.id ?? null;
     this.hunts.defeatAll(by);
+  }
+
+  /**
+   * Tests and the e2e (test hooks): move a duck to a keep spot (1 to 4: a
+   * cannon's stand spot, 5: the lever, 6: inside the gate, 7: the wall walk
+   * near the gate, 8: outside at the far end of the bridge). The client gets
+   * the jump as a correction.
+   */
+  moveForTest(seat: Seat, where: number): void {
+    const g = this.geometry;
+    const gt = g.gate;
+    let p: { x: number; y: number; z: number } | null = null;
+    if (where >= 1 && where <= g.cannons.length) {
+      const c = g.cannons[where - 1]!;
+      p = { x: c.ux, y: c.uy, z: c.uz };
+    } else if (where === 5) p = { x: g.lever[0], y: g.lever[1], z: g.lever[2] };
+    else if (where === 6) p = { x: gt.x - gt.nx * 2.2, y: gt.y, z: gt.z - gt.nz * 2.2 };
+    else if (where === 7) p = this.wallSpotNearGate();
+    else if (where === 8) {
+      const b = g.bridge;
+      p = { x: b.x + b.dx * (b.len + 2), y: b.y, z: b.z + b.dz * (b.len + 2) };
+    }
+    if (!p) return;
+    const s = seat.sim;
+    s.x = p.x;
+    s.z = p.z;
+    s.y = groundHeightAt(this.sim, p.x, p.y + 1.5, p.z);
+    s.vx = 0;
+    s.vy = 0;
+    s.vz = 0;
+    setMan(s, 0);
+  }
+
+  /** A wall walk spot about 9 m from the gate (the markup's wall walk; above the gate when it has none). */
+  private wallSpotNearGate(): { x: number; y: number; z: number } {
+    const g = this.geometry;
+    const gt = g.gate;
+    let best: { x: number; z: number } | null = null;
+    let bestD = Infinity;
+    for (const line of g.mark.wallWalk) {
+      for (let i = 0; i + 1 < line.length; i++) {
+        const [ax, az] = line[i]!;
+        const [bx, bz] = line[i + 1]!;
+        const k = Math.max(1, Math.round(Math.hypot(bx - ax, bz - az)));
+        for (let j = 0; j <= k; j++) {
+          const x = ax + ((bx - ax) * j) / k;
+          const z = az + ((bz - az) * j) / k;
+          const d = Math.abs(Math.hypot(x - gt.x, z - gt.z) - 9);
+          if (d < bestD) {
+            best = { x, z };
+            bestD = d;
+          }
+        }
+      }
+    }
+    if (!best) return { x: gt.x + gt.tx * (gt.halfW + 1.5), y: gt.y + 12, z: gt.z + gt.tz * (gt.halfW + 1.5) };
+    return { x: best.x, y: gt.y + 7, z: best.z };
+  }
+
+  /** Tests and the e2e (test hooks): `n` riflemen right in front of the gate (they hammer it). */
+  huntersAtGate(n: number): void {
+    const g = this.geometry;
+    for (let i = 0; i < n; i++) {
+      const gt = g.gate;
+      const along = (i - (n - 1) / 2) * 0.9;
+      const h = this.hunts.spawnForTest(HunterKind.Rifleman, gt.x + gt.nx * 1.4 + gt.tx * along, gt.z + gt.nz * 1.4 + gt.tz * along);
+      // In the gate passage, under the gatehouse (not on its roof).
+      h.y = groundHeightAt(this.sim, h.x, gt.y + 1.5, h.z);
+      h.yaw = Math.atan2(gt.nx, gt.nz);
+    }
   }
 
   /** Tests: the remaining break, now. */

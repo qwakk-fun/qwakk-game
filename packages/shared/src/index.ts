@@ -32,4 +32,8 @@ export * from './heroFlight.ts';
 export * from './explosives.ts';
 export * from './projectiles.ts';
 export * from './raid/root.ts';
+export * from './raid/markup.ts';
+export * from './raid/keep.ts';
+export * from './raid/cannon.ts';
+export * from './raid/man.ts';
 export * from './raid/index.ts';

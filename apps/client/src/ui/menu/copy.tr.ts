@@ -10,7 +10,7 @@ export const TR = {
   playBr: 'Hızlı Oyna', playBrSub: 'Uygun bir Battle Royale odasına katıl',
   playDm: 'Deathmatch', playDmSub: 'Yeniden doğ, en kalabalık odaya katıl',
   raid: {
-    title: 'Av Sezonu', sub: 'Ortak mod: QoreChain Kulesini 15 avcı dalgasına karşı koru. XP kazandırır.',
+    title: 'Av Sezonu', sub: 'Ortak mod: Gölet Kalesini ve QoreChain çekirdeğini 10 avcı dalgasına karşı koru. XP kazandırır.',
     party: (n: number) => `${n} kişilik grubunla ava başla`, locked: 'Av Sezonu için giriş yap',
     lockedNote: 'Av Sezonu ördeğine XP kazandırır, bu yüzden hesap gerekir.', best: (wave: number) => `Rekor: dalga ${wave}`,
     xp: (into: number, need: number) => `${into} / ${need} XP`, maxLevel: 'En yüksek seviye', xpLabel: (level: number) => `Seviye ${level} ilerlemesi`,
@@ -155,7 +155,7 @@ export const TR = {
   result: {
     heading: 'Son maç', win: 'Kazanana ekmek ziyafeti!', placed: (p: number, n?: number) => n ? `${n} ördek arasında #${p}` : `#${p}`,
     kills: (k: number) => `${k} eleme`, points: (p: number) => `+${p} puan`, ended: 'Maç bitti. Bir el daha?',
-    raidHeld: (n: number) => `${n} dalga dayandın`, raidXp: (n: number) => `+${n} XP`, raidWon: 'Gölet savunuldu! 15 dalganın hepsi geçildi.', raidEnded: 'Av bitti. Bir tur daha?',
+    raidHeld: (n: number) => `${n} dalga dayandın`, raidXp: (n: number) => `+${n} XP`, raidWon: 'Gölet Kalesi savunuldu! 10 dalganın hepsi geçildi.', raidEnded: 'Av bitti. Bir tur daha?',
     left: 'Maçtan ayrıldın. Ada seni bekliyor.', disconnected: 'Bağlantın koptu.', removed: 'Bu maçtan çıkarıldın.', closed: 'Oda kapandı. Başka bir oda seç.',
   },
   leaderboard: {
@@ -172,7 +172,7 @@ export const TR = {
     fov: 'Görüş açısı', volume: 'Ana ses', quality: 'Grafikler', qualities: { low: 'Düşük (daha hızlı)', high: 'Yüksek' }, reset: 'Varsayılana dön', saved: 'Kaydedildi',
   },
   howto: {
-    heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır. Av Sezonu ortak moddur: en fazla 3 arkadaşınla QoreChain Kulesini 15 avcı dalgasına karşı koru, tüfekli avcı ateş etmeden önce kırmızı lazere dikkat et, dalgalar arasında bir güçlendirme seç ve ördeğine XP kazandır.',
+    heading: 'Nasıl oynanır', intro: 'Adaya atla, eşya topla, bölgenin içinde kal. Son kalan ördek veya takım kazanır. İkili ve Takım modunda yere düşen ördeği arkadaşı kaldırabilir. Deathmatch ısınma turudur: yeniden doğarsın, en çok eleme yapan kazanır, grubun senin tarafında savaşır. Av Sezonu ortak moddur: en fazla 3 arkadaşınla Gölet Kalesini ve QoreChain çekirdeğini 10 avcı dalgasına karşı koru. Surlardan savaş, kulelerdeki ekmek toplarıyla somun fırlat (E), kolla asma köprüyü kaldır ve kapıyı onarmak için yanında E tuşunu basılı tut. Tüfekli avcı veya keskin nişancı ateş etmeden önce kırmızı lazere dikkat et, dalgalar arasında bir güçlendirme seç ve ördeğine XP kazandır.',
     keys: [
       ['T', 'Oda sohbeti. Enter ile gönder, Esc ile kapat'],
       ['Tıkla', 'Fareyi kilitle ve oyna'], ['W A S D', 'Yürü'], ['Shift', 'Koş'], ['Alt', 'Yavaş yürü'], ['C', 'Eğil (basılı tut)'], ['Space', 'Zıpla'],

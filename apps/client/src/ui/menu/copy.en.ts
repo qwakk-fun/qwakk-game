@@ -18,7 +18,7 @@ export const EN = {
   /** Hunt Season, the co-op PvE mode (it gives your duck XP). */
   raid: {
     title: 'Hunt Season',
-    sub: 'Co-op: hold the QoreChain Tower against 15 waves of hunters. Earns XP.',
+    sub: 'Co-op: hold Pond Keep and its QoreChain core against 10 waves of hunters. Earns XP.',
     party: (n: number) => `Start a hunt with your party of ${n}`,
     locked: 'Sign in to play Hunt Season',
     lockedNote: 'Hunt Season gives your duck XP, so it needs an account.',
@@ -360,7 +360,7 @@ export const EN = {
     points: (p: number) => `+${p} points`,
     raidHeld: (n: number) => `${n} ${n === 1 ? 'wave' : 'waves'} held`,
     raidXp: (n: number) => `+${n} XP`,
-    raidWon: 'Pond defended! All 15 waves held.',
+    raidWon: 'Pond Keep held! All 10 waves defended.',
     raidEnded: 'The hunt is over. Back for another?',
     ended: 'Round over. Back for another?',
     left: 'You left the round. The pond misses you.',
@@ -400,7 +400,7 @@ export const EN = {
   },
   howto: {
     heading: 'How to play',
-    intro: 'Drop in, grab loot, stay inside the zone. Last duck (or team) standing takes the crown. In Duo and Squad a downed duck crawls until a teammate revives it. Deathmatch is the warm-up: respawns on, most kills wins, your party fights on your side. Hunt Season is co-op: hold the QoreChain Tower against 15 waves of hunters with up to 3 friends, watch for the red laser before a rifleman fires, pick an upgrade between waves, and earn XP for your duck.',
+    intro: 'Drop in, grab loot, stay inside the zone. Last duck (or team) standing takes the crown. In Duo and Squad a downed duck crawls until a teammate revives it. Deathmatch is the warm-up: respawns on, most kills wins, your party fights on your side. Hunt Season is co-op: hold Pond Keep and its QoreChain core against 10 waves of hunters with up to 3 friends. Fight from the walls, lob loaves from the bread cannons (E on a tower), raise the drawbridge with the lever and hold E at the gate to repair it. Watch for the red laser before a rifleman or a sniper fires, pick an upgrade between waves, and earn XP for your duck.',
     keys: [
       ['Click', 'Lock the mouse and play'],
       ['W A S D', 'Move'],

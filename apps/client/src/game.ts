@@ -11,7 +11,7 @@ import { t as translate } from './i18n/game.ts';
  * in game/brClient.ts.
  */
 import * as THREE from 'three/webgpu';
-import { Act, actionOf, aimBlend, Button, COMBAT, exLauncher, exNades, exRockets, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
+import { Act, actionOf, aimBlend, Button, COMBAT, exLauncher, exNades, exRockets, ExplosiveKind, hasWeapon, inaccuracy, Mode, SPAWN_PROTECTION, weaponStats } from '@qwakk/shared';
 import { KillWeapon } from '@qwakk/shared/net';
 import { GameMode, MatchPhase, type PlayerState } from '@qwakk/shared/net';
 import { Sound } from './audio/sound.ts';
@@ -195,7 +195,7 @@ export class Game {
       remoteAvatar: (id) => this.remotes.get(id)?.avatar ?? null,
       myPosition: () => this.myPos,
       ...(this.raid
-        ? { otherTargets: () => this.raid?.targets() ?? [], hunterOf: (w: number) => (w > KillWeapon.HunterBase && w <= KillWeapon.HunterBase + 5 ? hunterName(w - KillWeapon.HunterBase) : null) }
+        ? { otherTargets: () => this.raid?.targets() ?? [], hunterOf: (w: number) => (w > KillWeapon.HunterBase && w <= KillWeapon.HunterBase + 6 ? hunterName(w - KillWeapon.HunterBase) : null) }
         : {}),
     });
     this.explosives = isBr
@@ -246,13 +246,16 @@ export class Game {
         dmPower: (kind) => this.dm?.power(kind),
         dmHero: (event, heroPid, otherPid) => this.dm?.heroEvent(event, heroPid, otherPid),
         dmHeroPing: (heroPid, x, z) => this.dm?.heroPing(heroPid, x, z),
-        projectile: (id, kind, owner, at, vel) => this.explosives?.projectile(id, kind, owner, at, vel),
+        projectile: (id, kind, owner, at, vel) => {
+          this.explosives?.projectile(id, kind, owner, at, vel);
+          if (kind === ExplosiveKind.Bread) this.raid?.loafLaunched(owner, at);
+        },
         boom: (id, kind, at) => this.explosives?.boom(id, kind, at),
         dmRocket: (rockets) => this.explosives?.rocketPicked(rockets),
         localExplosive: (kind, state, buttons) => this.explosives?.localExplosive(kind, state, buttons),
         raidOffer: (cards, deadline) => this.raid?.offered(cards, deadline),
         raidSelf: (data) => this.raid?.selfNumbers(data),
-        raidKill: (kind, killerPid, head, at) => this.raid?.hunterKilled(kind, killerPid, head, at),
+        raidKill: (kind, killerPid, head, at, how) => this.raid?.hunterKilled(kind, killerPid, head, at, how),
         raidEvent: (ev, a, b) => this.raid?.event(ev, a, b),
         raidEnd: (data) => {
           this.chat.close(false);

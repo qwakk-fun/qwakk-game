@@ -90,7 +90,7 @@ export interface SessionHandlers {
   /** Hunt Season: our own run numbers (Msg.RaidSelf). */
   raidSelf?(data: number[]): void;
   /** Hunt Season: a hunter bagged (kind, by pid 0: nobody), at (m). */
-  raidKill?(kind: number, killerPid: number, head: boolean, at: [number, number, number]): void;
+  raidKill?(kind: number, killerPid: number, head: boolean, at: [number, number, number], how: number): void;
   /** Hunt Season: RaidEvent and its two numbers. */
   raidEvent?(event: number, a: number, b: number): void;
   /** Hunt Season: the run is over for us (Msg.RaidEnd fields). */
@@ -282,7 +282,7 @@ export class Session {
       handlers.raidOffer?.(cards, d[0] ?? 0);
     });
     this.room.onMessage(Msg.RaidSelf, (d: number[]) => handlers.raidSelf?.(Array.isArray(d) ? d : []));
-    this.room.onMessage(Msg.RaidKill, (d: number[]) => handlers.raidKill?.(d[0] ?? 0, d[1] ?? 0, d[2] === 1, [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)]));
+    this.room.onMessage(Msg.RaidKill, (d: number[]) => handlers.raidKill?.(d[0] ?? 0, d[1] ?? 0, d[2] === 1, [m(d[3] ?? 0), m(d[4] ?? 0), m(d[5] ?? 0)], d[6] ?? 0));
     this.room.onMessage(Msg.RaidEvent, (d: number[]) => handlers.raidEvent?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0));
     this.room.onMessage(Msg.RaidEnd, (d: number[]) => handlers.raidEnd?.(Array.isArray(d) ? d : []));
   }

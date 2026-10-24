@@ -30,11 +30,11 @@ export const OFFER_SIZE = 3;
 
 /**
  * Three different cards from `ids`, using `rand` (server: Math.random). Cards
- * at their stack limit (`maxed`) are left out; the tower repair kit only when
- * the tower is hurt.
+ * at their stack limit (`maxed`) are left out; the core repair kit only when
+ * the core is hurt.
  */
-export function rollOffer(rand: () => number, opts: { maxed?: ReadonlySet<number>; towerHurt: boolean }): UpgradeId[] {
-  const pool = UPGRADE_IDS.filter((id) => !opts.maxed?.has(id) && (id !== Upgrade.Repair || opts.towerHurt));
+export function rollOffer(rand: () => number, opts: { maxed?: ReadonlySet<number>; coreHurt: boolean }): UpgradeId[] {
+  const pool = UPGRADE_IDS.filter((id) => !opts.maxed?.has(id) && (id !== Upgrade.Repair || opts.coreHurt));
   const out: UpgradeId[] = [];
   while (out.length < OFFER_SIZE && pool.length > 0) {
     const i = Math.min(pool.length - 1, Math.floor(rand() * pool.length));

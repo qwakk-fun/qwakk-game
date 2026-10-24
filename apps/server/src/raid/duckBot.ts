@@ -2,14 +2,14 @@
  * A bot duck for Hunt Season tests and the benchmark (never in a real room:
  * runs are humans only). It fights what it sees with the deathmatch brain
  * (bots.ts: line of sight, reaction, aim error), through the human input
- * path, and otherwise walks back to a guard spot by the tower, like a player
+ * path, and otherwise walks back to a guard spot (on the wall walk), like a player
  * defending it.
  */
 import { Button, type InputFrame, type PlayerSim, type SimWorld } from '@qwakk/shared';
 import type { BotLike, BotTarget } from '../arena.ts';
 import { BotBrain, SKILL, type BotSkill } from '../bots.ts';
 
-/** A sharper duck than the deathmatch bots (a player who came to hold the tower). */
+/** A sharper duck than the deathmatch bots (a player who came to hold the keep). */
 const DEFENDER: BotSkill = { ...SKILL, reactionTicks: [8, 14], yawError: 0.12, pitchError: 0.05, errorSettlePerTick: 0.92, trackRate: 0.6, turnRatePerTick: 0.2, recoilControl: 0.7, viewRange: 90, fovCos: Math.cos((70 * Math.PI) / 180), hearRange: 10, burstShots: [3, 6], longBurstShots: [2, 4], burstPauseTicks: [5, 10] };
 import type { BotNav } from '../nav/botNav.ts';
 import { NavWalker } from '../nav/navWalker.ts';

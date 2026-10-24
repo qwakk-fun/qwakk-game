@@ -10,6 +10,10 @@
  *     art/map/export/canard-quarter/map_v1.json, map_v1_heights.bin, map_v1_ground.bin
  *     apps/client/public/models/props/colliders.json
  *       -> packages/shared/src/maps/canard-quarter/
+ *   Pond Keep (Hunt Season):
+ *     art/map/export/pond-keep/map_v1.json, map_v1_heights.bin, map_v1_ground.bin
+ *     apps/client/public/models/props/colliders.json
+ *       -> packages/shared/src/maps/pond-keep/
  *
  * One copy for both sides keeps the colliders identical; the join handshake
  * still compares a hash. `npm test` fails when a copy is stale.
@@ -39,6 +43,7 @@ export const MAP_SOURCES: readonly [string, string][] = sources('art/map/export/
 export const MAPS: readonly { id: string; sources: readonly [string, string][] }[] = [
   { id: 'sainte-canard', sources: MAP_SOURCES },
   { id: 'canard-quarter', sources: sources('art/map/export/canard-quarter/') },
+  { id: 'pond-keep', sources: sources('art/map/export/pond-keep/') },
 ];
 
 for (const map of MAPS) {

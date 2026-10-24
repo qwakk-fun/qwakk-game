@@ -48,18 +48,23 @@ export function levelProgress(xp: number): { level: number; into: number; need: 
   return { level, into, need, share: Math.min(1, into / need) };
 }
 
-/** Hunt Season XP for one duck's run. */
+/**
+ * Hunt Season XP for one duck's run. Tuned for Pond Keep (v2: 10 short
+ * waves, about 8 to 10 minutes): a full solo win with every hunter bagged is
+ * about 2,450 XP, as much as a 15 wave v1 win (about 2,400 in 12 to 18
+ * minutes), so a minute of hunting is worth more than before.
+ */
 export const RAID_XP = {
   /** Every wave cleared while the duck was in the run. */
-  perWave: 40,
-  /** Later waves are worth more: this much extra per wave number (wave 15 gives 40 + 14 * 4). */
-  perWaveStep: 4,
+  perWave: 60,
+  /** Later waves are worth more: this much extra per wave number (wave 10 gives 60 + 9 * 8). */
+  perWaveStep: 8,
   perKill: 4,
   /** A boss down, for every duck that hit it. */
-  perBossKill: 120,
+  perBossKill: 150,
   /** A knocked duck brought back up. */
   perRevive: 15,
-  /** All 15 waves held. */
+  /** All 10 waves held. */
   win: 400,
   /** Most XP one run can give (a sanity cap; a full four-duck win is far below it). */
   maxPerRun: 5000,

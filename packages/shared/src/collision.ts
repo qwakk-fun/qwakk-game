@@ -12,6 +12,11 @@
  * `fence` block movement only, `hedge` blocks movement and sight but not
  * bullets, `foliage` only hides. Rapier InteractionGroups put the membership
  * in the high 16 bits and the filter in the low 16.
+ *
+ * - DuckOnly: static colliders that only ducks bump into (Hunt Season's
+ *   gate wicket, raid/keep.ts). The duck's movement queries include it;
+ *   the hunters' mover and the bot navmesh do not. Never toggled: the
+ *   duck sim must see the same colliders on both sides at every tick.
  */
 export const CG = {
   Move: 1 << 0,
@@ -19,6 +24,7 @@ export const CG = {
   Bullet: 1 << 2,
   Sight: 1 << 3,
   Opaque: 1 << 4,
+  DuckOnly: 1 << 5,
 } as const;
 
 /** A collider that blocks everything (terrain, greybox boxes, walls). */
@@ -34,8 +40,10 @@ export function queryGroups(filter: number): number {
   return (CG.Player << 16) | (filter & 0xffff);
 }
 
-/** Character controller, ground probes, headroom. */
+/** What blocks movement for everyone (bot and hunter ground probes, wall checks; the navmesh). */
 export const MOVE_QUERY_GROUPS = queryGroups(CG.Move);
+/** A duck's character controller, ground probes and headroom: also the duck-only colliders. */
+export const DUCK_MOVE_QUERY_GROUPS = queryGroups(CG.Move | CG.DuckOnly);
 /** Hitscan shots (aim ray and muzzle trace). */
 export const BULLET_QUERY_GROUPS = queryGroups(CG.Bullet);
 /** Bot line of sight (bushes hide). */

@@ -1846,11 +1846,1128 @@
    ],
    "cullDistance": 2000,
    "nodes": [
-    "PropLeft",
-    "PropRight"
+    "PropRight",
+    "PropLeft"
    ],
    "note": "flyover only, no colliders. Nodes PropLeft and PropRight spin around their local glTF Z axis (the flight axis)",
    "glbBytes": 43268
+  },
+  "castle_tower": {
+   "category": "landmark",
+   "file": "castle_tower.glb",
+   "triangles": 4590,
+   "bounds": {
+    "min": [
+     -6.09,
+     -0.6,
+     -4.85
+    ],
+    "max": [
+     4.85,
+     16.84,
+     4.85
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 1200,
+     "triangles": 4590
+    }
+   ],
+   "cullDistance": 1200,
+   "note": "Pond Keep corner tower (authored as the south-east one): courtyard door, stairs to the wall walk doors (5.2 m) and on to the crenellated top (9.8 m) with a bread cannon pedestal",
+   "anchors": {
+    "cannon": [
+     3.45,
+     10.7,
+     3.45
+    ],
+    "cannonAim": [
+     4.1571,
+     10.7,
+     4.1571
+    ],
+    "cannonUse": [
+     2.3186,
+     9.8,
+     2.3186
+    ],
+    "top": [
+     -2.6,
+     9.8,
+     -2.6
+    ],
+    "doorWest": [
+     -5.1,
+     5.2,
+     -0.2
+    ],
+    "doorNorth": [
+     -0.2,
+     5.2,
+     -5.1
+    ],
+    "courtyardDoor": [
+     -5.7,
+     0,
+     -2.7
+    ]
+   },
+   "walk": [
+    [
+     [
+      -6,
+      0,
+      -2.7
+     ],
+     [
+      -3,
+      0.15,
+      -2.7
+     ],
+     [
+      2.75,
+      0.15,
+      -2.7
+     ],
+     [
+      2.75,
+      2.65,
+      2.75
+     ],
+     [
+      -2.75,
+      5.2,
+      2.75
+     ],
+     [
+      -2.75,
+      5.2,
+      -2.7
+     ],
+     [
+      2.75,
+      5.2,
+      -2.7
+     ],
+     [
+      2.75,
+      7.5,
+      2.75
+     ],
+     [
+      -2.75,
+      9.8,
+      2.75
+     ],
+     [
+      -2.75,
+      9.8,
+      -2.2
+     ],
+     [
+      2.6,
+      9.8,
+      0
+     ],
+     [
+      2.3186,
+      9.8,
+      2.3186
+     ]
+    ],
+    [
+     [
+      -5.5,
+      5.2,
+      -0.2
+     ],
+     [
+      -2.75,
+      5.2,
+      -0.2
+     ],
+     [
+      -2.75,
+      5.2,
+      -2.7
+     ],
+     [
+      2.75,
+      5.2,
+      -2.7
+     ],
+     [
+      2.75,
+      7.5,
+      2.75
+     ],
+     [
+      -2.75,
+      9.8,
+      2.75
+     ],
+     [
+      -2.75,
+      9.8,
+      -2.2
+     ],
+     [
+      2.6,
+      9.8,
+      0
+     ],
+     [
+      2.3186,
+      9.8,
+      2.3186
+     ]
+    ],
+    [
+     [
+      -0.2,
+      5.2,
+      -5.5
+     ],
+     [
+      -0.2,
+      5.2,
+      -2.7
+     ],
+     [
+      2.75,
+      5.2,
+      -2.7
+     ],
+     [
+      2.75,
+      7.5,
+      2.75
+     ],
+     [
+      -2.75,
+      9.8,
+      2.75
+     ],
+     [
+      -2.75,
+      9.8,
+      -2.2
+     ],
+     [
+      2.6,
+      9.8,
+      0
+     ],
+     [
+      2.3186,
+      9.8,
+      2.3186
+     ]
+    ]
+   ],
+   "glbBytes": 62584
+  },
+  "castle_wall": {
+   "category": "landmark",
+   "file": "castle_wall.glb",
+   "triangles": 2097,
+   "bounds": {
+    "min": [
+     -14,
+     -0.6,
+     -3.55
+    ],
+    "max": [
+     14,
+     7.4,
+     1.85
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 1200,
+     "triangles": 2097
+    }
+   ],
+   "cullDistance": 1200,
+   "note": "Pond Keep curtain wall, 28 m: wall walk 5.2 m up between a crenellated outer parapet and a 0.35 m kerb; stone stair up from the courtyard",
+   "anchors": {
+    "walk": [
+     [
+      -13.7,
+      5.2,
+      -0.15
+     ],
+     [
+      13.7,
+      5.2,
+      -0.15
+     ]
+    ],
+    "stairFoot": [
+     7,
+     0,
+     -2.5
+    ]
+   },
+   "walk": [
+    [
+     [
+      7.4,
+      0,
+      -2.5
+     ],
+     [
+      6.2,
+      0.03,
+      -2.5
+     ],
+     [
+      -3.4,
+      5.2,
+      -2.5
+     ],
+     [
+      -3.4,
+      5.2,
+      -0.2
+     ],
+     [
+      -13.2,
+      5.2,
+      -0.2
+     ]
+    ],
+    [
+     [
+      -2.3,
+      5.2,
+      -2.5
+     ],
+     [
+      -2.3,
+      5.2,
+      -0.2
+     ],
+     [
+      13.2,
+      5.2,
+      -0.2
+     ]
+    ]
+   ],
+   "glbBytes": 28808
+  },
+  "castle_wall_short": {
+   "category": "landmark",
+   "file": "castle_wall_short.glb",
+   "triangles": 602,
+   "bounds": {
+    "min": [
+     -4,
+     -0.6,
+     -2.1332
+    ],
+    "max": [
+     4,
+     7.4,
+     1.85
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 1200,
+     "triangles": 602
+    }
+   ],
+   "cullDistance": 1200,
+   "note": "Pond Keep curtain wall, 8 m: wall walk 5.2 m up between a crenellated outer parapet and a 0.35 m kerb",
+   "anchors": {
+    "walk": [
+     [
+      -3.7,
+      5.2,
+      -0.15
+     ],
+     [
+      3.7,
+      5.2,
+      -0.15
+     ]
+    ]
+   },
+   "walk": [
+    [
+     [
+      -3.2,
+      5.2,
+      -0.2
+     ],
+     [
+      3.2,
+      5.2,
+      -0.2
+     ]
+    ]
+   ],
+   "glbBytes": 11748
+  },
+  "castle_gatehouse": {
+   "category": "landmark",
+   "file": "castle_gatehouse.glb",
+   "triangles": 2782,
+   "bounds": {
+    "min": [
+     -7.4892,
+     -0.6,
+     -1.5
+    ],
+    "max": [
+     7.4892,
+     14.6,
+     6.9892
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 1200,
+     "triangles": 2782
+    }
+   ],
+   "cullDistance": 1200,
+   "note": "Pond Keep gatehouse: a 4 m x 4.2 m gate opening (the castle_gate GLB goes at the anchor 'gate'), the top at the wall walk level with an iron grate over the gate, two cone-roofed turrets",
+   "anchors": {
+    "gate": [
+     0,
+     0,
+     4.6
+    ],
+    "grate": [
+     0,
+     5.2,
+     5.8
+    ],
+    "walk": [
+     [
+      -6,
+      5.2,
+      -0.15
+     ],
+     [
+      6,
+      5.2,
+      -0.15
+     ]
+    ],
+    "front": [
+     0,
+     0,
+     6.5
+    ]
+   },
+   "walk": [
+    [
+     [
+      0,
+      0,
+      8.5
+     ],
+     [
+      0,
+      0.05,
+      4.9
+     ],
+     [
+      0,
+      0,
+      -3.5
+     ]
+    ],
+    [
+     [
+      -5,
+      5.2,
+      -0.2
+     ],
+     [
+      0,
+      5.2,
+      1
+     ],
+     [
+      0,
+      5.2,
+      5.8
+     ],
+     [
+      5,
+      5.2,
+      -0.2
+     ]
+    ]
+   ],
+   "glbBytes": 38776
+  },
+  "castle_bridge": {
+   "category": "landmark",
+   "file": "castle_bridge.glb",
+   "triangles": 496,
+   "bounds": {
+    "min": [
+     -3.66,
+     -3.6,
+     -4.04
+    ],
+    "max": [
+     3.66,
+     7.36,
+     13.04
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 900,
+     "triangles": 496
+    }
+   ],
+   "cullDistance": 900,
+   "note": "Pond Keep drawbridge quays: deck collider (floor) and 1.5 m fence rails over the 8.4 m span; the deck is the castle_drawbridge GLB",
+   "anchors": {
+    "hinge": [
+     0,
+     0,
+     0
+    ],
+    "far": [
+     0,
+     0,
+     8.4
+    ],
+    "pulleyL": [
+     -2.6,
+     6.4,
+     -0.6
+    ],
+    "pulleyR": [
+     2.6,
+     6.4,
+     -0.6
+    ],
+    "innerQuay": [
+     0,
+     0,
+     -3
+    ],
+    "outerQuay": [
+     0,
+     0,
+     12
+    ]
+   },
+   "walk": [
+    [
+     [
+      0,
+      0,
+      -3.6
+     ],
+     [
+      0,
+      0.05,
+      -0.5
+     ],
+     [
+      0,
+      0.12,
+      4.2
+     ],
+     [
+      0,
+      0.05,
+      8.9
+     ],
+     [
+      0,
+      0,
+      12.4
+     ]
+    ]
+   ],
+   "glbBytes": 11600
+  },
+  "castle_core": {
+   "category": "landmark",
+   "file": "castle_core.glb",
+   "triangles": 1236,
+   "bounds": {
+    "min": [
+     -9.05,
+     0,
+     -2.7716
+    ],
+    "max": [
+     9.05,
+     5.9,
+     2.7716
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 1200,
+     "triangles": 1236
+    }
+   ],
+   "cullDistance": 1200,
+   "note": "QoreChain core: stepped plinth (steps 0.35 m, drum 1.9 m), floating crystal, two QORECHAIN banners (text only)",
+   "anchors": {
+    "core": [
+     0,
+     0,
+     0
+    ],
+    "crystal": [
+     0,
+     4.1,
+     0
+    ]
+   },
+   "glbBytes": 22236
+  },
+  "castle_well": {
+   "category": "cover",
+   "file": "castle_well.glb",
+   "triangles": 184,
+   "bounds": {
+    "min": [
+     -1.325,
+     0,
+     -1.1915
+    ],
+    "max": [
+     1.325,
+     2.67,
+     1.1915
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 250,
+     "triangles": 184
+    }
+   ],
+   "cullDistance": 250,
+   "note": "courtyard well, cover",
+   "glbBytes": 7664
+  },
+  "castle_drawbridge": {
+   "category": "animated",
+   "file": "castle_drawbridge.glb",
+   "triangles": 752,
+   "bounds": {
+    "min": [
+     -2.6224,
+     -0.42,
+     -0.5639
+    ],
+    "max": [
+     2.6224,
+     6.396,
+     8.4
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 900,
+     "triangles": 752
+    }
+   ],
+   "cullDistance": 900,
+   "note": "animated: Hinge (rotate about local X, negative = up), ChainAnchorL/R under Hinge, ChainL/R at the pulleys (lookAt the anchors, scale.z = distance); deck 8.4 m x 4.4 m, top 0.12 m; place at raid.drawbridge",
+   "nodes": [
+    "Hinge",
+    "ChainAnchorL",
+    "ChainAnchorR",
+    "ChainL",
+    "ChainR"
+   ],
+   "anchors": {
+    "hinge": [
+     0,
+     0,
+     0
+    ],
+    "tip": [
+     0,
+     0.12,
+     8.4
+    ]
+   },
+   "glbBytes": 16920
+  },
+  "castle_gate": {
+   "category": "animated",
+   "file": "castle_gate.glb",
+   "triangles": 2076,
+   "bounds": {
+    "min": [
+     -2.2564,
+     0,
+     -1.58
+    ],
+    "max": [
+     2.2564,
+     4.2375,
+     1.9393
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 600,
+     "triangles": 2076
+    }
+   ],
+   "cullDistance": 600,
+   "note": "animated: state nodes Intact, Damaged, Broken plus the Planks barricade; colliders carry `states`; place at raid.gate",
+   "nodes": [
+    "Intact",
+    "Damaged",
+    "Broken",
+    "Planks"
+   ],
+   "anchors": {
+    "opening": [
+     0,
+     0,
+     0
+    ],
+    "top": [
+     0,
+     4.2,
+     0
+    ],
+    "wicket": [
+     0,
+     0,
+     0
+    ]
+   },
+   "glbBytes": 39380
+  },
+  "castle_lever": {
+   "category": "animated",
+   "file": "castle_lever.glb",
+   "triangles": 280,
+   "bounds": {
+    "min": [
+     -0.7,
+     -0.005,
+     -0.95
+    ],
+    "max": [
+     0.7,
+     3.4079,
+     0.9272
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 250,
+     "triangles": 280
+    }
+   ],
+   "cullDistance": 250,
+   "note": "animated: Handle (local X on the drum axle, + raises the bridge); place at raid.lever, facing the gate",
+   "nodes": [
+    "Handle"
+   ],
+   "anchors": {
+    "base": [
+     0,
+     0,
+     0
+    ],
+    "axle": [
+     0,
+     0.9,
+     0
+    ]
+   },
+   "glbBytes": 11244
+  },
+  "bread_cannon": {
+   "category": "animated",
+   "file": "bread_cannon.glb",
+   "triangles": 762,
+   "bounds": {
+    "min": [
+     -1.05,
+     0,
+     -1
+    ],
+    "max": [
+     0.58,
+     1.37,
+     1.6653
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 500,
+     "triangles": 762
+    }
+   ],
+   "cullDistance": 500,
+   "note": "animated: Yaw (local Y), Pitch at 0.95 m (local X, negative = up), Muzzle at the mouth 1.55 m ahead; the GLB +Z is the shot direction; place at raid.cannons (rotY = yaw + PI)",
+   "nodes": [
+    "Yaw",
+    "Pitch",
+    "Muzzle"
+   ],
+   "anchors": {
+    "pivot": [
+     0,
+     0,
+     0
+    ],
+    "trunnion": [
+     0,
+     0.95,
+     0
+    ],
+    "muzzle": [
+     0,
+     0.95,
+     1.55
+    ]
+   },
+   "glbBytes": 17532
+  },
+  "bread_loaf": {
+   "category": "animated",
+   "file": "bread_loaf.glb",
+   "triangles": 136,
+   "bounds": {
+    "min": [
+     -0.1617,
+     0,
+     -0.27
+    ],
+    "max": [
+     0.1617,
+     0.265,
+     0.27
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 250,
+     "triangles": 136
+    }
+   ],
+   "cullDistance": 250,
+   "note": "bread cannon shot, origin at the loaf's bottom center",
+   "glbBytes": 6376
+  },
+  "moat_reeds": {
+   "category": "foliage",
+   "file": "moat_reeds.glb",
+   "triangles": 552,
+   "bounds": {
+    "min": [
+     -2.0505,
+     -0.16,
+     -0.5279
+    ],
+    "max": [
+     2.0196,
+     2.0472,
+     0.4932
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 35,
+     "triangles": 552
+    },
+    {
+     "node": "LOD1",
+     "until": 260,
+     "triangles": 48
+    }
+   ],
+   "cullDistance": 260,
+   "note": "moat bank reeds: fence collider 4.4 x 0.7 x 1.9 m (blocks movement only), placed edge to edge",
+   "glbBytes": 13984
+  },
+  "raft_lane": {
+   "category": "landmark",
+   "file": "raft_lane.glb",
+   "triangles": 2054,
+   "bounds": {
+    "min": [
+     -1.6866,
+     -0.6,
+     -8.1866
+    ],
+    "max": [
+     1.6866,
+     2.6156,
+     8.1866
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 600,
+     "triangles": 2054
+    }
+   ],
+   "cullDistance": 600,
+   "note": "hunters' raft lane over the moat: 3 m deck at 0.45 m, gangplanks to the banks, 2.4 m rope fences; origin at the water",
+   "anchors": {
+    "from": [
+     0,
+     1,
+     8.6
+    ],
+    "to": [
+     0,
+     1,
+     -8.6
+    ]
+   },
+   "walk": [
+    [
+     [
+      0,
+      1,
+      8.8
+     ],
+     [
+      0,
+      1,
+      7
+     ],
+     [
+      0,
+      0.45,
+      0
+     ],
+     [
+      0,
+      1,
+      -7
+     ],
+     [
+      0,
+      1,
+      -8.8
+     ]
+    ]
+   ],
+   "glbBytes": 35592
+  },
+  "raft": {
+   "category": "cover",
+   "file": "raft.glb",
+   "triangles": 172,
+   "bounds": {
+    "min": [
+     -1.5,
+     0,
+     -2.3898
+    ],
+    "max": [
+     1.5,
+     0.5492,
+     1.8118
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 250,
+     "triangles": 172
+    }
+   ],
+   "cullDistance": 250,
+   "note": "beached raft, low cover",
+   "glbBytes": 6812
+  },
+  "trench_dugout": {
+   "category": "cover",
+   "file": "trench_dugout.glb",
+   "triangles": 2498,
+   "bounds": {
+    "min": [
+     -3.4,
+     -0.015,
+     -2.8
+    ],
+    "max": [
+     3.4,
+     2.2307,
+     3.05
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 400,
+     "triangles": 2498
+    }
+   ],
+   "cullDistance": 400,
+   "note": "WWI dugout facade with a sandbagged front; hunters spawn at the anchor 'exit' in front of the doorway",
+   "anchors": {
+    "exit": [
+     0,
+     0,
+     4.6
+    ]
+   },
+   "glbBytes": 49188
+  },
+  "hunter_watchtower": {
+   "category": "landmark",
+   "file": "hunter_watchtower.glb",
+   "triangles": 1548,
+   "bounds": {
+    "min": [
+     -2.75,
+     0,
+     -3.7
+    ],
+    "max": [
+     4.1556,
+     9.4,
+     2.7401
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 900,
+     "triangles": 1548
+    }
+   ],
+   "cullDistance": 900,
+   "note": "hunters' watchtower: platform 5 m up (4.4 x 4.4 m, 1 m plank walls), two wooden flights; sniper perch at the anchor 'perch'",
+   "anchors": {
+    "perch": [
+     0,
+     5,
+     0.6
+    ],
+    "foot": [
+     -3.4,
+     0,
+     -3.05
+    ]
+   },
+   "walk": [
+    [
+     [
+      -3.4,
+      0,
+      -3.05
+     ],
+     [
+      -2.5,
+      0,
+      -3.05
+     ],
+     [
+      3.05,
+      2.5,
+      -3.05
+     ],
+     [
+      3.05,
+      5,
+      1.7
+     ],
+     [
+      1,
+      5,
+      1.7
+     ],
+     [
+      0,
+      5,
+      0.4
+     ]
+    ]
+   ],
+   "glbBytes": 21868
+  },
+  "hay_bales": {
+   "category": "cover",
+   "file": "hay_bales.glb",
+   "triangles": 204,
+   "bounds": {
+    "min": [
+     -0.6,
+     0,
+     -0.65
+    ],
+    "max": [
+     0.779,
+     1.05,
+     0.65
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 250,
+     "triangles": 204
+    }
+   ],
+   "cullDistance": 250,
+   "note": "stacked hay bales, cover",
+   "glbBytes": 8516
+  },
+  "hay_cart": {
+   "category": "cover",
+   "file": "hay_cart.glb",
+   "triangles": 254,
+   "bounds": {
+    "min": [
+     -1.22,
+     0,
+     -1.2
+    ],
+    "max": [
+     1.22,
+     2.05,
+     3.0175
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 300,
+     "triangles": 254
+    }
+   ],
+   "cullDistance": 300,
+   "note": "hay cart, cover",
+   "glbBytes": 9184
   }
  },
  "compression": "EXT_meshopt_compression (QUANTIZE) + KHR_mesh_quantization, one quantization volume per file; use MeshoptDecoder from three/examples/jsm/libs/meshopt_decoder.module.js"

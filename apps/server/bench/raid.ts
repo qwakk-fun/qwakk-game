@@ -1,14 +1,15 @@
 /**
- * Hunt Season benchmark (`npm run bench:raid`):
+ * Hunt Season benchmark (`npm run bench:raid`), on Pond Keep:
  *
- *  1. headless: four bot ducks hold the tower through waves 13 to 15 (up to
+ *  1. headless: four bot ducks hold the walls through waves 8 to 10 (up to
  *     RAID.maxLive hunters alive), and a forced worst case of 30 hunters at
- *     once: the raid's own tick cost;
+ *     once with a duck firing a bread cannon: the raid's own tick cost;
  *  2. networked: a server process (port 2597, test hooks on) with one full
- *     raid room of 4 network clients sending random inputs at wave 13 (ducks
- *     held: no damage, so the wave keeps going), alone and next to a
- *     deathmatch room of 1 client plus its server bots: tick, patch, CPU and
- *     bandwidth per client.
+ *     raid room of 4 network clients at wave 8 (ducks held: no damage, so
+ *     the wave keeps going): three send random inputs, one mans a bread
+ *     cannon and keeps firing; alone and next to a deathmatch room of 1
+ *     client plus its server bots: tick, patch, CPU and bandwidth per
+ *     client.
  *
  * Usage: npm run bench:raid
  */
@@ -16,7 +17,7 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { fileURLToPath } from 'node:url';
 import { Client, type Room } from '@colyseus/sdk';
-import { Button, HunterKind, MATCH, RAID, ROOM, TICK_RATE } from '@qwakk/shared';
+import { Button, exMan, HunterKind, MATCH, RAID, ROOM, TICK_RATE } from '@qwakk/shared';
 import { IslandState } from '@qwakk/shared/net';
 import { headlessRaid, summarize } from './raidHeadless.ts';
 import { sightStats } from '../src/raid/sight.ts';
@@ -29,27 +30,32 @@ const f = (v: number, d = 3) => v.toFixed(d);
 async function headless(): Promise<string[]> {
   const rows: string[] = [];
   {
-    const h = await headlessRaid({ ducks: 4, rules: { hunterDamageScale: 0.2, towerHp: 20000 } });
+    const h = await headlessRaid({ ducks: 4, rules: { hunterDamageScale: 0.2, coreHp: 20000, gateHp: 5000 } });
     h.raid.beginTick(0, 0);
-    h.raid.skipTo(13);
+    h.raid.skipTo(8);
     const rays0 = sightStats.rays;
     const r = h.run(120, (x) => x.over);
     const s = summarize(r.times);
-    rows.push(`| Waves 13 to 15, 4 bot ducks, 120 s | ${f(s.avg)} / ${f(s.p95)} / ${f(s.max, 2)} | ${r.maxAlive} | ${f((sightStats.rays - rays0) / r.ticks, 1)} |`);
+    rows.push(`| Waves 8 to 10, 4 bot ducks, 120 s | ${f(s.avg)} / ${f(s.p95)} / ${f(s.max, 2)} | ${r.maxAlive} | ${f((sightStats.rays - rays0) / r.ticks, 1)} |`);
   }
   {
-    const h = await headlessRaid({ ducks: 4, rules: { hunterDamageScale: 0.2, towerHp: 20000, maxLive: 30 } });
+    const h = await headlessRaid({ ducks: 4, rules: { hunterDamageScale: 0.2, coreHp: 20000, gateHp: 5000, maxLive: 30 } });
     h.raid.beginTick(0, 0);
-    h.raid.skipTo(14);
-    const kinds = [HunterKind.Rifleman, HunterKind.Rifleman, HunterKind.Trapper, HunterKind.Decoy, HunterKind.Dog, HunterKind.Dog];
+    h.raid.skipTo(9);
+    const kinds = [HunterKind.Rifleman, HunterKind.Rifleman, HunterKind.Trapper, HunterKind.Decoy, HunterKind.Dog, HunterKind.Sniper];
+    const core = h.raid.geometry.core;
     for (let i = 0; i < 30; i++) {
       const a = (i / 30) * Math.PI * 2;
-      h.raid.hunts.spawnForTest(kinds[i % kinds.length]!, Math.cos(a) * 55, Math.sin(a) * 55);
+      h.raid.hunts.spawnForTest(kinds[i % kinds.length]!, core.x + Math.cos(a) * 55, core.z + Math.sin(a) * 55);
     }
+    // One duck mans a cannon and keeps lobbing loaves (the loaf flights and bursts are part of the cost).
+    const gunner = [...h.raid.seats.values()][0]!;
+    h.raid.moveForTest(gunner, 1);
+    gunner.bot = { think: (self) => ({ seq: 0, tick: 0, mx: 0, mz: 0, buttons: exMan(self) > 0 ? Button.Fire : (h.raid.currentTick % 2 ? Button.Use : 0), yaw: self.yaw, pitch: -0.3 }), respawned: () => undefined, damagedFrom: () => undefined };
     const rays0 = sightStats.rays;
     const r = h.run(30);
     const s = summarize(r.times);
-    rows.push(`| 30 hunters at once, 4 bot ducks, 30 s | ${f(s.avg)} / ${f(s.p95)} / ${f(s.max, 2)} | ${r.maxAlive} | ${f((sightStats.rays - rays0) / r.ticks, 1)} |`);
+    rows.push(`| 30 hunters at once, 4 bot ducks (one at a cannon), 30 s | ${f(s.avg)} / ${f(s.p95)} / ${f(s.max, 2)} | ${r.maxAlive} | ${f((sightStats.rays - rays0) / r.ticks, 1)} |`);
   }
   return rows;
 }
@@ -84,8 +90,12 @@ async function startServer(): Promise<{ proc: ChildProcess; snaps: Snap[] }> {
   return { proc, snaps };
 }
 
-/** A network duck sending random inputs (moves, turns, fires a third of the time), counting its downstream bytes. */
-function driver(room: Room<unknown, IslandState>): { stop(): Promise<void>; bytes(): number } {
+/**
+ * A network duck sending random inputs (moves, turns, fires a third of the
+ * time), or with `gunner` one that mans a cannon (Use) and keeps firing;
+ * counting its downstream bytes.
+ */
+function driver(room: Room<unknown, IslandState>, gunner = false): { stop(): Promise<void>; bytes(): number } {
   let bytes = 0;
   room.onMessage('*', () => undefined);
   const ws = (room.connection.transport as unknown as { ws?: { addEventListener?: (t: string, f: (e: { data: unknown }) => void) => void } }).ws;
@@ -106,6 +116,13 @@ function driver(room: Room<unknown, IslandState>): { stop(): Promise<void>; byte
     d.yaw = ((yaw + Math.PI) % (Math.PI * 2)) - Math.PI;
     d.pitch = -0.05;
     d.buttons = Math.floor(tick / 20) % 3 === 0 ? Button.Fire : 0;
+    if (gunner) {
+      // At the cannon (moved there by the test hook): Use now and then until it mans it, then Fire held, turning slowly.
+      d.mx = 0;
+      d.mz = 0;
+      d.pitch = -0.25;
+      d.buttons = tick % 60 === 0 ? Button.Use : tick % 60 > 5 ? Button.Fire : 0;
+    }
     d.vt = Math.max(0, Math.round(room.clock.serverNow() - 130));
     input.send();
   }, 1000 / TICK_RATE);
@@ -119,12 +136,13 @@ async function networked(withDm: boolean): Promise<string> {
   const first = await client.joinOrCreate<IslandState>(RAID.roomName, {}, IslandState);
   const rooms = [first];
   for (let i = 1; i < RAID.maxDucks; i++) rooms.push(await client.joinById<IslandState>(first.roomId, {}, IslandState));
-  const drivers = rooms.map(driver);
+  const drivers = rooms.map((r, i) => driver(r, i === 0));
   let dm: { stop(): Promise<void>; bytes(): number } | null = null;
   if (withDm) dm = driver(await client.join<IslandState>(ROOM.name, {}, IslandState));
   await new Promise((r) => setTimeout(r, 4500));
   first.send('dev:raid', { op: 'hold' });
-  first.send('dev:raid', { op: 'skip', wave: 13 });
+  first.send('dev:raid', { op: 'skip', wave: 8 });
+  first.send('dev:raid', { op: 'tp', wave: 1 });
   await new Promise((r) => setTimeout(r, 15_000));
   const b0 = drivers.map((d) => d.bytes());
   const n0 = snaps.length;
@@ -138,7 +156,7 @@ async function networked(withDm: boolean): Promise<string> {
   const raid = snaps.slice(n0).filter((s) => s.roomId === first.roomId && s.ticks > 0);
   const avg = (k: keyof Snap) => raid.reduce((n, x) => n + Number(x[k] ?? 0), 0) / Math.max(1, raid.length);
   const max = (k: keyof Snap) => raid.reduce((n, x) => Math.max(n, Number(x[k] ?? 0)), 0);
-  const label = withDm ? `Raid (4 clients, wave 13) + deathmatch (1 + ${MATCH.players - 1} bots)` : 'Raid (4 clients, wave 13)';
+  const label = withDm ? `Raid (4 clients, wave 8, one at a cannon) + deathmatch (1 + ${MATCH.players - 1} bots)` : 'Raid (4 clients, wave 8, one at a cannon)';
   return `| ${label} | ${f(avg('tickAvgMs'))} / ${f(max('tickP95Ms'))} / ${f(max('tickMaxMs'), 2)} | ${f(avg('patchAvgMs'))} / ${f(max('patchP95Ms'))} | ${f(avg('cpuPct'), 1)} | ${max('rssMb')} | ${f(kbps, 2)} | ${Math.round(avg('hunters'))} (${hunters} at the end) |`;
 }
 

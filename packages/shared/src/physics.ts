@@ -8,16 +8,16 @@
  */
 import RAPIER from '@dimforge/rapier3d-compat';
 import { BODY, MOVE } from './constants.ts';
-import { CG, MOVE_QUERY_GROUPS, SOLID_BITS, staticGroups } from './collision.ts';
+import { CG, DUCK_MOVE_QUERY_GROUPS, SOLID_BITS, staticGroups } from './collision.ts';
 import type { MapDef } from './map.ts';
 import { greyboxBits } from './mapV1.ts';
 
 export type Rapier = typeof RAPIER;
 
-/** Movement probes: act as a player, collide only with what blocks movement. */
-const PROBE_GROUPS = (CG.Player << 16) | CG.Move;
-/** Query filter used by every movement query: act as a player, hit only what blocks movement. */
-export const PLAYER_QUERY_GROUPS = MOVE_QUERY_GROUPS;
+/** Movement probes: act as a player, collide only with what blocks a duck's movement. */
+const PROBE_GROUPS = (CG.Player << 16) | CG.Move | CG.DuckOnly;
+/** Query filter used by every duck movement query: act as a player, hit only what blocks a duck (duck-only colliders included). */
+export const PLAYER_QUERY_GROUPS = DUCK_MOVE_QUERY_GROUPS;
 
 let initPromise: Promise<void> | null = null;
 
@@ -53,6 +53,8 @@ export interface SimWorld {
   /** Standing shape used for the stand-up headroom test. */
   standShape: RAPIER.Capsule;
   map: MapDef;
+  /** Colliders the server switches by name (Hunt Season keep, ShapeDef.toggle; bullets and sight only), with their bits. */
+  toggles: Map<string, { collider: RAPIER.Collider; bits: number }[]>;
   dispose(): void;
 }
 
@@ -95,6 +97,7 @@ export function createSimWorld(map: MapDef): SimWorld {
     world.createCollider(R.ColliderDesc.ball(r.r).setTranslation(r.c[0], r.c[1], r.c[2]).setCollisionGroups(staticGroups(SOLID_BITS)));
   }
   // Loaded maps: prop colliders, in file order (client and server build the same list).
+  const toggles = new Map<string, { collider: RAPIER.Collider; bits: number }[]>();
   for (const s of map.shapes) {
     let desc: RAPIER.ColliderDesc | null;
     if (s.type === 'box' && s.h) desc = R.ColliderDesc.cuboid(s.h[0], s.h[1], s.h[2]);
@@ -104,7 +107,12 @@ export function createSimWorld(map: MapDef): SimWorld {
     else desc = null;
     if (!desc) continue;
     desc.setTranslation(s.c[0], s.c[1], s.c[2]).setRotation({ x: s.q[0], y: s.q[1], z: s.q[2], w: s.q[3] }).setCollisionGroups(staticGroups(s.bits));
-    world.createCollider(desc);
+    const collider = world.createCollider(desc);
+    if (s.toggle) {
+      const list = toggles.get(s.toggle) ?? [];
+      list.push({ collider, bits: s.bits });
+      toggles.set(s.toggle, list);
+    }
   }
 
   const probeStand = world.createCollider(
@@ -136,11 +144,21 @@ export function createSimWorld(map: MapDef): SimWorld {
     probeCrouch,
     standShape,
     map,
+    toggles,
     dispose() {
       world.removeCharacterController(controller);
       world.free();
     },
   };
+}
+
+/**
+ * Switch a named collider on or off (Hunt Season keep: the gate and the
+ * raised drawbridge for bullets and sight). Only its groups change, so the
+ * world keeps the same colliders; movement queries never see these.
+ */
+export function setToggle(sim: SimWorld, name: string, on: boolean): void {
+  for (const t of sim.toggles.get(name) ?? []) t.collider.setCollisionGroups(staticGroups(on ? t.bits : 0));
 }
 
 /** Cast a ray against the static world. Returns the hit distance or null. `groups` picks what blocks it (collision.ts). */

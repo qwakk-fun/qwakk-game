@@ -109,12 +109,21 @@ export function exposeTestHook(v: TestView): void {
       if (!r) return null;
       const st = v.session.room.state;
       return {
-        stage: st.raid.stage, wave: st.raid.wave, left: st.raid.left, tower: st.raid.towerHp, towerMax: st.raid.towerMax, bossHp: st.raid.bossHp, bossMax: st.raid.bossMax,
+        stage: st.raid.stage, wave: st.raid.wave, left: st.raid.left, core: st.raid.coreHp, coreMax: st.raid.coreMax, bossHp: st.raid.bossHp, bossMax: st.raid.bossMax,
+        gate: st.raid.gateHp, gateMax: st.raid.gateMax, gateState: st.raid.gate, bridge: st.raid.bridge, leverReady: st.raid.leverReady,
+        cannons: [...st.raid.cannons.entries()].map(([k, c]) => ({ i: Number(k), pid: c.pid, heat: c.heat, hot: c.hot })), manning: r.manning,
+        keepModels: r.keep?.modelsLoaded ?? 0,
         huntersInState: st.hunters.size, traps: st.traps.size, drops: st.raidDrops.size, ducks: st.raid.ducks, teamKills: st.raid.kills,
         ...r.stats, artLoaded: r.artLoaded, artChecked: r.artChecked, cardsOpen: r.hud.cardsOpen, endOpen: r.endOpen, maxHp: r.maxHp,
         hp: v.session.me?.state.hp ?? 0, alive: v.session.mine?.alive ?? 0, down: v.session.me?.state.down ?? 0,
         serverNow: v.session.room.clock.serverNow(), waveAt: st.raid.waveAt, ends: st.raid.ends,
       };
+    },
+    /** Hunt Season: Pond Keep's layout as loaded (the map's markup): the gate, the lever, the cannons, the core. */
+    keep: () => {
+      const g = v.world.sim.map.raid;
+      if (!g) return null;
+      return { gate: { x: g.gate.x, z: g.gate.z, nx: g.gate.nx, nz: g.gate.nz }, lever: g.lever, cannons: g.cannons.map((c) => ({ x: c.x, z: c.z, yaw: c.yaw })), core: { x: g.core.x, z: g.core.z } };
     },
     /** Test servers only (QWAKK_TEST_HOOKS=1): skip to a wave, beat the wave, start now, end the break. */
     devRaid: (op: string, wave = 0) => v.session.room.send('dev:raid', { op, wave }),

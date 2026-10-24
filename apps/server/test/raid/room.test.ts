@@ -3,14 +3,15 @@
  * guests refused (the matchmaking guard with the server's real room list, and
  * the room's own onAuth), XP granted only by the server at the run end (one
  * recordRaid, never before, nothing a client sends changes it), a full room
- * refuses more ducks, and the cards reach only their duck.
+ * refuses more ducks, the cards reach only their duck, and the keep (core,
+ * gate, drawbridge, cannons) is public room state.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Client, type Room } from '@colyseus/sdk';
-import { initPhysics, RAID, RaidStage, raidXp } from '@qwakk/shared';
-import { IslandState, Msg } from '@qwakk/shared/net';
+import { BridgeState, Button, GateState, initPhysics, RAID, RaidStage, raidXp } from '@qwakk/shared';
+import { IslandState, LeverDenied, Msg, RaidEvent } from '@qwakk/shared/net';
 import { ACCOUNT_ERROR, ACCOUNT_ROOMS } from '@qwakk/shared/accounts';
 
 const ids = { a: '00000000-0000-4000-8000-0000000000a1', b: '00000000-0000-4000-8000-0000000000b2', c: '00000000-0000-4000-8000-0000000000c3' };
@@ -33,19 +34,19 @@ vi.mock('../../src/meta/index.ts', () => ({
   recordRaid: async (r: unknown) => {
     recorded.push(r);
     if (db.fail) return null;
-    return new Map([[ids.a, { xpBefore: 50, xpAfter: 50 + (r as { players: { xp: number }[] }).players[0]!.xp, levelBefore: 1, levelAfter: 2, bestWave: 15, bestMs: 1000, newBest: true }]]);
+    return new Map([[ids.a, { xpBefore: 50, xpAfter: 50 + (r as { players: { xp: number }[] }).players[0]!.xp, levelBefore: 1, levelAfter: 2, bestWave: 10, bestMs: 1000, newBest: true }]]);
   },
 }));
 
 const { RaidRoom } = await import('../../src/RaidRoom.ts');
-const { kavrenNav } = await import('../../bench/raidHeadless.ts');
+const { keepNav } = await import('../../bench/raidHeadless.ts');
 
 const PORT = 2593;
 let server: Server;
 
 beforeAll(async () => {
   await initPhysics();
-  const nav = await kavrenNav();
+  const nav = await keepNav();
   server = new Server({ transport: new WebSocketTransport() });
   server.define(RAID.roomName, RaidRoom, { nav: () => nav, rules: { lobbySeconds: 60, breakSeconds: 2 }, endSeconds: 5, testHooks: true });
   await server.listen(PORT);
@@ -103,8 +104,8 @@ describe('hunt season room', () => {
     a.send(Msg.RaidPick, 1);
     await sleep(300);
     expect(recorded).toHaveLength(0);
-    a.send('dev:raid', { op: 'skip', wave: 15 });
-    await waitUntil(() => a.state.raid.wave === 15, 5000);
+    a.send('dev:raid', { op: 'skip', wave: RAID.waves });
+    await waitUntil(() => a.state.raid.wave === RAID.waves, 5000);
     a.send('dev:raid', { op: 'clear' });
     await waitUntil(() => a.state.raid.stage === RaidStage.Won, 5000);
     await waitUntil(() => ends.length >= 2, 5000);
@@ -137,8 +138,8 @@ describe('hunt season room', () => {
     await waitUntil(() => a.state.raid.stage === RaidStage.Break, 5000);
     await b.leave(true);
     await waitUntil(() => a.state.raid.ducks === 1, 5000);
-    a.send('dev:raid', { op: 'skip', wave: 15 });
-    await waitUntil(() => a.state.raid.wave === 15, 5000);
+    a.send('dev:raid', { op: 'skip', wave: RAID.waves });
+    await waitUntil(() => a.state.raid.wave === RAID.waves, 5000);
     a.send('dev:raid', { op: 'clear' });
     await waitUntil(() => recorded.length === 1, 5000);
     const run = recorded[0] as { won: boolean; players: { playerId: string; won: boolean; xp: number; wavesCleared: number; kills: number }[] };
@@ -161,13 +162,49 @@ describe('hunt season room', () => {
     a.onMessage('*', () => undefined);
     a.send('dev:raid', { op: 'start' });
     await waitUntil(() => a.state.raid.stage === RaidStage.Wave, 5000);
-    a.send('dev:raid', { op: 'skip', wave: 15 });
-    await waitUntil(() => a.state.raid.wave === 15, 5000);
+    a.send('dev:raid', { op: 'skip', wave: RAID.waves });
+    await waitUntil(() => a.state.raid.wave === RAID.waves, 5000);
     a.send('dev:raid', { op: 'clear' });
     await waitUntil(() => ends.length >= 2, 5000);
     expect(ends[0]![14]).toBe(0);
     expect(ends[1]![14]).toBe(2);
     db.fail = false;
+    await a.leave(true);
+  }, 30_000);
+
+  it('mirrors the keep: the core, the gate, the drawbridge and its lever, the cannons', async () => {
+    const a = await join('tok-a');
+    const events: number[][] = [];
+    a.onMessage(Msg.RaidEvent, (m: number[]) => events.push(m));
+    a.onMessage('*', () => undefined);
+    await waitUntil(() => a.state.raid.cannons.size > 0, 5000);
+    expect(a.state.raid.coreMax).toBe(RAID.coreHp);
+    expect(a.state.raid.gateMax).toBe(RAID.gateHp);
+    expect(a.state.raid.gate).toBe(GateState.Intact);
+    expect(a.state.raid.bridge).toBe(BridgeState.Down);
+    // Pulled from afar (test hook): it rises, the cooldown shows, then it is up.
+    a.send('dev:raid', { op: 'lever' });
+    await waitUntil(() => a.state.raid.bridge === BridgeState.Raising, 3000);
+    expect(a.state.raid.leverReady).toBeGreaterThan(0);
+    expect(events.some((e) => e[0] === RaidEvent.Bridge && e[1] === BridgeState.Raising)).toBe(true);
+    await waitUntil(() => a.state.raid.bridge === BridgeState.Up, 5000);
+    expect(a.state.raid.bridgeDown).toBeGreaterThan(0);
+    // The lever again at once: still cooling down, told to that duck.
+    a.send('dev:raid', { op: 'lever' });
+    await waitUntil(() => events.some((e) => e[0] === RaidEvent.LeverDenied && e[1] === LeverDenied.Cooldown), 3000);
+    a.send('dev:raid', { op: 'gate', wave: 0 });
+    await waitUntil(() => a.state.raid.gate === GateState.Broken, 3000);
+    // Manned at the stand spot with a Use press: the cannon shows its duck.
+    a.send('dev:raid', { op: 'tp', wave: 1 });
+    await sleep(300);
+    const input = a.input<{ tick: number; mx: number; mz: number; buttons: number; yaw: number; pitch: number; vt: number }>();
+    for (const b of [0, Button.Use, 0]) {
+      Object.assign(input.data, { tick: 1, mx: 0, mz: 0, buttons: b, yaw: 0, pitch: 0, vt: 0 });
+      input.send();
+      await sleep(60);
+    }
+    const me = [...a.state.players.values()][0]!;
+    await waitUntil(() => a.state.raid.cannons.get('0')?.pid === me.pid, 3000);
     await a.leave(true);
   }, 30_000);
 

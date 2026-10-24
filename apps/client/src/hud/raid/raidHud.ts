@@ -1,12 +1,14 @@
 /**
- * The Hunt Season HUD: the wave bar (wave, timer, hunters left), the
- * QoreChain Tower's health, the Big Hunter's bar, banners (lobby countdown,
- * wave start and clear, the break), the upgrade cards, the duck's own
- * upgrades, the knocked and out notes, and the end screen with the XP and the
- * level bar. DOM only; everything it shows comes from the room state and the
- * server's messages.
+ * The Hunt Season HUD: the wave bar (wave of 10, timer, hunters left), the
+ * QoreChain core's and the gate's health (with the gate's look), the
+ * drawbridge and its lever, the bread cannon's heat while we man one, the
+ * action prompt (man a cannon, pull the lever, repair the gate), the Big
+ * Hunter's bar, banners, the upgrade cards, the duck's own upgrades, the
+ * knocked and out notes, and the end screen with the XP and the level bar.
+ * DOM only; everything it shows comes from the room state and the server's
+ * messages.
  */
-import { levelProgress, RAID, Upgrade, type UpgradeId } from '@qwakk/shared';
+import { GateState, levelProgress, RAID, Upgrade, type UpgradeId } from '@qwakk/shared';
 import { t } from '../../i18n/game.ts';
 import './raid.css';
 
@@ -19,7 +21,7 @@ const UPGRADE_TEXT: Record<UpgradeId, { name: string; line: string; icon: string
   [Upgrade.Revive]: { name: 'Faster revive', line: 'Revive {n}% faster', icon: '⇡' },
   [Upgrade.Headshot]: { name: 'Headshot bonus', line: '+{n}% headshot damage', icon: '◎' },
   [Upgrade.Lifesteal]: { name: 'Lifesteal', line: '+{n} health for every hunter you bag', icon: '❦' },
-  [Upgrade.Repair]: { name: 'Tower repair kit', line: '+{n} tower health', icon: '⚒' },
+  [Upgrade.Repair]: { name: 'Core repair kit', line: '+{n} core health', icon: '⚒' },
 };
 
 export function upgradeName(id: number): string {
@@ -61,6 +63,17 @@ export class RaidHud {
   private readonly left: HTMLElement;
   private readonly towerFill: HTMLElement;
   private readonly towerText: HTMLElement;
+  private readonly gateBox: HTMLElement;
+  private readonly gateLabel: HTMLElement;
+  private readonly gateFill: HTMLElement;
+  private readonly gateText: HTMLElement;
+  private readonly bridgeChip: HTMLElement;
+  private readonly cannonBox: HTMLElement;
+  private readonly cannonFill: HTMLElement;
+  private readonly cannonState: HTMLElement;
+  private readonly cannonHint: HTMLElement;
+  private readonly promptBox: HTMLElement;
+  private gateFlashUntil = 0;
   private readonly boss: HTMLElement;
   private readonly bossFill: HTMLElement;
   private readonly bossText: HTMLElement;
@@ -89,11 +102,25 @@ export class RaidHud {
     this.wave = el('span', 'raid-wave', row);
     this.timer = el('span', 'raid-timer', row);
     this.left = el('span', 'raid-left', row);
-    const tower = el('div', 'raid-tower', top);
-    el('span', 'raid-tower-label', tower, t('QoreChain Tower'));
+    const keep = el('div', 'raid-keep', top);
+    const tower = el('div', 'raid-tower raid-core', keep);
+    el('span', 'raid-tower-label', tower, t('QoreChain core'));
     const bar = el('div', 'raid-bar', tower);
     this.towerFill = el('div', 'raid-bar-fill', bar);
     this.towerText = el('span', 'raid-tower-hp', tower);
+    this.gateBox = el('div', 'raid-tower raid-gate', keep);
+    this.gateLabel = el('span', 'raid-tower-label', this.gateBox, t('Gate'));
+    const gbar = el('div', 'raid-bar', this.gateBox);
+    this.gateFill = el('div', 'raid-bar-fill', gbar);
+    this.gateText = el('span', 'raid-tower-hp', this.gateBox);
+    this.bridgeChip = el('div', 'raid-bridge', top);
+    this.cannonBox = el('div', 'raid-cannon', this.root);
+    el('span', 'raid-cannon-label', this.cannonBox, t('Bread cannon'));
+    const cbar = el('div', 'raid-bar heat', this.cannonBox);
+    this.cannonFill = el('div', 'raid-bar-fill', cbar);
+    this.cannonState = el('span', 'raid-cannon-state', this.cannonBox);
+    this.cannonHint = el('div', 'raid-cannon-hint', this.cannonBox);
+    this.promptBox = el('div', 'raid-prompt', this.root);
     this.boss = el('div', 'raid-boss', this.root);
     el('span', 'raid-boss-name', this.boss, t('Big Hunter'));
     const bb = el('div', 'raid-bar', this.boss);
@@ -111,6 +138,8 @@ export class RaidHud {
     this.markers = el('div', 'raid-markers', this.root);
     this.end = el('div', 'raid-end', this.root);
     this.boss.hidden = true;
+    this.cannonBox.hidden = true;
+    this.promptBox.hidden = true;
     this.cards.hidden = true;
     this.end.hidden = true;
     this.note.hidden = true;
@@ -135,7 +164,8 @@ export class RaidHud {
     this.left.textContent = left === 1 ? t('1 hunter left') : t('{n} hunters left', { n: left });
   }
 
-  tower(hp: number, max: number, now: number): void {
+  /** The QoreChain core's health (the run is lost at 0). */
+  core(hp: number, max: number, now: number): void {
     const f = max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0;
     this.towerFill.style.width = `${f * 100}%`;
     this.towerFill.classList.toggle('low', f < 0.3);
@@ -143,8 +173,47 @@ export class RaidHud {
     this.root.classList.toggle('tower-hit', now < this.flashUntil);
   }
 
-  towerHit(now: number): void {
+  coreHit(now: number): void {
     this.flashUntil = now + 450;
+  }
+
+  /** The gate's health and look (intact, damaged, broken). */
+  gate(hp: number, max: number, state: number, now: number): void {
+    const f = max > 0 ? Math.max(0, Math.min(1, hp / max)) : 0;
+    this.gateFill.style.width = `${f * 100}%`;
+    this.gateFill.classList.toggle('low', state !== GateState.Intact);
+    this.gateText.textContent = `${Math.max(0, Math.round(hp))}`;
+    const look = state === GateState.Broken ? t('Gate broken') : state === GateState.Damaged ? t('Gate damaged') : t('Gate');
+    if (this.gateLabel.textContent !== look) this.gateLabel.textContent = look;
+    this.gateBox.dataset.state = String(state);
+    this.gateBox.classList.toggle('hit', now < this.gateFlashUntil);
+  }
+
+  gateHit(now: number): void {
+    this.gateFlashUntil = now + 450;
+  }
+
+  /** The drawbridge line: where it is, when it comes down by itself, the lever's cooldown. */
+  bridge(text: string, up: boolean): void {
+    if (this.bridgeChip.textContent !== text) this.bridgeChip.textContent = text;
+    this.bridgeChip.classList.toggle('up', up);
+  }
+
+  /** The cannon we man: its heat (0..1), overheated, ready; hidden when we man none. */
+  cannon(show: boolean, heat: number, hot: boolean, ready: boolean, touch: boolean): void {
+    this.cannonBox.hidden = !show;
+    if (!show) return;
+    this.cannonFill.style.width = `${Math.max(0, Math.min(1, heat)) * 100}%`;
+    this.cannonFill.classList.toggle('low', hot);
+    this.cannonState.textContent = hot ? t('Overheated! Cooling down') : ready ? t('Ready') : t('Reloading...');
+    this.cannonBox.classList.toggle('hot', hot);
+    this.cannonHint.textContent = touch ? t('Fire: lob a loaf · Use or Jump: leave') : t('Click: lob a loaf · E or Space: leave');
+  }
+
+  /** The action prompt under the crosshair (empty: hidden). */
+  prompt(text: string): void {
+    this.promptBox.hidden = !text;
+    if (text && this.promptBox.textContent !== text) this.promptBox.textContent = text;
   }
 
   bossBar(hp: number, max: number): void {
@@ -242,8 +311,8 @@ export class RaidHud {
     const card = el('div', 'raid-end-card', this.end);
     const won = v.reason === 1;
     el('div', 'kicker', card, t('Hunt Season'));
-    el('h2', won ? 'won' : 'lost', card, won ? t('Pond defended!') : v.reason === 2 ? t('The tower fell') : t('Every duck is down'));
-    el('p', 'sub', card, won ? t('All 15 waves held. The hunters went home.') : t('You held {n} waves.', { n: v.waves }));
+    el('h2', won ? 'won' : 'lost', card, won ? t('Pond Keep held!') : v.reason === 2 ? t('The core fell') : t('Every duck is down'));
+    el('p', 'sub', card, won ? t('All {n} waves held. The hunters went home.', { n: RAID.waves }) : t('You held {n} waves.', { n: v.waves }));
     const stats = el('div', 'raid-end-stats', card);
     const stat = (label: string, value: string) => {
       const s = el('div', 'stat', stats);

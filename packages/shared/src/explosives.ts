@@ -21,8 +21,10 @@
  * exact and deterministic): the player schema has a hard limit of 64 fields
  * and only a few are left. Layout, low bits first:
  *   nades 3 bits | rockets 4 bits | launcher up 1 bit | throw gate 5 bits | launcher gate 6 bits | root 6 bits
+ *   | cannon manned 3 bits | cannons taken 4 bits
  * `root` is Hunt Season's trap (raid/root.ts): ticks left that the duck
- * cannot walk or jump, set by the server, counted down by the sim.
+ * cannot walk or jump, set by the server, counted down by the sim. The last
+ * seven bits are Hunt Season's bread cannons (raid/man.ts).
  * The battle royale never fills it (always 0), so none of this ever acts there.
  */
 import { EXPLOSIVE } from './constants.ts';
@@ -38,10 +40,12 @@ export const ExplosiveKind = {
   Rocket: 2,
   /** Hunt Season: a decoy thrower's wooden decoy duck (server flight like a grenade, a small toony pop). Never thrown by a duck. */
   Decoy: 3,
+  /** Hunt Season: a loaf from a bread cannon (server flight, raid/keep.ts stepBread; a burst of crumbs). */
+  Bread: 4,
 } as const;
 
 /** Largest values the packed `ex` field holds. */
-export const EX_MAX = { nades: 7, rockets: 15, nadeCd: 31, rocketCd: 63, root: 63 } as const;
+export const EX_MAX = { nades: 7, rockets: 15, nadeCd: 31, rocketCd: 63, root: 63, man: 7, occ: 15 } as const;
 
 /** The unpacked explosive state of a duck. */
 export interface ExState {
@@ -53,6 +57,9 @@ export interface ExState {
   rocketCd: number;
   /** Hunt Season: ticks left rooted by a trap (raid/root.ts). */
   root: number;
+  /** Hunt Season: the cannon manned (index + 1) and the cannons other ducks man (raid/man.ts). */
+  man: number;
+  occ: number;
 }
 
 const clampInt = (v: number, max: number): number => Math.max(0, Math.min(max, Math.floor(v)));
@@ -64,11 +71,13 @@ export function packEx(e: ExState): number {
     ((e.out ? 1 : 0) << 7) |
     (clampInt(e.nadeCd, EX_MAX.nadeCd) << 8) |
     (clampInt(e.rocketCd, EX_MAX.rocketCd) << 13) |
-    (clampInt(e.root, EX_MAX.root) << 19)
-  );
+    (clampInt(e.root, EX_MAX.root) << 19) |
+    (clampInt(e.man, EX_MAX.man) << 25) |
+    (clampInt(e.occ, EX_MAX.occ) << 28)
+  ) >>> 0;
 }
 
-export function unpackEx(ex: number, out: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0, root: 0 }): ExState {
+export function unpackEx(ex: number, out: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0, root: 0, man: 0, occ: 0 }): ExState {
   const v = ex | 0;
   out.nades = v & 7;
   out.rockets = (v >>> 3) & 15;
@@ -76,6 +85,8 @@ export function unpackEx(ex: number, out: ExState = { nades: 0, rockets: 0, out:
   out.nadeCd = (v >>> 8) & 31;
   out.rocketCd = (v >>> 13) & 63;
   out.root = (v >>> 19) & 63;
+  out.man = (v >>> 25) & 7;
+  out.occ = (v >>> 28) & 15;
   return out;
 }
 
@@ -108,7 +119,7 @@ export const lastExplosive = { kind: 0 as number };
 
 const pressed = (b: number, prev: number, bit: number): boolean => (b & bit) !== 0 && (prev & bit) === 0;
 const released = (b: number, prev: number, bit: number): boolean => (b & bit) === 0 && (prev & bit) !== 0;
-const scratch: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0, root: 0 };
+const scratch: ExState = { nades: 0, rockets: 0, out: 0, nadeCd: 0, rocketCd: 0, root: 0, man: 0, occ: 0 };
 
 /** Put the launcher away and bring the gun back up (equip time like a switch). */
 function holster(s: PlayerSim, e: ExState, want: number): void {

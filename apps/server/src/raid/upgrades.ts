@@ -8,7 +8,7 @@
 import { COMBAT, Upgrade, type UpgradeId } from '@qwakk/shared';
 import type { RaidRules } from './rules.ts';
 
-/** Most times one duck can take each card in a run (the repair kit: any time the tower is hurt). */
+/** Most times one duck can take each card in a run (the core repair kit: any time the core is hurt). */
 export const UPGRADE_MAX: Record<UpgradeId, number> = {
   [Upgrade.Damage]: 5,
   [Upgrade.MaxHealth]: 5,

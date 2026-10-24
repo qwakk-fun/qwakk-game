@@ -1,16 +1,43 @@
 /**
- * Hunt Season on the client: draws what the server sends and nothing more.
- * Hunters (public room state, interpolated like near ducks) as their models
- * or the greybox, with their telegraphs (the rifleman's laser and glint, the
- * boss's wind-up glint) and a small health bar; traps; ammo and heal drops;
- * markers for hunters at the tower and the last few of a wave; the HUD
- * (hud/raid/raidHud.ts) from the raid state and our own messages (cards,
- * our numbers, the end with the XP); the camera while we are out (it follows
- * a friend). The server decides every hit, card and XP point.
+ * Hunt Season on the client (Pond Keep): draws what the server sends and
+ * nothing more. Hunters (public room state, interpolated like near ducks)
+ * as their models or the greybox, with their telegraphs (the rifleman's and
+ * the sniper's laser and glint, the boss's wind-up glint) and a small health
+ * bar, a raft under the ones paddling across the moat; traps; ammo and heal
+ * drops; the keep's moving parts (game/raid/keepView.ts: the gate, the
+ * drawbridge, the lever, the bread cannons and our cannon's aim arc);
+ * markers for hunters at the gate or the core, aiming snipers and the last
+ * few of a wave; the HUD (hud/raid/raidHud.ts) from the raid state and our
+ * own messages (cards, our numbers, the end with the XP); the camera while
+ * we are out (it follows a friend). The server decides every hit, loaf,
+ * card and XP point; our own cannon shot is predicted for feel only.
  */
 import * as THREE from 'three/webgpu';
-import { HunterAct, HunterKind, hunterShape, isBossWave, KNOCK, OPAQUE_QUERY_GROUPS, RAID, RaidStage, rayHitbox, TRAP_SHAPE, type HitTarget, type SimWorld } from '@qwakk/shared';
-import { RaidDrop, RaidEvent, type Hunter } from '@qwakk/shared/net';
+import {
+  BridgeState,
+  Button,
+  cannonInReach,
+  exMan,
+  exOcc,
+  gateInReach,
+  GateState,
+  HunterAct,
+  HunterKind,
+  hunterShape,
+  isBossWave,
+  KNOCK,
+  leverInReach,
+  OPAQUE_QUERY_GROUPS,
+  RAID,
+  RaidStage,
+  rayHitbox,
+  TRAP_SHAPE,
+  type HitTarget,
+  type KeepGeometry,
+  type PlayerSim,
+  type SimWorld,
+} from '@qwakk/shared';
+import { LeverDenied, RaidDrop, RaidEvent, RaidKillHow, type Hunter } from '@qwakk/shared/net';
 import type { Sound } from '../audio/sound.ts';
 import type { TpsCamera } from '../camera/tpsCamera.ts';
 import type { Effects } from '../fx/effects.ts';
@@ -21,6 +48,7 @@ import type { Session } from '../net/session.ts';
 import { toonMaterial } from '../render/materials.ts';
 import { loadHunterArt, type HunterArt } from './raid/hunterAssets.ts';
 import { createHunterLook, isGreybox, type HunterLook } from './raid/hunterView.ts';
+import { KeepView } from './raid/keepView.ts';
 import type { SeenDuck } from './autopilot.ts';
 
 export interface RaidSummary {
@@ -58,19 +86,22 @@ interface View {
   glint: THREE.Sprite | null;
   barBack: THREE.Sprite;
   barFill: THREE.Sprite;
+  /** Under it while it paddles across the moat. */
+  raft: THREE.Object3D | null;
   /** Gone from the state: kept a moment to finish its defeat, then faded. */
   goneAt: number;
 }
 
 const HUNTER_NAMES: Record<number, string> = {
-  [HunterKind.Rifleman]: 'Rifleman', [HunterKind.Trapper]: 'Trapper', [HunterKind.Decoy]: 'Decoy thrower', [HunterKind.Dog]: 'Hunting dog', [HunterKind.Boss]: 'Big Hunter',
+  [HunterKind.Rifleman]: 'Rifleman', [HunterKind.Trapper]: 'Trapper', [HunterKind.Decoy]: 'Decoy thrower', [HunterKind.Dog]: 'Hunting dog', [HunterKind.Boss]: 'Big Hunter', [HunterKind.Sniper]: 'Sniper',
 };
 
 export function hunterName(kind: number): string {
   return t(HUNTER_NAMES[kind] ?? 'Rifleman');
 }
 
-const LASER_RANGE = 70;
+/** How far a laser is drawn (the sniper's reaches across the moat to the hills). */
+const LASER_RANGE: Record<number, number> = { [HunterKind.Rifleman]: 75, [HunterKind.Sniper]: 175 };
 
 /** A soft four-point star for the scope glint (a canvas: no image file). */
 function glintTexture(): THREE.CanvasTexture {
@@ -107,8 +138,19 @@ export class RaidClient {
   private self: number[] = [];
   private endView: RaidEndView | null = null;
   private lastStage = -1;
-  private lastTowerBanner = 0;
+  private lastCoreBanner = 0;
+  private lastGateBanner = 0;
   private trappedUntil = 0;
+  /** The keep's moving parts (null on a map without one). */
+  readonly keep: KeepView | null;
+  private readonly g: KeepGeometry | null;
+  /** Our cannon shot, predicted for feel: when we last thumped, and the server's ready time we saw then. */
+  private localFireAt = 0;
+  private localFireReady = -1;
+  private wasManning = 0;
+  private lastRepairTap = 0;
+  private readonly raftGeo = new THREE.BoxGeometry(1.6, 0.18, 2.2);
+  private readonly raftMat = toonMaterial(0x9b6b3d);
   private readonly tmp = new THREE.Vector3();
   private readonly tmp2 = new THREE.Vector3();
   private readonly laserMat = new THREE.MeshBasicNodeMaterial({ color: 0xff2a1a, transparent: true, opacity: 0.85, depthWrite: false });
@@ -124,7 +166,7 @@ export class RaidClient {
     if (i >= 0 && i < this.offer.length) this.pick(i);
   };
   /** Dev and tests: stats for the e2e. */
-  readonly stats = { hunters: 0, kills: 0, offers: 0, picks: 0, waves: 0, models: 0, greybox: 0, ended: 0, reason: 0, knocks: 0, selfRevives: 0 };
+  readonly stats = { hunters: 0, kills: 0, offers: 0, picks: 0, waves: 0, models: 0, greybox: 0, ended: 0, reason: 0, knocks: 0, selfRevives: 0, fired: 0, splashes: 0, bridgeMoves: 0, gateBroken: 0, gateFixed: 0, leverDenied: 0, overheats: 0, rafts: 0, snipers: 0 };
 
   constructor(deps: RaidClientDeps) {
     this.d = deps;
@@ -135,6 +177,8 @@ export class RaidClient {
     this.hud.ended = (again) => this.leave(again);
     deps.ghud.setMode('raid');
     window.addEventListener('keydown', this.onKey);
+    this.g = deps.sim.map.raid ?? null;
+    this.keep = this.g ? new KeepView(deps.scene, deps.sim, this.g) : null;
     void loadHunterArt().then((art) => {
       this.artTried = true;
       if (!art) return;
@@ -197,37 +241,110 @@ export class RaidClient {
     return this.self[0] ?? 100;
   }
 
-  hunterKilled(kind: number, killerPid: number, head: boolean, at: [number, number, number]): void {
+  hunterKilled(kind: number, killerPid: number, head: boolean, at: [number, number, number], how: number = RaidKillHow.Shot): void {
     this.stats.kills++;
     const s = this.d.session;
     const killer = s.playerByPid(killerPid);
     const mine = killerPid !== 0 && killerPid === s.mine?.pid;
-    this.d.ghud.killFeed(killer?.name ?? '?', hunterName(kind), 'bagged', head, mine);
+    this.d.ghud.killFeed(killer?.name ?? '?', hunterName(kind), how === RaidKillHow.Splash ? 'dunked' : 'bagged', head, mine);
     this.tmp.set(at[0], at[1] + 1, at[2]);
-    this.d.fx.toonPop(this.tmp, kind === HunterKind.Boss ? 2.5 : 1.2);
+    if (how === RaidKillHow.Splash) {
+      // Into the moat: a big splash where it stood (the moat is below the deck).
+      this.stats.splashes++;
+      this.tmp.y = at[1] - 1.5;
+      this.d.fx.splash(this.tmp, 1.2);
+      this.d.sound.splash(this.tmp);
+    } else this.d.fx.toonPop(this.tmp, kind === HunterKind.Boss ? 2.5 : 1.2);
     if (kind === HunterKind.Boss) this.d.sound.waveClear();
+  }
+
+  /** A loaf left a cannon (Msg.Proj): that cannon kicks back and puffs (ours already did, predicted). */
+  loafLaunched(ownerPid: number, at: [number, number, number]): void {
+    const keep = this.keep;
+    const g = this.g;
+    if (!keep || !g) return;
+    if (ownerPid !== 0 && ownerPid === this.d.session.mine?.pid && performance.now() - this.localFireAt < 1500) return;
+    let best = 0;
+    let bestD = Infinity;
+    g.cannons.forEach((c, i) => {
+      const d = Math.hypot(c.x - at[0], c.z - at[2]);
+      if (d < bestD) {
+        best = i;
+        bestD = d;
+      }
+    });
+    if (bestD > 6) return;
+    this.puff(best);
+  }
+
+  /** A cannon fires: the barrel kicks, a puff of flour at the muzzle. */
+  private puff(i: number): void {
+    const at = this.keep?.fired(i, this.tmp);
+    if (!at) return;
+    this.d.fx.toonPop(at, 0.9, false);
+    this.d.fx.crumbBurst(at, 0.35);
   }
 
   event(ev: number, a: number, b: number): void {
     const now = performance.now();
+    const s = this.d.session;
+    const byName = (pid: number): string => (pid ? (s.playerByPid(pid)?.name ?? '') : '');
     if (ev === RaidEvent.WaveStart) {
       this.stats.waves = Math.max(this.stats.waves, a);
       this.d.sound.horn(b === 1);
       if (b === 1) this.hud.say(t('Here comes the Big Hunter'), t('Wave {n}', { n: a }), 3200, 'boss');
-      else this.hud.say(a === 1 ? t('Hunting season is open') : t('Wave {n}', { n: a }), a === 1 ? t('Defend the QoreChain Tower') : '', 2600);
+      else this.hud.say(a === 1 ? t('Hunting season is open') : t('Wave {n}', { n: a }), a === 1 ? t('Hold Pond Keep and its QoreChain core') : '', 2600);
     } else if (ev === RaidEvent.WaveClear) {
       this.d.sound.waveClear();
       this.hud.say(t('Wave {n} cleared', { n: a }), a < RAID.waves ? t('Pick an upgrade') : '', 2400);
     } else if (ev === RaidEvent.Whistle) {
       this.d.sound.whistle(this.tmp.set(a, 8, b));
       this.hud.say(t('The Big Hunter whistles for help!'), '', 2000, 'warn');
-    } else if (ev === RaidEvent.TowerHit) {
-      this.d.sound.towerKnock();
-      this.hud.towerHit(now);
-      if (now - this.lastTowerBanner > 9000) {
-        this.lastTowerBanner = now;
-        this.hud.say(t('The tower is under attack!'), '', 1800, 'warn');
+    } else if (ev === RaidEvent.CoreHit) {
+      this.d.sound.coreKnock();
+      this.hud.coreHit(now);
+      if (now - this.lastCoreBanner > 9000) {
+        this.lastCoreBanner = now;
+        this.hud.say(t('The core is under attack!'), '', 1800, 'warn');
       }
+    } else if (ev === RaidEvent.GateHit) {
+      if (this.keep) this.d.sound.gateKnock(this.keep.gateAt(this.tmp));
+      this.hud.gateHit(now);
+      if (now - this.lastGateBanner > 12000 && a > 0) {
+        this.lastGateBanner = now;
+        this.hud.say(t('Hunters at the gate!'), t('Hold E at the gate to repair it'), 1800, 'warn');
+      }
+    } else if (ev === RaidEvent.GateBroken) {
+      this.stats.gateBroken++;
+      if (this.keep) {
+        const at = this.keep.gateAt(this.tmp);
+        this.d.sound.gateBreak(at);
+        this.d.fx.toonPop(at, 2);
+      }
+      this.hud.say(t('The gate is broken!'), t('Hunters are coming in. Repair it to shut them out.'), 2600, 'warn');
+    } else if (ev === RaidEvent.GateFixed) {
+      this.stats.gateFixed++;
+      const who = byName(a);
+      this.hud.say(t('The gate holds again'), who ? t('Patched up by {name}', { name: who }) : '', 2000);
+    } else if (ev === RaidEvent.Bridge) {
+      this.stats.bridgeMoves++;
+      if (this.keep) this.d.sound.chainRattle(this.keep.bridgeAt(this.tmp));
+      if (this.g) this.d.sound.leverClunk(this.tmp.set(this.g.lever[0], this.g.lever[1] + 1, this.g.lever[2]));
+      const who = byName(b);
+      if (a === BridgeState.Raising) this.hud.say(t('Drawbridge up!'), t('Hunters must paddle across the moat'), 2000);
+      else this.hud.say(t('Drawbridge coming down'), who ? '' : t('The chains slipped: it comes down by itself'), 1800);
+    } else if (ev === RaidEvent.Splash) {
+      const who = byName(b);
+      this.hud.say(a === 1 ? t('Splash! A hunter went into the moat') : t('Splash! {n} hunters went into the moat', { n: a }), who ? t('Nice pull, {name}', { name: who }) : '', 2200);
+    } else if (ev === RaidEvent.LeverDenied) {
+      this.stats.leverDenied++;
+      this.d.sound.deny();
+      const why = a === LeverDenied.Cooldown ? t('The lever needs {n} s more', { n: b }) : a === LeverDenied.DuckOnBridge ? t('A duck is on the drawbridge') : t('The drawbridge is still moving');
+      this.hud.say(why, '', 1400, 'warn');
+    } else if (ev === RaidEvent.Overheat) {
+      this.stats.overheats++;
+      this.d.sound.overheatHiss();
+      this.hud.say(t('The cannon overheated!'), t('Let it cool down'), 1500, 'warn');
     } else if (ev === RaidEvent.Trapped) {
       const mine = a === this.d.session.mine?.pid;
       if (mine) this.trappedUntil = now + (RAID.rootTicks / 30) * 1000;
@@ -235,8 +352,8 @@ export class RaidClient {
       const p = id === this.d.session.sessionId ? this.d.session.me : null;
       if (p) this.d.sound.trapSnap(this.tmp.set(p.state.x, p.state.y, p.state.z));
       else this.d.sound.trapSnap();
-    } else if (ev === RaidEvent.Repaired) {
-      this.hud.say(t('The tower is patched up'), '', 1800);
+    } else if (ev === RaidEvent.CoreRepaired) {
+      this.hud.say(t('The core is patched up'), '', 1800);
     }
   }
 
@@ -297,7 +414,7 @@ export class RaidClient {
     const [barBack, barFill] = this.bar();
     let laser: THREE.Mesh | null = null;
     let glint: THREE.Sprite | null = null;
-    if (h.kind === HunterKind.Rifleman) {
+    if (h.kind === HunterKind.Rifleman || h.kind === HunterKind.Sniper) {
       laser = new THREE.Mesh(this.laserGeo, this.laserMat);
       laser.visible = false;
       laser.frustumCulled = false;
@@ -308,7 +425,7 @@ export class RaidClient {
       glint.visible = false;
       this.group.add(glint);
     }
-    const v: View = { look, kind: h.kind, lastAct: -1, lastHp: h.hp, px: h.x, pz: h.z, speed: 0, laser, glint, barBack: barBack!, barFill: barFill!, goneAt: 0 };
+    const v: View = { look, kind: h.kind, lastAct: -1, lastHp: h.hp, px: h.x, pz: h.z, speed: 0, laser, glint, barBack: barBack!, barFill: barFill!, raft: null, goneAt: 0 };
     if (isGreybox(look)) this.stats.greybox++;
     else this.stats.models++;
     this.views.set(id, v);
@@ -317,6 +434,7 @@ export class RaidClient {
 
   private dropView(v: View): void {
     v.look.dispose();
+    v.raft?.removeFromParent();
     v.laser?.removeFromParent();
     v.glint?.removeFromParent();
     v.barBack.removeFromParent();
@@ -364,6 +482,19 @@ export class RaidClient {
         v.lastAct = h.act;
       }
       this.telegraph(v, h, p.yaw, p.pitch);
+      // Paddling across the moat: a raft under it.
+      const rafting = h.act === HunterAct.Raft;
+      if (rafting && !v.raft) {
+        v.raft = new THREE.Mesh(this.raftGeo, this.raftMat);
+        this.group.add(v.raft);
+        this.stats.rafts++;
+      }
+      if (v.raft) {
+        v.raft.visible = rafting;
+        v.raft.position.set(p.x, p.y - 0.12 + Math.sin(now / 300 + v.px) * 0.04, p.z);
+        v.raft.rotation.y = p.yaw;
+      }
+      if (h.kind === HunterKind.Sniper && h.act === HunterAct.Aim) this.stats.snipers++;
       // Health bar: once hurt, and close enough to matter.
       const hurt = h.hp < 255 && h.act !== HunterAct.Down && dist < 60;
       v.barBack.visible = hurt;
@@ -381,7 +512,58 @@ export class RaidClient {
     this.frameTraps(st);
     this.frameDrops(st, now);
     this.frameMarkers(myPos);
+    this.frameKeep(dt, now);
   }
+
+  /** The cannon we man (index), or -1. */
+  get manning(): number {
+    const me = this.d.session.me;
+    const m = me ? exMan(me.state as unknown as PlayerSim) : 0;
+    return m > 0 ? m - 1 : -1;
+  }
+
+  /** The keep each frame, and our own cannon shot predicted for feel (the server fires the real loaf). */
+  private frameKeep(dt: number, now: number): void {
+    const keep = this.keep;
+    if (!keep) return;
+    const s = this.d.session;
+    const st = s.room.state;
+    const me = s.me;
+    const sim = me?.state as unknown as PlayerSim | undefined;
+    const i = this.manning;
+    const serverNow = s.room.clock.serverNow();
+    let mine: { cannon: number; sim: PlayerSim; side: number } | null = null;
+    if (me && sim && i >= 0) {
+      // Our duck as drawn (predicted, its last step's look angles).
+      const v = this.cannonSim;
+      Object.assign(v, sim);
+      v.x = me.value('x');
+      v.y = me.value('y');
+      v.z = me.value('z');
+
+      mine = { cannon: i, sim: v, side: (sim.prevButtons & Button.ShoulderLeft) !== 0 ? -1 : 1 };
+      const c = st.raid.cannons.get(String(i));
+      const firing = (sim.prevButtons & Button.Fire) !== 0;
+      // Ready by the last state we saw, not overheated, and the server has answered our last predicted shot (its ready time moved) or long ago.
+      const answered = c ? c.ready !== this.localFireReady || now - this.localFireAt > 1200 : false;
+      if (firing && c && c.hot === 0 && c.ready <= serverNow && answered && now - this.localFireAt > 250) {
+        this.localFireAt = now;
+        this.localFireReady = c.ready;
+        this.stats.fired++;
+        this.puff(i);
+        this.d.sound.cannonThump();
+        this.d.cam.kick(0.04, 0);
+        this.d.cam.shake(0.05);
+      }
+    }
+    if (i !== this.wasManning - 1) {
+      if (i >= 0) this.hud.say(t('Bread cannon manned'), this.d.touch && document.body.classList.contains('touch-ui') ? t('Fire to lob a loaf where you aim') : t('Click to lob a loaf where you aim'), 1800);
+      this.wasManning = i + 1;
+    }
+    keep.frame(dt, st.raid, serverNow, mine, this.d.camera.position);
+  }
+
+  private readonly cannonSim = {} as PlayerSim;
 
   /** The rifleman's laser and glint while it aims, the boss's wind-up glint; a trapper's gun glints too. */
   private telegraph(v: View, h: Hunter, yaw: number, pitch: number): void {
@@ -392,7 +574,9 @@ export class RaidClient {
         v.look.muzzle(this.tmp);
         v.glint.position.copy(this.tmp);
         const pulse = 0.35 + Math.abs(Math.sin(performance.now() / 70)) * (h.kind === HunterKind.Boss ? 0.6 : 0.35);
-        v.glint.scale.setScalar(h.kind === HunterKind.Boss ? pulse * 1.6 : pulse);
+        // A far sniper's glint grows with the distance so it reads from the walls.
+        const far = h.kind === HunterKind.Sniper ? Math.max(1.5, this.d.camera.position.distanceTo(this.tmp) / 30) : 1;
+        v.glint.scale.setScalar((h.kind === HunterKind.Boss ? pulse * 1.6 : pulse) * far);
       }
     }
     if (!v.laser) return;
@@ -402,8 +586,9 @@ export class RaidClient {
     const cp = Math.cos(pitch);
     const dir = this.tmp2.set(-Math.sin(yaw) * cp, Math.sin(pitch), -Math.cos(yaw) * cp);
     const sim = this.d.sim;
-    const hit = sim.world.castRay(new sim.rapier.Ray(from, dir), LASER_RANGE, true, undefined, OPAQUE_QUERY_GROUPS);
-    let len = hit ? hit.timeOfImpact : LASER_RANGE;
+    const range = LASER_RANGE[h.kind] ?? 75;
+    const hit = sim.world.castRay(new sim.rapier.Ray(from, dir), range, true, undefined, OPAQUE_QUERY_GROUPS);
+    let len = hit ? hit.timeOfImpact : range;
     // The dot ends on the duck it points at (us or a friend), so you can see who is targeted.
     for (const d of this.ducksDrawn()) {
       const h = rayHitbox(from.x, from.y, from.z, dir.x, dir.y, dir.z, d, len);
@@ -496,7 +681,7 @@ export class RaidClient {
     }
   }
 
-  /** Markers on screen: hunters at the tower, and every hunter once a wave is down to its last three. */
+  /** Markers on screen: hunters hammering the gate or the core, aiming snipers, and every hunter once a wave is down to its last three. */
   private frameMarkers(myPos: THREE.Vector3): void {
     const st = this.d.session.room.state;
     const showAll = st.raid.stage === RaidStage.Wave && st.raid.left <= 3;
@@ -506,7 +691,9 @@ export class RaidClient {
     for (const [id, h] of st.hunters) {
       if (h.act === HunterAct.Down) continue;
       const atTower = h.act === HunterAct.Hammer;
-      if (!atTower && !showAll) continue;
+      // An aiming sniper is always marked: a long shot must read from anywhere on the walls.
+      const sniping = h.kind === HunterKind.Sniper && h.act === HunterAct.Aim;
+      if (!atTower && !showAll && !sniping) continue;
       const v = this.views.get(id);
       if (!v) continue;
       this.tmp.copy(v.look.object.position);
@@ -530,7 +717,7 @@ export class RaidClient {
         this.hud.markers.append(m);
         this.markers.set(id, m);
       }
-      m.className = `raid-marker${atTower ? ' tower' : ''}${edge ? ' edge' : ''}`;
+      m.className = `raid-marker${atTower ? ' tower' : ''}${sniping ? ' sniper' : ''}${edge ? ' edge' : ''}`;
       m.style.left = `${x}px`;
       m.style.top = `${y}px`;
     }
@@ -552,7 +739,13 @@ export class RaidClient {
     const secs = counting ? Math.max(0, (r.ends - serverNow) / 1000) : r.stage === RaidStage.Wave ? Math.max(0, (serverNow - r.waveAt) / 1000) : 0;
     const nextWave = r.stage === RaidStage.Break ? r.wave + 1 : r.wave;
     this.hud.bar(nextWave, isBossWave(nextWave), counting && r.ends > 0 ? Math.ceil(secs) : secs, counting, r.left, r.stage === RaidStage.Wave);
-    this.hud.tower(r.towerHp, r.towerMax, now);
+    this.hud.core(r.coreHp, r.coreMax, now);
+    this.hud.gate(r.gateHp, r.gateMax, r.gate, now);
+    this.hud.bridge(this.bridgeLine(serverNow), r.bridge !== BridgeState.Down);
+    const i = this.manning;
+    const c = i >= 0 ? r.cannons.get(String(i)) : undefined;
+    this.hud.cannon(i >= 0 && !!c, (c?.heat ?? 0) / 255, (c?.hot ?? 0) === 1, (c?.ready ?? 0) <= serverNow, this.d.touch && document.body.classList.contains('touch-ui'));
+    this.hud.prompt(r.stage === RaidStage.Won || r.stage === RaidStage.Lost || this.hud.cardsOpen ? '' : this.promptText());
     this.hud.bossBar(r.bossHp, r.bossMax);
     this.hud.cardsFrame(serverNow);
     this.hud.frame(now);
@@ -560,7 +753,7 @@ export class RaidClient {
       this.lastStage = r.stage;
       if (r.stage !== RaidStage.Break && this.offer.length === 0) this.hud.offer([], 0, false);
     }
-    if (r.stage === RaidStage.Lobby) this.hud.idle(r.ends > 0 ? t('The hunt starts in {n}', { n: Math.ceil(secs) }) : t('Waiting for ducks'), t('Hold the tower. Friends can still join.'));
+    if (r.stage === RaidStage.Lobby) this.hud.idle(r.ends > 0 ? t('The hunt starts in {n}', { n: Math.ceil(secs) }) : t('Waiting for ducks'), t('Hold the keep. Friends can still join.'));
     else if (r.stage === RaidStage.Break && !this.hud.cardsOpen) this.hud.idle(t('Next wave in {n}', { n: Math.ceil(secs) }), '');
     else this.hud.idle('', '');
     if (this.hud.endOpen) this.hud.endCountdown(st.timeLeft);
@@ -581,6 +774,57 @@ export class RaidClient {
         this.hud.noteLine(t('Down!'), `${hint}${rev} ${bleed}`);
       } else if (now < this.trappedUntil) this.hud.noteLine(t('Caught in a trap!'), t('Shoot the trap or wait it out'));
       else this.hud.noteLine(null);
+    }
+  }
+
+  /** The drawbridge line of the HUD: where it is, when it comes down by itself, the lever's cooldown. */
+  private bridgeLine(serverNow: number): string {
+    const r = this.d.session.room.state.raid;
+    const lever = r.leverReady > serverNow ? ` · ${t('lever {n} s', { n: Math.ceil((r.leverReady - serverNow) / 1000) })}` : ` · ${t('lever ready')}`;
+    if (r.bridge === BridgeState.Up) {
+      const down = r.bridgeDown > serverNow ? Math.ceil((r.bridgeDown - serverNow) / 1000) : 0;
+      return `${t('Drawbridge up')} · ${t('down in {n} s', { n: down })}${lever}`;
+    }
+    if (r.bridge === BridgeState.Raising) return `${t('Drawbridge rising')}${lever}`;
+    if (r.bridge === BridgeState.Lowering) return `${t('Drawbridge lowering')}${lever}`;
+    return `${t('Drawbridge down')}${lever}`;
+  }
+
+  /** What the Use button does here: leave the cannon, man one, pull the lever, repair the gate. */
+  private useAction(): 'leave' | 'cannon' | 'lever' | 'repair' | 'taken' | '' {
+    const s = this.d.session;
+    const me = s.me;
+    const g = this.g;
+    if (!me || !g || me.state.alive !== 1 || me.state.down === 1) return '';
+    const sim = me.state as unknown as PlayerSim;
+    if (exMan(sim) > 0) return 'leave';
+    const x = me.value('x');
+    const y = me.value('y');
+    const z = me.value('z');
+    const c = cannonInReach(g, x, y, z);
+    if (c >= 0) return (exOcc(sim) & (1 << c)) !== 0 ? 'taken' : 'cannon';
+    if (leverInReach(g, x, y, z)) return 'lever';
+    const r = s.room.state.raid;
+    if (gateInReach(g, x, y, z) && r.gateHp < r.gateMax && r.stage === RaidStage.Wave) return 'repair';
+    return '';
+  }
+
+  private promptText(): string {
+    const touch = this.d.touch && document.body.classList.contains('touch-ui');
+    const key = touch ? t('Use') : 'E';
+    switch (this.useAction()) {
+      case 'cannon':
+        return t('{key}: man the bread cannon', { key });
+      case 'taken':
+        return t('A friend mans this cannon');
+      case 'lever': {
+        const up = this.d.session.room.state.raid.bridge !== BridgeState.Down;
+        return up ? t('{key}: lower the drawbridge', { key }) : t('{key}: raise the drawbridge', { key });
+      }
+      case 'repair':
+        return t('Hold {key}: repair the gate', { key });
+      default:
+        return '';
     }
   }
 
@@ -613,12 +857,15 @@ export class RaidClient {
     return out.sort((a, b) => a.dist - b.dist);
   }
 
-  /** The touch Use button: a knocked friend in reach, or our own second wind. */
+  /** The touch Use button: a knocked friend in reach, our own second wind, or a keep control (a cannon, the lever, the gate). */
   touchPrompt(): string {
     const s = this.d.session;
     const me = s.me;
     const st = s.room.state;
-    if (!me || st.raid.stage !== RaidStage.Wave) return '';
+    if (!me) return '';
+    const act = this.useAction();
+    if (act && act !== 'taken') return 'E';
+    if (st.raid.stage !== RaidStage.Wave) return '';
     if (me.state.down === 1) return st.raid.ducks === 1 ? 'E' : '';
     for (const [id, m] of st.mates) {
       if (id === s.sessionId || m.down !== 1) continue;
@@ -660,7 +907,7 @@ export class RaidClient {
   }
 
   /** Dev autopilot: hunters as drawn, an open offer, and a knocked friend nearby. */
-  autopilotView(): { hunters: SeenDuck[]; offer: number; knocked: { x: number; z: number } | null; tower: { x: number; z: number } } {
+  autopilotView(): { hunters: SeenDuck[]; offer: number; knocked: { x: number; z: number } | null; home: { x: number; z: number }; core: { x: number; z: number; r: number } } {
     const s = this.d.session;
     const hunters: SeenDuck[] = [];
     for (const [id, h] of s.room.state.hunters) {
@@ -674,7 +921,10 @@ export class RaidClient {
       const p = s.pose(id);
       if (p) knocked = { x: p.x, z: p.z };
     }
-    return { hunters, offer: this.offer.length, knocked, tower: { x: RAID.tower.x, z: RAID.tower.z } };
+    // Home: inside the gate, a few meters back (the hunters come through it).
+    const g = this.g;
+    const home = g ? { x: g.gate.x - g.gate.nx * 7, z: g.gate.z - g.gate.nz * 7 } : { x: 0, z: 0 };
+    return { hunters, offer: this.offer.length, knocked, home, core: g ? { x: g.core.x, z: g.core.z, r: g.core.r } : { x: 0, z: 0, r: 1 } };
   }
 
   /** Pick card `i`, exactly as a click or a key does (the dev autopilot uses it too). */
@@ -697,6 +947,7 @@ export class RaidClient {
 
   dispose(): void {
     window.removeEventListener('keydown', this.onKey);
+    this.keep?.dispose();
     for (const v of this.views.values()) this.dropView(v);
     this.views.clear();
     for (const m of this.markers.values()) m.remove();

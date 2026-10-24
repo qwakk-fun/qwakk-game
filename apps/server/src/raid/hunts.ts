@@ -1,9 +1,11 @@
 /**
  * The hunters' side of a run: the wave director (spawns from the shared wave
- * math), every hunter's tick (brain.ts), their health and defeat, the
- * trapper's traps, the decoys in flight and the drops they leave. Network
- * free; the raid (raid.ts) owns the ducks and tells the room what happened
- * through the host. Server only.
+ * math at the keep's trench exits), every hunter's tick (brain.ts, with the
+ * keep's route rules in travel.ts), their health and defeat (shot, splashed
+ * into the moat by the drawbridge, or burst by a bread loaf), the trapper's
+ * traps, the decoys in flight and the drops they leave. Network free; the
+ * raid (raid.ts) owns the ducks and the keep and tells the room what
+ * happened through the host. Server only.
  */
 import {
   blastFalloff,
@@ -17,27 +19,34 @@ import {
   HunterKind,
   hunterHpScale,
   hunterShape,
+  inGateway,
+  inKeep,
   isBossWave,
   MOVE_QUERY_GROUPS,
+  onIsland,
   RAID,
   spawnGapSeconds,
   stepGrenade,
   TRAP_SHAPE,
   TICK_RATE,
+  waterSurfaceAt,
   waveComposition,
   type Flight,
   type HitTarget,
+  type KeepGeometry,
   type SimWorld,
 } from '@qwakk/shared';
-import { RaidDrop } from '@qwakk/shared/net';
+import { RaidDrop, RaidKillHow } from '@qwakk/shared/net';
 import type { BotNav, P3 } from '../nav/botNav.ts';
-import { thinkHunter, towerCenter, hunterHurtFrom, type HuntContext } from './brain.ts';
+import { thinkHunter, hunterHurtFrom, type HuntContext } from './brain.ts';
 import { fireHunterGun, type ShotTrace } from './gun.ts';
 import { BITE, DECOY, KIND, newHunter, TRAP, WHISTLE, type GunNumbers, type HunterAgent } from './hunter.ts';
 import { HunterHistory } from './hunterHistory.ts';
 import type { RaidRules } from './rules.ts';
 import type { DuckTarget } from './sight.ts';
-import { towerDistance, towerSpot, type TowerInfo } from './spawns.ts';
+import { atCore, atGate, coreSpot, gateSpot, holdSpot, raftLanes, trenchPoints } from './spawns.ts';
+import { keepBarrier, type Objective } from './travel.ts';
+import type { Barrier } from './hunterMover.ts';
 
 export interface TrapState {
   id: string;
@@ -76,15 +85,25 @@ export interface HuntHost {
   ducks(): readonly DuckTarget[];
   hurtDuck(duckId: string, amount: number, fromX: number, fromZ: number, kind: number, head: boolean): void;
   rootDuck(duckId: string): void;
-  damageTower(amount: number, h: HunterAgent): void;
+  /** The keep now: the drawbridge down (walkable), the gate broken (hunters pass). */
+  bridgeDown(): boolean;
+  gateOpen(): boolean;
+  damageGate(amount: number, h: HunterAgent): void;
+  damageCore(amount: number, h: HunterAgent): void;
   shotFx(h: HunterAgent, traces: readonly ShotTrace[], weapon: number): void;
-  hunterDown(h: HunterAgent, killerId: string | null, head: boolean): void;
+  /** `how`: RaidKillHow (shot, splashed into the moat, a bread loaf). */
+  hunterDown(h: HunterAgent, killerId: string | null, head: boolean, how: number): void;
   whistle(h: HunterAgent): void;
   decoyLaunched(d: DecoyState): void;
   decoyBoom(d: DecoyState, x: number, y: number, z: number): void;
 }
 
 type Unit = { kind: number; count: number };
+
+/** A wave past this long: the rest push in (no more sniping from afar), so a wave never drags on. */
+const PUSH_AFTER_TICKS = 60 * TICK_RATE;
+/** While pushing, a hunter stuck this long without moving or fighting gives up (checkStuck). */
+const GIVE_UP_TICKS = 20 * TICK_RATE;
 
 export class HuntWorld {
   readonly hunters = new Map<string, HunterAgent>();
@@ -100,20 +119,33 @@ export class HuntWorld {
   private wave = 0;
   private ducksInRun = 1;
   private tick = 0;
-  /** Seconds since the wave began, past which stragglers walk straight to the tower. */
+  /** Tick the wave began (stragglers stop sniping after a while). */
   private waveStartTick = 0;
   private readonly host: HuntHost;
-  private readonly tower: TowerInfo;
+  readonly keep: KeepGeometry;
   private readonly spawns: P3[];
-  private readonly towerY: number;
+  private readonly lanes: { from: P3; to: P3; water: number }[];
+  private readonly trench: P3[];
+  /** Sniper perches and who holds each (hunter id). */
+  private readonly perches: P3[];
+  private readonly perchedBy: (string | null)[];
+  private readonly barrier: Barrier;
+  private readonly keepState = { bridgeDown: true, gateOpen: false };
+  /** A point well inside the walkable map (in front of the gate): where scrambling hunters must still be able to walk to. */
+  private readonly anchor: P3;
 
-  constructor(host: HuntHost, tower: TowerInfo, spawns: P3[]) {
+  constructor(host: HuntHost, keep: KeepGeometry, spawns: P3[]) {
     this.host = host;
-    this.tower = tower;
+    this.keep = keep;
     this.spawns = spawns;
-    towerCenter.x = tower.x;
-    towerCenter.z = tower.z;
-    this.towerY = groundHeightAt(host.sim, tower.x + tower.half + 2, 40, tower.z);
+    this.lanes = raftLanes(host.sim, keep);
+    this.trench = trenchPoints(host.sim, keep);
+    this.perches = keep.mark.sniperPerches.map(([x, y, z]) => ({ x, y: groundHeightAt(host.sim, x, y + 2, z), z }));
+    this.perchedBy = this.perches.map(() => null);
+    const gt = keep.gate;
+    this.anchor = { x: gt.x + gt.nx * 1.5, y: gt.y, z: gt.z + gt.nz * 1.5 };
+    const water = host.sim.map.water;
+    this.barrier = keepBarrier(keep, this.keepState, (x, z) => inGateway(keep, x, z, 0.4), (x, y, z) => !!water && y < waterSurfaceAt(water, x, z) - 0.6);
   }
 
   /** Hunters still to beat this wave: standing and still to come. */
@@ -140,17 +172,22 @@ export class HuntWorld {
     return this.queue.length === 0 && this.alive === 0;
   }
 
-  /** A new wave's spawn queue (shuffled, the boss early). */
+  /** A new wave's spawn queue (shuffled, the boss early; the admin wave size scales the counts). */
   startWave(wave: number, ducks: number, tick: number): void {
     this.wave = wave;
     this.ducksInRun = ducks;
     this.waveStartTick = tick;
     const c = waveComposition(wave, ducks);
+    const scale = this.host.rules.waveScale;
+    const n = (v: number): number => (v > 0 ? Math.max(1, Math.round(v * scale)) : 0);
     const units: Unit[] = [];
-    for (let i = 0; i < c.rifleman; i++) units.push({ kind: HunterKind.Rifleman, count: 1 });
-    for (let i = 0; i < c.trapper; i++) units.push({ kind: HunterKind.Trapper, count: 1 });
-    for (let i = 0; i < c.decoy; i++) units.push({ kind: HunterKind.Decoy, count: 1 });
-    for (let i = 0; i < c.dog / 3; i++) units.push({ kind: HunterKind.Dog, count: 3 });
+    for (let i = 0; i < n(c.rifleman); i++) units.push({ kind: HunterKind.Rifleman, count: 1 });
+    for (let i = 0; i < n(c.trapper); i++) units.push({ kind: HunterKind.Trapper, count: 1 });
+    for (let i = 0; i < n(c.decoy); i++) units.push({ kind: HunterKind.Decoy, count: 1 });
+    for (let i = 0; i < n(c.dog / 3); i++) units.push({ kind: HunterKind.Dog, count: 3 });
+    // Snipers only as many as there are perches (the rest come as riflemen).
+    const snipers = n(c.sniper);
+    for (let i = 0; i < snipers; i++) units.push({ kind: i < this.perches.length ? HunterKind.Sniper : HunterKind.Rifleman, count: 1 });
     for (let i = units.length - 1; i > 0; i--) {
       const j = Math.floor(Math.random() * (i + 1));
       [units[i], units[j]] = [units[j]!, units[i]!];
@@ -183,7 +220,7 @@ export class HuntWorld {
 
   private spawnAt(kind: number, count: number, near?: P3): void {
     const ducks = this.host.ducks().filter((d) => d.standing);
-    const pts = near ? [near] : this.spawns.filter((p) => ducks.every((d) => Math.hypot(d.x - p.x, d.z - p.z) > 18));
+    const pts = near ? [near] : this.spawns.filter((p) => ducks.every((d) => Math.hypot(d.x - p.x, d.z - p.z) > 25));
     const at = (pts.length > 0 ? pts : this.spawns)[Math.floor(Math.random() * Math.max(1, (pts.length > 0 ? pts : this.spawns).length))] ?? { x: 0, y: 10, z: 60 };
     const baseHp = HUNTER_HP[kind] ?? 90;
     const hp = Math.round(baseHp * hunterHpScale(this.wave, this.ducksInRun, kind) * this.host.rules.hunterHpScale);
@@ -193,10 +230,11 @@ export class HuntWorld {
       const x = at.x + ox;
       const z = at.z + (count > 1 ? (i % 2) * 0.8 : 0);
       const y = groundHeightAt(this.host.sim, x, at.y + 2, z);
-      const yaw = Math.atan2(x - this.tower.x, z - this.tower.z);
+      const core = this.keep.core;
+      const yaw = Math.atan2(x - core.x, z - core.z);
       const h = newHunter(id, this.serial, kind, x, y, z, yaw, hp, this.tick);
-      // Stand on the side of the tower it comes from.
-      h.slot = Math.atan2(z - this.tower.z, x - this.tower.x) + (Math.random() - 0.5) * 1.2;
+      // At the core: on the side it comes from (through the gate), spread a little.
+      h.slot = Math.atan2(this.keep.gate.z - core.z, this.keep.gate.x - core.x) + (Math.random() - 0.5) * 2.4;
       this.hunters.set(id, h);
       if (near) {
         this.helperIds.add(id);
@@ -218,6 +256,12 @@ export class HuntWorld {
   /** One tick: spawns, every hunter, traps, decoys, drops, the lag history. */
   step(tick: number, nowMs: number, live: boolean): void {
     this.tick = tick;
+    this.keepState.bridgeDown = this.host.bridgeDown();
+    this.keepState.gateOpen = this.host.gateOpen();
+    for (let i = 0; i < this.perchedBy.length; i++) {
+      const id = this.perchedBy[i];
+      if (id && !(this.hunters.get(id)?.downTicks === 0)) this.perchedBy[i] = null;
+    }
     if (live) this.director(tick);
     const ducks = this.host.ducks();
     const avoid: { x: number; z: number }[] = [];
@@ -233,7 +277,9 @@ export class HuntWorld {
         h.act = HunterAct.Idle;
         continue;
       }
+      if (h.mover.anchor === null) h.mover.anchor = this.anchor;
       thinkHunter(h, ctx);
+      this.checkStuck(h, tick, ctx.push);
     }
     this.stepTraps(tick, ducks);
     this.stepDecoys(ducks);
@@ -249,22 +295,42 @@ export class HuntWorld {
     this.nextSpawn = tick + Math.round(spawnGapSeconds(this.wave) * TICK_RATE * (unit.count > 1 ? 1.6 : 1));
   }
 
+  /** What a hunter is after with no duck in mind (travel.ts rules). */
+  objective(h: HunterAgent): Objective {
+    const g = this.keep;
+    const nav = this.host.nav();
+    if (inKeep(g, h.x, h.z)) return { spot: coreSpot(g, h.slot, nav), hammer: 2 };
+    // A raised (or moving) drawbridge covers the gateway: wait on the island's bank (or paddle over to it).
+    if (!this.keepState.bridgeDown) return { spot: holdSpot(g, h.x, h.z, h.serial, nav), hammer: 0 };
+    if (this.keepState.gateOpen) return { spot: coreSpot(g, h.slot, nav), hammer: 2 };
+    return { spot: gateSpot(g, h.serial), hammer: 1 };
+  }
+
   private context(tick: number, ducks: readonly DuckTarget[], avoid: { x: number; z: number }[]): HuntContext {
     const host = this.host;
     const nav = host.nav();
+    const g = this.keep;
     return {
       sim: host.sim,
       nav,
+      keep: g,
+      bridgeDown: this.keepState.bridgeDown,
+      gateOpen: this.keepState.gateOpen,
+      lanes: this.lanes,
+      raftSpeed: host.rules.raftSpeed,
+      barrier: this.barrier,
+      trench: this.trench,
       tick,
       rules: host.rules,
       ducks,
       avoid,
       lastWave: this.wave >= RAID.waves,
-      // The last few of a wave, or a wave past two minutes: no more sniping from afar.
-      push: (this.queue.length === 0 && this.alive <= 3) || tick - this.waveStartTick > 120 * TICK_RATE,
-      towerSpot: (h) => towerSpot(this.tower, h.slot, nav, this.towerY),
-      atTower: (h) => towerDistance(this.tower, h.x, h.z) <= this.tower.reach,
-      fire: (h, g, yaw, pitch) => this.fire(h, g, yaw, pitch, ducks),
+      // The last few of a wave, or a wave past a minute: no more sniping from afar.
+      push: (this.queue.length === 0 && this.alive <= 3) || tick - this.waveStartTick > PUSH_AFTER_TICKS,
+      objective: (h) => this.objective(h),
+      atObjective: (h, what) => (what === 1 ? atGate(g, h.x, h.y, h.z) : atCore(g, h.x, h.y, h.z, RAID.coreReach)),
+      perch: (h) => this.perchOf(h),
+      fire: (h, gun, yaw, pitch) => this.fire(h, gun, yaw, pitch, ducks),
       bite: (h, d) => host.hurtDuck(d.id, BITE.damage * host.rules.hunterDamageScale, h.x, h.z, h.kind, false),
       placeTrap: (h, x, y, z) => this.placeTrap(h, x, y, z, tick),
       throwDecoy: (h, x, y, z) => this.throwDecoy(h, x, y, z),
@@ -274,15 +340,61 @@ export class HuntWorld {
         // The same cap as the wave's own spawns: never more than raid.maxLive alive.
         const max = host.rules.maxLive;
         if (this.alive + 3 <= max) this.spawnAt(HunterKind.Dog, 3, near);
-        if (this.wave >= 10 && this.alive + 1 <= max) this.spawnAt(HunterKind.Rifleman, 1, near);
+        if (this.wave >= 6 && this.alive + 1 <= max) this.spawnAt(HunterKind.Rifleman, 1, near);
       },
       whistleOpen: tick - this.waveStartTick < WHISTLE.stopAfterTicks,
-      hammer: (h) => {
+      hammer: (h, what) => {
         h.hammerTicks++;
-        host.damageTower(((RAID.towerDps[h.kind] ?? 4) * host.rules.towerDamageScale) / TICK_RATE, h);
+        if (what === 1) host.damageGate(((RAID.gateDps[h.kind] ?? 4) * host.rules.gateDamageScale) / TICK_RATE, h);
+        else host.damageCore(((RAID.coreDps[h.kind] ?? 4) * host.rules.coreDamageScale) / TICK_RATE, h);
       },
       helpers: () => this.helpers(),
     };
+  }
+
+  /**
+   * A safety net: while the wave pushes in, a hunter that has neither moved
+   * 2 m nor fought nor hammered for 20 s (wedged in a pocket of the map)
+   * gives up and leaves: it counts as beaten, with no XP and no drop, so a
+   * wave never stalls on it.
+   */
+  private checkStuck(h: HunterAgent, tick: number, push: boolean): void {
+    if (h.downTicks > 0) return;
+    const busy = h.targetId !== null || h.act === HunterAct.Hammer || h.act === HunterAct.Aim || h.act === HunterAct.Fire || h.raft !== null || h.swim > 0;
+    if (busy || Math.hypot(h.x - h.checkX, h.z - h.checkZ) > 2) {
+      h.checkX = h.x;
+      h.checkZ = h.z;
+      h.busyTick = tick;
+      return;
+    }
+    if (!push || tick - h.busyTick < GIVE_UP_TICKS) return;
+    this.gaveUp++;
+    h.helper = true;
+    this.defeat(h, null, false);
+  }
+
+  /** Hunters that gave up stuck somewhere (stats, tests). */
+  gaveUp = 0;
+
+  /** A sniper's perch: the one it holds, else the free one nearest to it (null when none is free). */
+  private perchOf(h: HunterAgent): P3 | null {
+    if (h.perch >= 0) return this.perches[h.perch] ?? null;
+    if (h.perch === -2) return null;
+    let best = -1;
+    let bestD = Infinity;
+    for (let i = 0; i < this.perches.length; i++) {
+      if (this.perchedBy[i]) continue;
+      const p = this.perches[i]!;
+      const d = Math.hypot(p.x - h.x, p.z - h.z);
+      if (d < bestD) {
+        best = i;
+        bestD = d;
+      }
+    }
+    h.perch = best >= 0 ? best : -2;
+    if (best < 0) return null;
+    this.perchedBy[best] = h.id;
+    return this.perches[best]!;
   }
 
   private fire(h: HunterAgent, g: GunNumbers, yaw: number, pitch: number, ducks: readonly DuckTarget[]): void {
@@ -301,8 +413,8 @@ export class HuntWorld {
 
   // ---- damage to hunters ----------------------------------------------------
 
-  /** A duck's shot or blast hurt a hunter. Returns true when it was defeated. */
-  hurt(id: string, amount: number, byId: string | null, head: boolean, fromX: number, fromZ: number): boolean {
+  /** A duck's shot, blast or loaf hurt a hunter. Returns true when it was defeated. */
+  hurt(id: string, amount: number, byId: string | null, head: boolean, fromX: number, fromZ: number, how: number = RaidKillHow.Shot): boolean {
     const h = this.hunters.get(id);
     if (!h || h.downTicks > 0 || amount <= 0) return false;
     h.hp -= amount;
@@ -312,16 +424,78 @@ export class HuntWorld {
     }
     hunterHurtFrom(h, fromX, fromZ);
     if (h.hp > 0) return false;
-    this.defeat(h, byId, head);
+    this.defeat(h, byId, head, how);
     return true;
   }
 
-  private defeat(h: HunterAgent, killerId: string | null, head: boolean): void {
+  private defeat(h: HunterAgent, killerId: string | null, head: boolean, how: number = RaidKillHow.Shot): void {
     h.hp = 0;
     h.act = HunterAct.Down;
+    h.raft = null;
     h.downTicks = Math.round(1.6 * TICK_RATE);
-    this.host.hunterDown(h, killerId, head);
-    this.maybeDrop(h);
+    this.host.hunterDown(h, killerId, head, how);
+    // A splashed hunter's drop would sink in the moat.
+    if (how !== RaidKillHow.Splash) this.maybeDrop(h);
+  }
+
+  /**
+   * The drawbridge starts to rise: every hunter in the gateway or on the
+   * deck goes into the moat (out of the fight, a toony splash, credited to
+   * the duck at the lever); the Big Hunter is dunked instead and climbs out
+   * on the far bank. Traps there go too. Returns how many went in.
+   */
+  splashGateway(byId: string | null): number {
+    const g = this.keep;
+    let n = 0;
+    for (const h of [...this.hunters.values()]) {
+      if (h.downTicks > 0 || h.raft || !inGateway(g, h.x, h.z, 0.6) || Math.abs(h.y - g.bridge.y) > 2.5) continue;
+      n++;
+      if (h.kind === HunterKind.Boss) {
+        const b = g.bridge;
+        h.x = b.x + b.dx * (b.len + 2.5);
+        h.z = b.z + b.dz * (b.len + 2.5);
+        h.y = groundHeightAt(this.host.sim, h.x, b.y + 4, h.z);
+        h.swim = Math.round(3 * TICK_RATE);
+        h.hp = Math.max(1, h.hp - h.maxHp * 0.08);
+        if (byId) h.hurtBy.add(byId);
+        h.mover.reset();
+        continue;
+      }
+      if (byId) h.hurtBy.add(byId);
+      this.defeat(h, byId, false, RaidKillHow.Splash);
+    }
+    for (const t of [...this.traps.values()]) if (inGateway(g, t.x, t.z, 0.6)) this.traps.delete(t.id);
+    return n;
+  }
+
+  /**
+   * A bread loaf bursts: damage with falloff (a quarter at the edge) through
+   * what stops a bullet, and a shove away from the burst (dogs fly further,
+   * the Big Hunter hardly moves). Returns the hunters it hit and how hard
+   * (for the shooter's hit markers).
+   */
+  blastBread(x: number, y: number, z: number, radius: number, damage: number, knock: number, byId: string | null, directId: string): { id: string; dealt: number; killed: boolean }[] {
+    const out: { id: string; dealt: number; killed: boolean }[] = [];
+    for (const h of [...this.hunters.values()]) {
+      if (h.downTicks > 0) continue;
+      if (Math.abs(h.x - x) > radius + 1 || Math.abs(h.z - z) > radius + 1) continue;
+      const d = h.id === directId ? 0 : blastReach(this.host.sim, x, y, z, h.x, h.y, h.z, 0, radius);
+      if (d < 0) continue;
+      const k = blastFalloff(d, 0.8, radius, 0.25);
+      if (k <= 0) continue;
+      const before = h.hp;
+      const killed = this.hurt(h.id, damage * k, byId, false, x, z, RaidKillHow.Bread);
+      out.push({ id: h.id, dealt: Math.round(before - Math.max(0, h.hp)), killed });
+      if (killed || h.raft) continue;
+      const dx = h.x - x;
+      const dz = h.z - z;
+      const dl = Math.hypot(dx, dz) || 1;
+      const mass = h.kind === HunterKind.Dog ? 1.6 : h.kind === HunterKind.Boss ? 0.35 : 1;
+      h.kx += (dx / dl) * knock * k * mass;
+      h.kz += (dz / dl) * knock * k * mass;
+    }
+    for (const t of [...this.traps.values()]) if (Math.hypot(t.x - x, t.z - z) < radius) this.traps.delete(t.id);
+    return out;
   }
 
   private maybeDrop(h: HunterAgent): void {

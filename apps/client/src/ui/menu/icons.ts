@@ -35,7 +35,7 @@ const ICONS = {
     ['path', 'M12 1.8v4M12 18.2v4M1.8 12h4M18.2 12h4'],
   ],
   bolt: [['path', 'M13.5 2.5L4.5 14h7l-1 7.5 9-11.5h-7z']],
-  /** Hunt Season: the QoreChain Tower. */
+  /** Hunt Season: a tower (the keep). */
   tower: [['path', 'M9 21V9.5L7 8V4h2.5v1.5h1.5V4h2v1.5h1.5V4H17v4l-2 1.5V21M5 21h14M11 21v-4h2v4']],
   leave: [['path', 'M14.5 4H18a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3.5M10 16.5L5.5 12 10 7.5M5.5 12H16']],
   radio: [

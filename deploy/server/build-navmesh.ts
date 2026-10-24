@@ -1,7 +1,8 @@
 /**
  * Image build step: bake the bot navmeshes into the server image (Sainte-Canard
- * for the battle royale, about a minute of one core, and the deathmatch map,
- * a few seconds), so a container start loads them in milliseconds instead of
+ * for the battle royale, about a minute of one core, the deathmatch map and
+ * the Hunt Season map, Pond Keep, a few seconds each), so a container start
+ * loads them in milliseconds instead of
  * rebuilding them (the runtime user cannot write to /srv, so a runtime cache
  * would land in /tmp and be lost on every restart).
  *
@@ -12,6 +13,7 @@
  */
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { RAID } from '@qwakk/shared';
 import { dmMapId, GREYBOX, loadMapV1, SAINTE_CANARD } from '../../apps/server/src/maps.ts';
 import { loadCachedNavMesh, loadOrBuildNavMesh } from '../../apps/server/src/nav/navmesh.ts';
 
@@ -21,7 +23,7 @@ if (!target) {
   process.exit(1);
 }
 
-const ids = [...new Set([SAINTE_CANARD, dmMapId()])].filter((id) => id !== GREYBOX);
+const ids = [...new Set([SAINTE_CANARD, dmMapId(), RAID.mapId])].filter((id) => id !== GREYBOX);
 for (const id of ids) {
   const map = loadMapV1(id);
   const built = await loadOrBuildNavMesh(map.def, map.hash);

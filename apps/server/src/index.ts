@@ -150,7 +150,7 @@ const brOptions: BrRoomOptions = {
 // Lobby rooms: the built-in LobbyRoom lists battle royale and deathmatch rooms live (lobby.ts);
 // battle royale Quick Play (joinOrCreate) picks the open room with the most players.
 server.define(BR.roomName, BrRoom, brOptions).enableRealtimeListing().sortBy({ clients: -1 });
-// Hunt Season: signed-in ducks only, on the deathmatch town (its navmesh). Not listed in the lobby;
+// Hunt Season: signed-in ducks only, on Pond Keep (its navmesh). Not listed in the lobby;
 // Quick Play joins an open lobby (joinOrCreate), a party leader opens one (create).
 const raidOptions: RaidRoomOptions = {
   statsMs: roomOptions.statsMs,

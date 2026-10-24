@@ -19,6 +19,17 @@ import { isHero, stackSpeedFactor } from './dmBuffs.ts';
 import { heroThrust, stepHeroEnergy, stepHeroVertical } from './heroFlight.ts';
 import { exLauncher, lastExplosive, stepExplosives } from './explosives.ts';
 import { exRoot, tickRoot } from './raid/root.ts';
+import { exMan, KEEP_GATE_OPEN, keepDeckRule, stepManning } from './raid/man.ts';
+import { MOVE_QUERY_GROUPS } from './collision.ts';
+
+/**
+ * The movement query filter for this duck: what blocks a duck, duck-only
+ * colliders included, unless the keep's gate is broken for it (the sim bit
+ * KEEP_GATE_OPEN, raid/man.ts: then the gate's leaves let it through).
+ */
+export function duckQueryGroups(s: { dmBuff: number }): number {
+  return (s.dmBuff & KEEP_GATE_OPEN) !== 0 ? MOVE_QUERY_GROUPS : PLAYER_QUERY_GROUPS;
+}
 
 /** Movement mode. Plane riders are not in the world; freefall and glide are the drop. */
 export const Mode = {
@@ -176,13 +187,13 @@ function applyFriction(s: PlayerSim, dt: number, stopSpeed: number): void {
 }
 
 /** True when the standing capsule fits at the given feet position. */
-function hasHeadroom(sim: SimWorld, x: number, y: number, z: number): boolean {
+function hasHeadroom(sim: SimWorld, x: number, y: number, z: number, groups: number = PLAYER_QUERY_GROUPS): boolean {
   const hit = sim.world.intersectionWithShape(
     { x, y: y + STAND_CAPSULE.centerY + 0.02, z },
     { x: 0, y: 0, z: 0, w: 1 },
     sim.standShape,
     undefined,
-    PLAYER_QUERY_GROUPS,
+    groups,
   );
   return hit === null;
 }
@@ -200,8 +211,15 @@ export function stepPlayer(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: n
   const buttons = input.buttons | 0;
   let shot: ShotFired | null = null;
   lastExplosive.kind = 0;
+  // Hunt Season: man or leave a bread cannon (raid/man.ts; maps without a keep skip it).
+  if (sim.map.raid) stepManning(sim, s, input);
   if (s.alive && s.mode === Mode.Ground && s.down) {
     // Knocked: crawl only. The weapon, the aim and heals stay frozen.
+    s.aim = 0;
+    stepMovement(sim, s, input, dt);
+    tickRoot(s);
+  } else if (s.alive && s.mode === Mode.Ground && s.ex !== 0 && exMan(s) > 0) {
+    // Manning a cannon: standing at it, turning and aiming only (the server fires the cannon).
     s.aim = 0;
     stepMovement(sim, s, input, dt);
     tickRoot(s);
@@ -255,10 +273,10 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   // Knocked ducks stay low (the crouched capsule and hitbox).
   const wantCrouch = (buttons & Button.Crouch) !== 0 || s.down === 1;
   if (wantCrouch && !s.crouch) s.crouch = 1;
-  else if (!wantCrouch && s.crouch && hasHeadroom(sim, s.x, s.y, s.z)) s.crouch = 0;
+  else if (!wantCrouch && s.crouch && hasHeadroom(sim, s.x, s.y, s.z, duckQueryGroups(s))) s.crouch = 0;
 
-  // Caught in a Hunt Season trap (raid/root.ts): no walking and no jumping until it lets go.
-  const rooted = s.ex !== 0 && exRoot(s) > 0;
+  // Caught in a Hunt Season trap (raid/root.ts) or manning a cannon (raid/man.ts): no walking and no jumping.
+  const rooted = s.ex !== 0 && (exRoot(s) > 0 || exMan(s) > 0);
   // Jump edge with a short buffer, so a press just before landing still fires.
   const jumpPressed = (buttons & Button.Jump) !== 0 && (s.prevButtons & Button.Jump) === 0 && s.down === 0 && !rooted;
   if (jumpPressed) s.jumpBuf = JUMP_BUFFER_TICKS;
@@ -309,7 +327,13 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
     if (s.vy < -MOVE.maxFallSpeed) s.vy = -MOVE.maxFallSpeed;
   }
 
-  const grounded = moveCapsule(sim, s, dt);
+  const x0 = s.x;
+  const y0 = s.y;
+  const z0 = s.z;
+  const wasGrounded = s.grounded;
+  let grounded = moveCapsule(sim, s, dt);
+  // Hunt Season: no step onto a closed drawbridge (raid/man.ts; only with the keep's bit set).
+  if (s.dmBuff !== 0 && keepDeckRule(sim, s, x0, y0, z0)) grounded = wasGrounded === 1;
   if (grounded && s.vy <= 0) {
     s.grounded = 1;
     s.vy = 0;
@@ -343,7 +367,8 @@ export function moveCapsule(sim: SimWorld, s: PlayerSim, dt: number): boolean {
   const dy = s.vy * dt;
   const dz = s.vz * dt;
   const ctl = sim.controller;
-  ctl.computeColliderMovement(probe, { x: dx, y: dy, z: dz }, undefined, PLAYER_QUERY_GROUPS);
+  const groups = duckQueryGroups(s);
+  ctl.computeColliderMovement(probe, { x: dx, y: dy, z: dz }, undefined, groups);
   let m = ctl.computedMovement();
   let grounded = ctl.computedGrounded();
   let mx = m.x;
@@ -355,7 +380,7 @@ export function moveCapsule(sim: SimWorld, s: PlayerSim, dt: number): boolean {
   // running). That reads as a hitch, so retry once from a few millimeters up.
   if (s.grounded && dx * dx + dz * dz > 1e-8 && mx * mx + mz * mz < 1e-12) {
     probe.setTranslation({ x: s.x, y: s.y + cap.centerY + UNSTICK_LIFT, z: s.z });
-    ctl.computeColliderMovement(probe, { x: dx, y: dy - UNSTICK_LIFT, z: dz }, undefined, PLAYER_QUERY_GROUPS);
+    ctl.computeColliderMovement(probe, { x: dx, y: dy - UNSTICK_LIFT, z: dz }, undefined, groups);
     m = ctl.computedMovement();
     if (m.x * m.x + m.z * m.z > 1e-12) {
       mx = m.x;
@@ -396,7 +421,7 @@ export function nudgePlayer(sim: SimWorld, s: PlayerSim, dx: number, dz: number)
   const cap = s.crouch ? CROUCH_CAPSULE : STAND_CAPSULE;
   const probe = s.crouch ? sim.probeCrouch : sim.probeStand;
   probe.setTranslation({ x: s.x, y: s.y + cap.centerY, z: s.z });
-  sim.controller.computeColliderMovement(probe, { x: dx, y: 0, z: dz }, undefined, PLAYER_QUERY_GROUPS);
+  sim.controller.computeColliderMovement(probe, { x: dx, y: 0, z: dz }, undefined, duckQueryGroups(s));
   const m = sim.controller.computedMovement();
   s.x = f32(s.x + m.x);
   s.z = f32(s.z + m.z);

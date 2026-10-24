@@ -37,9 +37,9 @@ describe.skipIf(!reachable)('hunt season results (PostgreSQL)', () => {
   });
 
   const run = (id: string, waves: number, kills: number, won = false, ms = 600_000): RaidRunResult => ({
-    runId: id, mapId: 'canard-quarter', startedAt: Date.now() - ms, endedAt: Date.now(), wavesCleared: waves, won, bestMs: ms,
+    runId: id, mapId: 'pond-keep', startedAt: Date.now() - ms, endedAt: Date.now(), wavesCleared: waves, won, bestMs: ms,
     players: [
-      { playerId: duck, name: 'Hunter_Duck', wavesCleared: waves, kills, bossKills: waves >= 5 ? 1 : 0, revives: 0, xp: 999999, won },
+      { playerId: duck, name: 'Hunter_Duck', wavesCleared: waves, kills, bossKills: waves >= 6 ? 1 : 0, revives: 0, xp: 999999, won },
       { playerId: guest, name: 'Guesty', wavesCleared: waves, kills: 3, bossKills: 0, revives: 0, xp: 50, won },
     ],
   });
@@ -65,18 +65,18 @@ describe.skipIf(!reachable)('hunt season results (PostgreSQL)', () => {
     expect(worse?.get(duck)).toMatchObject({ bestWave: 3, newBest: false });
     const faster = await meta.recordRaid(run('run-3', 3, 5, false, 300_000));
     expect(faster?.get(duck)).toMatchObject({ bestWave: 3, bestMs: 300_000, newBest: true });
-    const win = await meta.recordRaid(run('run-4', 15, 140, true, 900_000));
-    expect(win?.get(duck)).toMatchObject({ bestWave: 15, bestMs: 900_000, newBest: true });
-    const [b] = await sql<{ best_wave: number; runs: number; wins: number }[]>`select best_wave, runs, wins from raid_bests where player_id = ${duck}`;
-    expect(b).toEqual({ best_wave: 15, runs: 4, wins: 1 });
+    const win = await meta.recordRaid(run('run-4', 10, 140, true, 900_000));
+    expect(win?.get(duck)).toMatchObject({ bestWave: 10, bestMs: 900_000, newBest: true });
+    const [b] = await sql<{ best_wave: number; runs: number; wins: number }[]>`select best_wave, runs, wins from raid_keep_bests where player_id = ${duck}`;
+    expect(b).toEqual({ best_wave: 10, runs: 4, wins: 1 });
     // The account API shows it.
-    const list = await sql<{ best_wave: number }[]>`select b.best_wave from players p left join raid_bests b on b.player_id = p.id where p.id = ${duck}`;
-    expect(list[0]!.best_wave).toBe(15);
+    const list = await sql<{ best_wave: number }[]>`select b.best_wave from players p left join raid_keep_bests b on b.player_id = p.id where p.id = ${duck}`;
+    expect(list[0]!.best_wave).toBe(10);
   });
 
   it('deleting the duck drops its best and unlinks its run rows', async () => {
     await sql`delete from players where id = ${duck}`;
-    expect(await sql`select 1 from raid_bests where player_id = ${duck}`).toHaveLength(0);
+    expect(await sql`select 1 from raid_keep_bests where player_id = ${duck}`).toHaveLength(0);
     const [n] = await sql<{ n: number }[]>`select count(*)::int as n from raid_run_players where player_id is null`;
     expect(n!.n).toBeGreaterThan(4);
   });

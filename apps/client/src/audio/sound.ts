@@ -302,11 +302,102 @@ export class Sound {
     this.noiseBurst(dest, t + 0.04, 0.25, 4000, 900, 0.2, 2);
   }
 
-  /** The tower takes a hit (throttled by the server): a dull wooden knock. */
-  towerKnock(): void {
+  /** The core takes a hit (throttled by the server): a dull crystal knock. */
+  coreKnock(): void {
     if (!this.ready || !this.ctx || !this.master) return;
     const t = this.ctx.currentTime;
     this.tone(this.master, t, 'sine', 160, 70, 0.18, 0.18);
+  }
+
+  /** A bread cannon fires: a deep wooden thump and a puff of flour, in 3D (louder and unpanned when it is ours). */
+  cannonThump(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 120, 38, 0.4, 0.8);
+    this.tone(dest, t, 'triangle', 260, 90, 0.12, 0.25);
+    this.noiseBurst(dest, t, 0.3, 2400, 180, 0.5, 0.7);
+  }
+
+  /** A loaf lands: a soft doughy bonk and a crumbly burst, in 3D. */
+  breadBonk(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 210, 70, 0.22, 0.5);
+    this.tone(dest, t + 0.02, 'square', 520, 260, 0.05, 0.08);
+    this.noiseBurst(dest, t, 0.4, 2600, 260, 0.35, 0.9);
+  }
+
+  /** Something big goes into the moat: a splash, in 3D. */
+  splash(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.noiseBurst(dest, t, 0.5, 5000, 700, 0.55, 1.2);
+    this.noiseBurst(dest, t + 0.12, 0.6, 1800, 300, 0.25, 0.8);
+    this.tone(dest, t, 'sine', 240, 90, 0.25, 0.2);
+  }
+
+  /** The drawbridge moves: a run of chain rattles and a ratchet, in 3D. */
+  chainRattle(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    for (let i = 0; i < 9; i++) this.noiseBurst(dest, t + i * 0.11 + Math.random() * 0.03, 0.06, 7000, 2200, 0.22, 5);
+    this.tone(dest, t, 'sawtooth', 70, 55, 0.9, 0.06);
+  }
+
+  /** The lever: a heavy wooden clunk. */
+  leverClunk(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 180, 80, 0.15, 0.4);
+    this.noiseBurst(dest, t, 0.08, 3000, 800, 0.3, 3);
+  }
+
+  /** Hunters hammer the gate (throttled by the server): a hollow wooden thud, in 3D. */
+  gateKnock(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'sine', 130, 60, 0.2, 0.4);
+    this.noiseBurst(dest, t, 0.12, 1500, 300, 0.2, 2);
+  }
+
+  /** The gate breaks: a crack and splinters, in 3D. */
+  gateBreak(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.noiseBurst(dest, t, 0.08, 8000, 2000, 0.7, 3);
+    this.tone(dest, t, 'sine', 160, 45, 0.5, 0.5);
+    for (let i = 1; i < 5; i++) this.noiseBurst(dest, t + i * 0.07, 0.07, 5000, 1500, 0.2, 4);
+  }
+
+  /** A duck repairing the gate: a light hammer tap. */
+  repairTap(at?: THREE.Vector3): void {
+    if (!this.ready || !this.ctx) return;
+    const dest = this.out(at);
+    if (!dest) return;
+    const t = this.ctx.currentTime;
+    this.tone(dest, t, 'square', 1200, 700, 0.04, 0.05);
+    this.tone(dest, t, 'sine', 330, 200, 0.07, 0.15);
+  }
+
+  /** The cannon overheats: a steam hiss. */
+  overheatHiss(): void {
+    if (!this.ready || !this.ctx || !this.master) return;
+    const t = this.ctx.currentTime;
+    this.noiseBurst(this.master, t, 1.1, 9000, 3000, 0.25, 0.5);
   }
 
   /** A card picked: a soft click and a sparkle. */

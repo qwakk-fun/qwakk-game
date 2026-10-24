@@ -1,5 +1,6 @@
 /**
- * Every enterable house on Yelova and Kavren can be walked: a sim duck runs the
+ * Every enterable house on Yelova and Kavren (and every castle piece, raft lane
+ * and watchtower on Pond Keep) can be walked: a sim duck runs the
  * waypoints the map kit exports per house type (`walk` in the prop manifest:
  * in through the door, across the rooms, up the stairs or the debris ramp,
  * onto the upper floor), on every placed instance of that house, running and
@@ -24,9 +25,17 @@ function loadCanardQuarter(): LoadedMap {
   return buildMapDef('canard-quarter', JSON.parse(read('map_v1.json').toString()), new Uint8Array(read('map_v1_heights.bin')), JSON.parse(read('colliders.json').toString()));
 }
 
+/** Pond Keep (Hunt Season): the castle towers, walls, gatehouse, drawbridge quays, raft lanes and watchtowers walk paths. */
+function loadPondKeep(): LoadedMap {
+  const dir = new URL('../../../packages/shared/src/maps/pond-keep/', import.meta.url);
+  const read = (f: string) => readFileSync(new URL(f, dir));
+  return buildMapDef('pond-keep', JSON.parse(read('map_v1.json').toString()), new Uint8Array(read('map_v1_heights.bin')), JSON.parse(read('colliders.json').toString()));
+}
+
 const MAPS: [string, () => LoadedMap, number][] = [
   ['Yelova', () => loadSainteCanard().loaded!, 20],
   ['Kavren', loadCanardQuarter, 6],
+  ['Pond Keep', loadPondKeep, 30],
 ];
 
 beforeAll(async () => {

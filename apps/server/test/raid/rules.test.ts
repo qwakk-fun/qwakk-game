@@ -1,13 +1,13 @@
 /**
- * Hunt Season rules, headless on Kavren with its navmesh: the stages, the
- * tower and the fail and win rules, the boss schedule, the upgrades (server
+ * Hunt Season rules, headless on Pond Keep with its navmesh: the stages, the
+ * core and the fail and win rules, the boss schedule, the upgrades (server
  * only numbers, no sim change), the trap root and the hunters' sight (never
- * through walls).
+ * through walls). The keep's moving parts are in keep.test.ts.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { Button, COMBAT, emptyInput, exRoot, HunterKind, RAID, RaidEndReason, RaidStage, SIGHT_QUERY_GROUPS, TICK_RATE, Upgrade } from '@qwakk/shared';
 import type { BotLike } from '../../src/arena.ts';
-import { headlessRaid, kavrenNav, type HeadlessRaid } from '../../bench/raidHeadless.ts';
+import { headlessRaid, keepNav, type HeadlessRaid } from '../../bench/raidHeadless.ts';
 import { KIND } from '../../src/raid/hunter.ts';
 import { sees } from '../../src/raid/sight.ts';
 
@@ -25,7 +25,7 @@ async function raidOf(ducks: number, rules = {}): Promise<HeadlessRaid> {
 }
 
 beforeAll(async () => {
-  await kavrenNav();
+  await keepNav();
 }, 180_000);
 
 describe('stages', () => {
@@ -47,20 +47,20 @@ describe('stages', () => {
     expect(h.raid.locked).toBe(true);
   });
 
-  it('sends a boss on waves 5, 10 and 15 only', async () => {
+  it('sends the Big Hunter on waves 3, 6 and 10 only', async () => {
     const h = await raidOf(1);
-    for (const w of [4, 5, 9, 10, 15]) {
+    for (const w of [2, 3, 5, 6, 10]) {
       h.raid.skipTo(w);
       h.run(8);
       const boss = [...h.raid.hunts.hunters.values()].some((x) => x.kind === HunterKind.Boss);
-      expect(boss, `wave ${w}`).toBe(w % 5 === 0);
+      expect(boss, `wave ${w}`).toBe(w === 3 || w === 6 || w === 10);
     }
   });
 
-  it('a cleared wave gives a break with cards, then the next wave; wave 15 cleared is a win', async () => {
+  it('a cleared wave gives a short break with cards, then the next wave; wave 10 cleared is a win', async () => {
     const h = await raidOf(2, { breakSeconds: 3 });
     const offers: number[][] = [];
-    h.raid.skipTo(14);
+    h.raid.skipTo(9);
     (h.raid as unknown as { rev: { offer: (s: unknown, c: [number, number][] | null) => void } }).rev.offer = (_s, c) => void (c && offers.push(c.map((x) => x[0])));
     h.raid.defeatWave();
     h.run(0.2);
@@ -69,7 +69,7 @@ describe('stages', () => {
     for (const o of offers) expect(new Set(o).size).toBe(3);
     h.run(3.5);
     expect(h.raid.stage).toBe(RaidStage.Wave);
-    expect(h.raid.wave).toBe(15);
+    expect(h.raid.wave).toBe(10);
     h.raid.defeatWave();
     h.run(0.2);
     expect(h.raid.stage).toBe(RaidStage.Won);
@@ -77,23 +77,30 @@ describe('stages', () => {
     const d = [...h.raid.ducks.values()][0]!;
     expect(d.wavesCleared).toBe(2);
   });
+
+  it('the default break is 10 s', () => {
+    expect(RAID.breakSeconds).toBe(10);
+  });
 });
 
-describe('the tower and losing', () => {
-  it('hunters at the tower hammer it; at 0 the run is lost', async () => {
-    const h = await raidOf(1, { towerHp: 100 });
+describe('the core and losing', () => {
+  it('hunters inside the walls hammer the QoreChain core; at 0 the run is lost', async () => {
+    const h = await raidOf(1, { coreHp: 100 });
     h.raid.skipTo(1);
-    // The one duck hides far away, out of every hunter's sight: they go for the tower.
+    // The one duck stands far away on the mainland, out of every hunter's sight: they go for the core.
     const duck = [...h.raid.seats.values()][0]!;
-    Object.assign(duck.sim, { x: 60, z: 60, y: 30 });
-    const t = h.raid.tower;
-    for (let i = 0; i < 6; i++) h.raid.hunts.spawnForTest(HunterKind.Rifleman, t.x + t.half + 1.2, t.z - 6 + i * 2);
-    const before = h.raid.towerHp;
+    Object.assign(duck.sim, { x: -90, z: -10, y: 30 });
+    const c = h.raid.geometry.core;
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * Math.PI * 2;
+      h.raid.hunts.spawnForTest(HunterKind.Rifleman, c.x + Math.cos(a) * (c.r + 1.2), c.z + Math.sin(a) * (c.r + 1.2));
+    }
+    const before = h.raid.coreHp;
     h.run(2);
-    expect(h.raid.towerHp).toBeLessThan(before);
+    expect(h.raid.coreHp).toBeLessThan(before);
     h.run(60, (r) => r.over);
     expect(h.raid.stage).toBe(RaidStage.Lost);
-    expect(h.raid.endReason).toBe(RaidEndReason.TowerFell);
+    expect(h.raid.endReason).toBe(RaidEndReason.CoreFell);
   });
 
   it('all ducks down at once loses the run; a knocked duck can be revived by holding Use', async () => {
@@ -203,6 +210,35 @@ describe('upgrades (server only)', () => {
   });
 });
 
+/**
+ * A spot pair on the map with a solid wall between: `a` on open ground, the
+ * wall 2 to 6 m along +x at every height from the knees up, and `b` on the
+ * ground just past the wall (about as high as `a`), hidden from `a`.
+ */
+function wallPair(sim: import('@qwakk/shared').SimWorld): { a: { x: number; z: number }; b: { x: number; z: number }; gy: (x: number, z: number) => number } {
+  const gy = (x: number, z: number) => {
+    const hit = sim.world.castRay(new sim.rapier.Ray({ x, y: 40, z }, { x: 0, y: -1, z: 0 }), 80, true);
+    return 40 - (hit?.timeOfImpact ?? 40);
+  };
+  for (let x = -60; x <= 60; x += 3) {
+    for (let z = -60; z <= 60; z += 3) {
+      const y = gy(x, z);
+      const hits = [0.4, 0.9, 1.4, 1.9, 2.4].map((dy) => sim.world.castRay(new sim.rapier.Ray({ x, y: y + dy, z }, { x: 1, y: 0, z: 0 }), 12, true, undefined, SIGHT_QUERY_GROUPS));
+      if (hits.some((r) => !r)) continue;
+      const t = Math.max(...hits.map((r) => r!.timeOfImpact));
+      if (!(t > 2 && t < 6 && hits.every((r) => Math.abs(r!.timeOfImpact - t) < 0.4))) continue;
+      for (let off = t + 0.8; off < t + 7; off += 0.5) {
+        const bx = x + off;
+        const by = gy(bx, z);
+        if (Math.abs(by - y) > 0.6) continue;
+        const back = sim.world.castRay(new sim.rapier.Ray({ x: bx, y: by + 1.2, z }, { x: -1, y: 0, z: 0 }), off, true, undefined, SIGHT_QUERY_GROUPS);
+        if (back) return { a: { x, z }, b: { x: bx, z }, gy };
+      }
+    }
+  }
+  throw new Error('no wall pair on the map');
+}
+
 describe('traps and sight', () => {
   it('an armed trap roots the duck that steps in (the root is sim state, counted down by the sim)', async () => {
     const h = await raidOf(1);
@@ -222,33 +258,13 @@ describe('traps and sight', () => {
   it('a hunter never sees (or shoots) a duck through a wall', async () => {
     const h = await raidOf(1);
     const sim = h.raid.world;
-    // Find a spot pair on Kavren with a wall between: a ray at eye height blocked within 15 m.
-    let pair: { a: { x: number; z: number }; b: { x: number; z: number } } | null = null;
-    for (let x = -60; x <= 60 && !pair; x += 3) {
-      for (let z = -60; z <= 60 && !pair; z += 3) {
-        const y = 20;
-        const from = { x, y: 0, z };
-        const hitDown = sim.world.castRay(new sim.rapier.Ray({ x, y, z }, { x: 0, y: -1, z: 0 }), 40, true);
-        if (!hitDown) continue;
-        from.y = y - hitDown.timeOfImpact;
-        // A solid wall: blocked at every height from the knees to above a hunter's head, 2 to 6 m away.
-        const hits = [0.4, 0.9, 1.4, 1.9, 2.4].map((dy) => sim.world.castRay(new sim.rapier.Ray({ x, y: from.y + dy, z }, { x: 1, y: 0, z: 0 }), 12, true, undefined, SIGHT_QUERY_GROUPS));
-        if (hits.some((r) => !r)) continue;
-        const t = Math.max(...hits.map((r) => r!.timeOfImpact));
-        if (t > 2 && t < 6 && hits.every((r) => Math.abs(r!.timeOfImpact - t) < 0.4)) pair = { a: { x, z }, b: { x: x + t + 2.5, z } };
-      }
-    }
-    expect(pair).not.toBeNull();
+    const pair = wallPair(sim);
     h.raid.skipTo(1);
     h.raid.hunts.clear();
     const seat = [...h.raid.seats.values()][0]!;
-    const gy = (x: number, z: number) => {
-      const hit = sim.world.castRay(new sim.rapier.Ray({ x, y: 30, z }, { x: 0, y: -1, z: 0 }), 60, true);
-      return 30 - (hit?.timeOfImpact ?? 30);
-    };
-    const hunter = h.raid.hunts.spawnForTest(HunterKind.Rifleman, pair!.a.x, pair!.a.z);
+    const hunter = h.raid.hunts.spawnForTest(HunterKind.Rifleman, pair.a.x, pair.a.z);
     hunter.yaw = -Math.PI / 2; // facing +x, toward the duck
-    const place = () => Object.assign(seat.sim, { x: pair!.b.x, y: gy(pair!.b.x, pair!.b.z), z: pair!.b.z, vx: 0, vy: 0, vz: 0 });
+    const place = () => Object.assign(seat.sim, { x: pair.b.x, y: pair.gy(pair.b.x, pair.b.z), z: pair.b.z, vx: 0, vy: 0, vz: 0 });
     place();
     const duck = { id: seat.id, pid: seat.pid, x: seat.sim.x, y: seat.sim.y, z: seat.sim.z, vx: 0, vz: 0, crouch: 0, standing: true };
     const visible = sees(sim, hunter, KIND[HunterKind.Rifleman]!, duck);
@@ -259,32 +275,14 @@ describe('traps and sight', () => {
       place();
       h.run(1 / TICK_RATE);
       if (seat.sim.hp < hp) hurt = true;
-      hunter.x = pair!.a.x;
-      hunter.z = pair!.a.z;
+      hunter.x = pair.a.x;
+      hunter.z = pair.a.z;
     }
     expect(visible).toBe(false);
     expect(hurt).toBe(false);
     expect(hunter.targetId).toBeNull();
   });
 });
-
-/** A spot pair on Kavren with a solid wall between (2 to 6 m from `a` along +x), and a ground height helper. */
-function wallPair(sim: import('@qwakk/shared').SimWorld): { a: { x: number; z: number }; b: { x: number; z: number }; gy: (x: number, z: number) => number } {
-  const gy = (x: number, z: number) => {
-    const hit = sim.world.castRay(new sim.rapier.Ray({ x, y: 30, z }, { x: 0, y: -1, z: 0 }), 60, true);
-    return 30 - (hit?.timeOfImpact ?? 30);
-  };
-  for (let x = -60; x <= 60; x += 3) {
-    for (let z = -60; z <= 60; z += 3) {
-      const y = gy(x, z);
-      const hits = [0.4, 0.9, 1.4, 1.9, 2.4].map((dy) => sim.world.castRay(new sim.rapier.Ray({ x, y: y + dy, z }, { x: 1, y: 0, z: 0 }), 12, true, undefined, SIGHT_QUERY_GROUPS));
-      if (hits.some((r) => !r)) continue;
-      const t = Math.max(...hits.map((r) => r!.timeOfImpact));
-      if (t > 2 && t < 6 && hits.every((r) => Math.abs(r!.timeOfImpact - t) < 0.4)) return { a: { x, z }, b: { x: x + t + 2.5, z }, gy };
-    }
-  }
-  throw new Error('no wall pair on the map');
-}
 
 describe('hunters and hidden ducks', () => {
   it('a duck that goes behind a wall is chased to where it was last seen, never to where it is', async () => {
@@ -354,13 +352,14 @@ describe('the Big Hunter', () => {
     const h = await headlessRaid({ ducks: 0, rules: { maxLive: 5 }, events: { whistle: () => void whistles++ } });
     h.raid.addBotDuck(still());
     h.raid.beginTick(0, 0);
-    h.raid.skipTo(5);
+    h.raid.skipTo(6);
     h.raid.hunts.clear();
     const seat = [...h.raid.seats.values()][0]!;
-    Object.assign(seat.sim, { x: 60, y: 30, z: 60 });
-    const boss = h.raid.hunts.spawnForTest(HunterKind.Boss, 0, 40);
-    h.raid.hunts.spawnForTest(HunterKind.Rifleman, 3, 40);
-    h.raid.hunts.spawnForTest(HunterKind.Rifleman, -3, 40);
+    // The duck far off in a corner of the mainland; the boss and two riflemen out on the other side.
+    Object.assign(seat.sim, { x: -100, y: 30, z: -100 });
+    const boss = h.raid.hunts.spawnForTest(HunterKind.Boss, 0, 60);
+    h.raid.hunts.spawnForTest(HunterKind.Rifleman, 3, 60);
+    h.raid.hunts.spawnForTest(HunterKind.Rifleman, -3, 60);
     boss.whistleCd = 0;
     h.run(3, () => whistles > 0);
     expect(whistles).toBe(1);
@@ -374,7 +373,7 @@ describe('the Big Hunter', () => {
     h.run(3);
     expect(whistles).toBe(1);
     // A helper bagged by the duck: no kill XP, no drop.
-    const dog = h.raid.hunts.spawnForTest(HunterKind.Dog, 10, 40);
+    const dog = h.raid.hunts.spawnForTest(HunterKind.Dog, 10, 60);
     dog.helper = true;
     const d = h.raid.ducks.get(seat.id)!;
     const kills = d.kills;

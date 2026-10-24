@@ -432,6 +432,8 @@ def collider_json(c):
     out = {"type": c["type"], "kind": c["kind"]}
     if c["type"] == "hull":
         out["points"] = [[r4(a) for a in to_gltf_vec(p)] for p in c["points"]]
+        if "states" in c:
+            out["states"] = list(c["states"])
         return out
     out["c"] = [r4(a) for a in to_gltf_vec(c["c"])]
     q = [r4(a) for a in to_gltf_quat(c["q"])]
@@ -445,6 +447,8 @@ def collider_json(c):
         out["halfHeight"] = r4(c["halfHeight"])
     if q != [0.0, 0.0, 0.0, 1.0]:
         out["q"] = q
+    if "states" in c:
+        out["states"] = list(c["states"])
     return out
 
 

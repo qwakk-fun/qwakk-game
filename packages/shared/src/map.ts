@@ -5,6 +5,7 @@
  * Coordinates: x east, y up, z south. The island is centered at the origin and
  * the sea surface is y = 0.
  */
+import type { KeepGeometry } from './raid/keep.ts';
 import { dcos, dsin, clamp } from './math.ts';
 import { createRng, fbm } from './rng.ts';
 import type { BrMapData, WaterDef } from './brMapData.ts';
@@ -52,6 +53,12 @@ export interface ShapeDef {
   /** Capsule and cylinder radius and half height of the straight part (along local +Y). */
   r?: number;
   hh?: number;
+  /**
+   * Hunt Season keep (raid/keep.ts): a collider the server switches on and
+   * off by this name (bullets and sight only, never movement). Both sides
+   * build it so the collider lists match.
+   */
+  toggle?: string;
   /** Hull points, flat x, y, z in world space. */
   pts?: number[];
 }
@@ -81,6 +88,8 @@ export interface MapDef {
   water: WaterDef | null;
   /** Battle royale data (loot points, flight paths, circle hints); null for the greybox. */
   br: BrMapData | null;
+  /** Hunt Season castle (map_v1 `raid` markup, raid/keep.ts); absent on maps without one. */
+  raid?: KeepGeometry;
 }
 
 /** Deathmatch arena radius around the island center (m). */

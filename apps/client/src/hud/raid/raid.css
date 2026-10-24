@@ -17,7 +17,24 @@
 .raid-bar { position: relative; height: 9px; border-radius: 5px; background: #ffffff22; overflow: hidden; }
 .raid-bar-fill { position: absolute; inset: 0 auto 0 0; width: 100%; background: #7fd1ff; border-radius: 5px; transition: width 120ms linear; }
 .raid-bar-fill.low { background: #ff5a4f; }
-.raid-hud.tower-hit .raid-tower { box-shadow: 0 0 0 2px #ff5a4f; }
+.raid-hud.tower-hit .raid-core { box-shadow: 0 0 0 2px #ff5a4f; }
+.raid-keep { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; width: 100%; }
+.raid-core .raid-bar-fill { background: #ffd43b; }
+.raid-gate .raid-bar-fill { background: #c98a3e; }
+.raid-gate[data-state="1"] .raid-tower-label { color: #ffc9a8; }
+.raid-gate[data-state="2"] .raid-tower-label { color: #ff8a3d; font-weight: 700; }
+.raid-gate.hit { box-shadow: 0 0 0 2px #ff8a3d; }
+.raid-bridge { padding: 3px 12px; border-radius: 8px; background: #151619a8; font-size: 12px; color: #d9e7ff; white-space: nowrap; }
+.raid-bridge.up { color: #7fd1ff; font-weight: 700; }
+.raid-cannon { position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%); width: min(300px, 70vw); display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 6px 12px; border: 1px solid #c98a3e; border-radius: 10px; background: #151619d8; font-size: 12px; }
+.raid-cannon-label { font-weight: 800; color: #f2d49b; }
+.raid-cannon .raid-bar.heat .raid-bar-fill { background: linear-gradient(90deg, #ffd43b, #ff6a13); transition: width 80ms linear; }
+.raid-cannon .raid-bar.heat .raid-bar-fill.low { background: #ff5a4f; }
+.raid-cannon-state { min-width: 70px; text-align: right; color: #fff3d6; }
+.raid-cannon.hot { border-color: #ff5a4f; }
+.raid-cannon.hot .raid-cannon-state { color: #ff8a3d; font-weight: 700; }
+.raid-cannon-hint { grid-column: 1 / -1; font-size: 11px; color: #bdb7a7; text-align: center; }
+.raid-prompt { position: absolute; top: calc(50% + 42px); left: 50%; transform: translateX(-50%); padding: 4px 12px; border-radius: 8px; background: #151619c8; color: #ffd43b; font-weight: 700; font-size: 14px; white-space: nowrap; }
 .raid-boss { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); width: min(520px, 86vw); display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; padding: 7px 14px; border: 1px solid #ff6a13; border-radius: 10px; background: #2a1408e6; }
 .raid-boss-name { font-weight: 800; color: #ff8a3d; text-transform: uppercase; letter-spacing: .06em; font-size: 13px; }
 .raid-boss .raid-bar { height: 12px; }
@@ -51,6 +68,7 @@
 .raid-markers { position: absolute; inset: 0; overflow: hidden; }
 .raid-marker { position: absolute; width: 22px; height: 22px; margin: -11px 0 0 -11px; border-radius: 50%; border: 2px solid #ff6a13; background: #ff6a1333; box-shadow: 0 0 0 2px #15161966; }
 .raid-marker.tower { border-color: #ff5a4f; background: #ff5a4f55; animation: raid-pulse 700ms ease-in-out infinite alternate; }
+.raid-marker.sniper { border-color: #ff2a1a; border-radius: 3px; transform: rotate(45deg); }
 .raid-marker.edge { border-style: dashed; }
 .raid-end { position: absolute; inset: 0; display: grid; place-items: center; background: #0d0e10a8; pointer-events: auto; z-index: 7; }
 .raid-end-card { width: min(560px, 94vw); max-height: 92vh; overflow: auto; padding: 24px 26px; border: 1px solid #ffd43b; border-radius: 18px; background: #151619f7; text-align: center; box-shadow: 0 20px 70px #0008; }
@@ -90,6 +108,9 @@
 body.touch-ui .raid-hud .raid-top { top: calc(6px + var(--st, 0px)); width: min(340px, 46vw); gap: 4px; }
 body.touch-ui .raid-hud .raid-row { padding: 3px 10px; font-size: 12px; gap: 8px; }
 body.touch-ui .raid-hud .raid-tower { font-size: 10px; padding: 3px 8px; }
+body.touch-ui .raid-hud .raid-bridge { font-size: 10px; padding: 2px 8px; }
+body.touch-ui .raid-hud .raid-cannon { bottom: calc(64px + var(--sb, 0px)); width: min(260px, 36vw); font-size: 10px; padding: 4px 8px; }
+body.touch-ui .raid-hud .raid-prompt { font-size: 12px; top: calc(50% + 34px); }
 body.touch-ui .raid-hud .raid-boss { top: 70px; width: min(380px, 50vw); padding: 4px 10px; }
 body.touch-ui .raid-hud .raid-banner { top: 22%; padding: 6px 16px; }
 body.touch-ui .raid-hud .raid-banner .big { font-size: 20px; }

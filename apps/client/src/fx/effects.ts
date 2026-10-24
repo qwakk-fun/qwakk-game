@@ -76,6 +76,10 @@ export class Effects {
   private readonly orange = new THREE.Color(BRAND.beak);
   private readonly red = new THREE.Color(0xe5383b);
   private readonly dust = new THREE.Color(0xc9c2ae);
+  private readonly crust = new THREE.Color(0xc98a3e);
+  private readonly crumb = new THREE.Color(0xf2d49b);
+  private readonly water = new THREE.Color(0xd8f1ff);
+  private readonly foam = new THREE.Color(0xffffff);
   private readonly tmpA = new THREE.Vector3();
   private readonly tmpB = new THREE.Vector3();
   private readonly groundAt: (x: number, y: number, z: number) => number;
@@ -253,6 +257,50 @@ export class Effects {
         x: at.x, y: at.y + 0.3, z: at.z,
         vx: (Math.random() - 0.5) * 3, vy: 2 + Math.random() * 2.5, vz: (Math.random() - 0.5) * 3,
         life: 0.6 + Math.random() * 0.3, size: 0.06 + Math.random() * 0.05, grow: 0.8, gravity: 6, drag: 1, color: this.yellow, spin: 0,
+      });
+    }
+  }
+
+  /** Hunt Season: a bread loaf bursts: golden crumbs and crust flying, a puff of flour, no blood. */
+  crumbBurst(at: THREE.Vector3, power = 1): void {
+    for (let i = 0; i < Math.round(26 * power); i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = (2 + Math.random() * 5) * power;
+      this.blobs.spawn({
+        x: at.x, y: at.y + 0.2, z: at.z,
+        vx: Math.cos(a) * sp, vy: 2.5 + Math.random() * 5 * power, vz: Math.sin(a) * sp,
+        life: 0.7 + Math.random() * 0.6, size: 0.05 + Math.random() * 0.08, grow: 0.7, gravity: 11, drag: 0.6,
+        color: Math.random() < 0.4 ? this.crust : this.crumb, spin: 0,
+      });
+    }
+    for (let i = 0; i < Math.round(8 * power); i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.blobs.spawn({
+        x: at.x, y: at.y + 0.3, z: at.z,
+        vx: Math.cos(a) * 1.8 * power, vy: 0.6 + Math.random(), vz: Math.sin(a) * 1.8 * power,
+        life: 0.5 + Math.random() * 0.3, size: 0.25 + Math.random() * 0.2, grow: 2.4, gravity: 0.4, drag: 3.5, color: this.white, spin: 0,
+      });
+    }
+  }
+
+  /** Hunt Season: something big goes into the moat: a toony splash (a white column and spray). */
+  splash(at: THREE.Vector3, power = 1): void {
+    for (let i = 0; i < Math.round(30 * power); i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random();
+      this.blobs.spawn({
+        x: at.x + Math.cos(a) * 0.3, y: at.y + 0.1, z: at.z + Math.sin(a) * 0.3,
+        vx: Math.cos(a) * (0.6 + r * 2.4) * power, vy: (3.5 + Math.random() * 4.5) * power, vz: Math.sin(a) * (0.6 + r * 2.4) * power,
+        life: 0.7 + Math.random() * 0.5, size: 0.08 + Math.random() * 0.1, grow: 0.9, gravity: 12, drag: 0.4,
+        color: Math.random() < 0.5 ? this.water : this.foam, spin: 0,
+      });
+    }
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * Math.PI * 2;
+      this.blobs.spawn({
+        x: at.x, y: at.y + 0.05, z: at.z,
+        vx: Math.cos(a) * 2.2 * power, vy: 0.2, vz: Math.sin(a) * 2.2 * power,
+        life: 0.6, size: 0.3, grow: 1.6, gravity: 0, drag: 3, color: this.foam, spin: 0,
       });
     }
   }

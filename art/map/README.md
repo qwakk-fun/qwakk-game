@@ -21,6 +21,7 @@ Steps:
 3. `layout/gen_map.py` (plain Python) reads the manifest and writes `export/map_v1.json`, `export/map_v1_heights.bin` and `export/map_v1_ground.bin`.
 4. `blender/render_map.py` renders `renders/map_topdown.png` from those files. `layout/estimate_view.py` prints the triangles drawn from a camera position (default: the village square).
 5. `layout/gen_quarter.py` writes the Kavren deathmatch arena to `export/canard-quarter/` and `blender/render_arena.py` renders it to `renders/canard-quarter/` (see Deathmatch arena below).
+6. `layout/gen_pond.py` writes Pond Keep, the Hunt Season castle map, to `export/pond-keep/` and `blender/render_pond.py` renders it to `renders/pond-keep/` (see Hunt Season castle below; `--pond-shots topdown,eye,beauty,pieces` picks render groups).
 
 Reproducible: two builds give byte-identical GLBs, `colliders.json` and map files (checked with md5).
 
@@ -45,6 +46,8 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | `renders/map_topdown.png` | Top-down render of map_v1 with zones, loot tiers, roads, plane paths and final circle candidates |
 | `export/canard-quarter/map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` | The Kavren deathmatch arena, same format and kit |
 | `renders/canard-quarter/` | `topdown.png` (play area ring, callouts, spawns with their facing), `overview.png`, `eye_*.png` street-level shots with ducks for scale |
+| `export/pond-keep/map_v1.json`, `map_v1_heights.bin`, `map_v1_ground.bin` | Pond Keep, the Hunt Season castle map, with its `raid` markup (`docs/pond-keep.md`) |
+| `renders/pond-keep/` | `topdown.png` and `topdown_castle.png` (the raid markup drawn over the plan), `eye_*.png` (wall walk, gatehouse top, a cannon, a watchtower, a trench exit, the courtyard), `beauty_*.png`, `overview.png`, `closeup_core.png`, `pieces.png` (the animated GLBs: gate states, cannon poses, drawbridge down and up, the lever) |
 
 ## Scripts
 
@@ -63,6 +66,10 @@ Reproducible: two builds give byte-identical GLBs, `colliders.json` and map file
 | `layout/terrain.py` | Coastline, height features, river, and the same height lookup as `terrainHeightAt` |
 | `layout/gen_map.py` | Zones, roads, building slots, scatter rules, loot, flight paths, circle hints; writes map_v1 |
 | `layout/gen_quarter.py`, `blender/render_arena.py` | The Kavren deathmatch arena and its review renders (reuses the RNG, footprint and trench helpers of `gen_map.py` and the terrain helpers of `render_map.py`) |
+| `blender/castle.py` | Pond Keep's castle: corner tower, curtain walls, gatehouse, drawbridge quays, the QoreChain core, the well; the animated drawbridge, gate, lever, bread cannon and loaf |
+| `blender/props_pond.py` | Moat reeds, raft lanes, beached rafts, trench dugouts, hunters' watchtowers, hay bales, the hay cart |
+| `blender/emblem.py` | Flat decals: the Qwakk duck mark (traced from `apps/client/public/ui/brand-mark.svg`) and the QORECHAIN word (the tower's glyphs) |
+| `layout/gen_pond.py`, `blender/render_pond.py` | Pond Keep (terrain with the moat, castle, crossings, reeds, trench ring, perches, the `raid` markup) and its review renders |
 
 ## Deathmatch arena: Kavren (`canard-quarter`)
 
@@ -73,6 +80,17 @@ A compact village quarter for the 24-duck deathmatch, built from the same kit pl
 - Counts: 603 props (6 buildings: the QoreChain Tower, 2 townhouses, farmhouse, ruin, barn; 253 hedgerow pieces, 110 of them in the ring; 170 trees; 13 trench tiles; wrecks, walls, sandbags, crates), 1,498 colliders.
 - Extra fields in `map_v1.json`: `mode: "deathmatch"`; `playArea.ring` (the ring's center line, inset 1.4 m); `dmSpawns`, 48 points `[x, y, z, yaw]` at least 15 m apart on free open ground (y is terrain + 0.1 m; yaw is the player yaw: 0 looks north, the duck looks along (-sin yaw, -cos yaw)); `zones` hold callout names only. No loot, plane or circle data.
 - Checks: `apps/server/test/canardQuarter.test.ts` (determinism, heightfield, stale copy, the tower in the middle with an open hall and no walkable top, every spawn free and on the ground, a duck running and jumping at the ring from 108 points, straight and at two angles (324 runs), never gets out), `nav.test.ts` (bots route around and through the tower, never through its core or piers) and `houses.test.ts` (every house walk path on this map too). The generator asserts that the ground under every building stays below its floor.
+
+## Hunt Season castle: Pond Keep (`pond-keep`)
+
+A storybook stone duck castle on an island in a pond for Hunt Season; `docs/pond-keep.md` has the layout, the `raid` markup contract with real numbers, the animated GLBs and what the tests guarantee. `npm run map:sync` copies it to `packages/shared/src/maps/pond-keep/`; `deploy/server/build-navmesh.ts` bakes its navmesh (`RAID.mapId`).
+
+- Size: terrain 400 x 400 m in 2 m cells (finer than Kavren's 4 m, for the moat banks); the play area is the inside of a hedgerow ring about 300 m across.
+- The castle (one LOD each, 30,553 triangles in all): four 9 x 9 m corner towers (courtyard door, two flights to the wall walk doorways at 5.2 m, two more to the 9.8 m top with a bread cannon barbette at the outer corner and a duck flag), three 28 m curtain walls with a stone stair from the courtyard, two 8 m ones by the gatehouse, the gatehouse (4 x 4.2 m gate, an iron grate over it on the top, cone-roofed turrets), the drawbridge quays with the deck collider, the QoreChain core (a stepped plinth, a floating yellow crystal, two banners with QORECHAIN, text only).
+- Battlements: a 1.0 m `wall` sill and 2.2 m `wall` merlons; every crenel holds a `fence` box to the merlon top, so shots and sight pass and no duck climbs out. Wall walk kerbs on the courtyard side are 0.35 m (step or drop down).
+- The moat: reeds (`moat_reeds`, `fence`) on both banks keep ducks out of the water; the drawbridge and four raft lanes cross it.
+- Animated GLBs are not in `props`: the game places them from `raid.props` (`castle_drawbridge` with a `Hinge`, `castle_gate` with `Intact`, `Damaged`, `Broken`, `Planks`, `bread_cannon` with `Yaw`, `Pitch`, `Muzzle`, `castle_lever` with `Handle`, `bread_loaf`). The manifest lists each one's `nodes` and every castle piece's `anchors` (named points in glTF space, which `gen_pond.py` turns into the markup). Collider records may carry `states` (the gate's).
+- Checks: `apps/server/test/pondKeep.test.ts` (determinism, heightfield, stale copy, the markup, the cannons' line of fire, the moat crossing for ducks and for the navmesh) and `houses.test.ts` (every castle, raft lane and watchtower walk path).
 
 ## Conventions
 
@@ -167,8 +185,27 @@ Triangles per LOD (LOD0 / LOD1 / LOD2), the distance in meters up to which each 
 | `truck_wreck` | 908 / 174 / 60 | 45 / 140 / 450 | 76 KB | 25.6 KB | 5 | 3.7 x 3.2 x 7.2 | 10 |
 | `landing_craft` | 594 / 80 / 64 | 45 / 140 / 450 | 52 KB | 17.2 KB | 7 | 3.4 x 2.6 x 12.7 | 3 |
 | `transport_plane` | 3,376 | 2000 | 168 KB | 42.1 KB | 0 | 29.5 x 5.3 x 19.9 | flyover |
+| `castle_tower` | 4,590 | 1200 | 300 KB | 61.1 KB | 76 | 10.9 x 17.4 x 9.7 | 0 (Pond Keep: 4) |
+| `castle_wall` | 2,097 | 1200 | 127 KB | 28.1 KB | 51 | 28.0 x 8.0 x 5.4 | 0 (Pond Keep: 3) |
+| `castle_wall_short` | 602 | 1200 | 35 KB | 11.5 KB | 16 | 8.0 x 8.0 x 4.0 | 0 (Pond Keep: 2) |
+| `castle_gatehouse` | 2,782 | 1200 | 171 KB | 37.9 KB | 41 | 15.0 x 15.2 x 8.5 | 0 (Pond Keep: 1) |
+| `castle_bridge` | 496 | 900 | 35 KB | 11.3 KB | 17 | 7.3 x 11.0 x 17.1 | 0 (Pond Keep: 1) |
+| `castle_core` | 1,236 | 1200 | 92 KB | 21.7 KB | 10 | 18.1 x 5.9 x 5.5 | 0 (Pond Keep: 1) |
+| `castle_well` | 184 | 250 | 15 KB | 7.5 KB | 1 | 2.6 x 2.7 x 2.4 | 0 (Pond Keep: 1) |
+| `castle_drawbridge` | 752 | 900 | 57 KB | 16.5 KB | 0 | 5.2 x 6.8 x 9.0 | animated (Pond Keep `raid.props`) |
+| `castle_gate` | 2,076 | 600 | 146 KB | 38.5 KB | 3 | 4.5 x 4.2 x 3.5 | animated (Pond Keep `raid.props`) |
+| `castle_lever` | 280 | 250 | 25 KB | 11.0 KB | 0 | 1.4 x 3.4 x 1.9 | animated (Pond Keep `raid.props`) |
+| `bread_cannon` | 762 | 500 | 42 KB | 17.1 KB | 0 | 1.6 x 1.4 x 2.7 | animated (Pond Keep `raid.props`) |
+| `bread_loaf` | 136 | 250 | 9 KB | 6.2 KB | 0 | 0.3 x 0.3 x 0.5 | animated (the cannon's shot) |
+| `moat_reeds` | 552 / 48 | 35 / 260 | 32 KB | 13.7 KB | 1 | 4.1 x 2.2 x 1.0 | 0 (Pond Keep: 132) |
+| `raft_lane` | 2,054 | 600 | 137 KB | 34.8 KB | 5 | 3.4 x 3.2 x 16.4 | 0 (Pond Keep: 4) |
+| `raft` | 172 | 250 | 10 KB | 6.7 KB | 1 | 3.0 x 0.5 x 4.2 | 0 (Pond Keep: 10) |
+| `trench_dugout` | 2,498 | 400 | 186 KB | 48.0 KB | 4 | 6.8 x 2.2 x 5.8 | 0 (Pond Keep: 6) |
+| `hunter_watchtower` | 1,548 | 900 | 73 KB | 21.4 KB | 26 | 6.9 x 9.4 x 6.4 | 0 (Pond Keep: 4) |
+| `hay_bales` | 204 | 250 | 19 KB | 8.3 KB | 3 | 1.4 x 1.1 x 1.3 | 0 (Pond Keep: 13) |
+| `hay_cart` | 254 | 300 | 20 KB | 9.0 KB | 2 | 2.4 x 2.0 x 4.2 | 0 (Pond Keep: 4) |
 
-All 38 props at LOD0: 67,098 triangles. GLBs: 4,952 KB uncompressed, 1,261 KB compressed (the four houses are 618 KB of that). `colliders.json` 66 KB.
+All 57 props at LOD0: 90,373 triangles (the 38 WWII kit props 67,098 of that). GLBs: 6,485 KB uncompressed, 1,671 KB compressed (the four houses are 618 KB of that). `colliders.json` 88 KB.
 
 ### Building notes
 

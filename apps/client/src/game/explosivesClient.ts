@@ -33,6 +33,7 @@ import {
   grenadePath,
   Mode,
   rocketLaunch,
+  stepBread,
   stepGrenade,
   type Flight,
   type PlayerSim,
@@ -51,6 +52,7 @@ import type { Avatar } from '../player/avatar.ts';
 import { createLauncher } from '../player/launcherModel.ts';
 import { toonMaterial } from '../render/materials.ts';
 import { BRAND } from '../render/palette.ts';
+import { envMaterial, loadPropGlb, paletteOf } from '../world/sainte/gltf.ts';
 import '../hud/explosives.css';
 
 export interface ExplosivesViews {
@@ -79,7 +81,7 @@ interface Shown {
 }
 
 /** Longest a drawn grenade or rocket may live without its blast (the fuse setting tops out at 5 s). */
-const MAX_LIFE_MS = 8000;
+const MAX_LIFE_MS = 9000;
 /** An unconfirmed own throw is dropped after this long (the server refused it, or the round ended). */
 const PREDICTED_MS = 1500;
 const PREVIEW_DOTS = 28;
@@ -194,8 +196,40 @@ export class ExplosivesClient {
     return g;
   }
 
+  /** Hunt Season: a bread cannon's loaf (the prop kit's bread_loaf.glb when it loads, else a toon loaf). */
+  private loafModel: THREE.Object3D | null = null;
+  private loafTried = false;
+
+  private loafMesh(): THREE.Object3D {
+    if (!this.loafTried) {
+      this.loafTried = true;
+      void loadPropGlb('bread_loaf').then(
+        (gltf) => {
+          const mat = envMaterial({ map: paletteOf(gltf), key: 'keep-bread_loaf' });
+          const root = gltf.scene.clone(true);
+          root.traverse((o) => {
+            if ((o as THREE.Mesh).isMesh) (o as THREE.Mesh).material = mat;
+          });
+          // Twice the art's size: easy to follow in flight.
+          root.scale.setScalar(2);
+          this.loafModel = root;
+        },
+        () => undefined,
+      );
+    }
+    if (this.loafModel) return this.loafModel.clone();
+    const g = new THREE.Group();
+    const crust = new THREE.Mesh(this.grenadeGeo, toonMaterial(0xc98a3e));
+    crust.scale.set(2.6, 1.6, 4.2);
+    const top = new THREE.Mesh(this.grenadeGeo, toonMaterial(0xf2d49b));
+    top.scale.set(2.0, 0.8, 3.4);
+    top.position.y = 0.09;
+    g.add(crust, top);
+    return g;
+  }
+
   private add(id: number, kind: number, ownerPid: number, flight: Flight, predicted: boolean): Shown {
-    const mesh = kind === ExplosiveKind.Grenade ? this.grenadeMesh() : kind === ExplosiveKind.Decoy ? this.decoyMesh() : this.rocketMesh();
+    const mesh = kind === ExplosiveKind.Grenade ? this.grenadeMesh() : kind === ExplosiveKind.Decoy ? this.decoyMesh() : kind === ExplosiveKind.Bread ? this.loafMesh() : this.rocketMesh();
     mesh.position.set(flight.x, flight.y, flight.z);
     this.group.add(mesh);
     const s: Shown = { id, kind, ownerPid, flight, px: flight.x, py: flight.y, pz: flight.z, acc: 0, mesh, born: performance.now(), predicted, trailAt: 0, whooshed: false };
@@ -252,6 +286,11 @@ export class ExplosivesClient {
       this.sound.duckCall(this.v.set(f.x, f.y, f.z));
       return;
     }
+    if (kind === ExplosiveKind.Bread) {
+      // Our own cannon already thumped (predicted feel, raidClient); a friend's cannon is heard from where it is.
+      if (!mine) this.sound.cannonThump(this.v.set(f.x, f.y, f.z));
+      return;
+    }
     if (ownerPid === 0 || mine) return;
     // Someone we can see threw or fired: their throw sound, or the launch with a flash.
     const ownerId = this.session.idOfPid(ownerPid);
@@ -279,6 +318,15 @@ export class ExplosivesClient {
     }
     const rocket = kind === ExplosiveKind.Rocket;
     this.v.set(at[0], at[1], at[2]);
+    if (kind === ExplosiveKind.Bread) {
+      // A loaf bursts: crumbs and flour, a doughy bonk, a little shake close by. No fireball.
+      this.effects.crumbBurst(this.v, 1.2);
+      this.effects.toonPop(this.v, 0.8);
+      this.sound.breadBonk(this.v);
+      const dd = this.v.distanceTo(this.views.myPosition());
+      if (dd < 10) this.cam.shake(0.06 * (1 - dd / 10));
+      return;
+    }
     if (kind === ExplosiveKind.Decoy) {
       // A decoy pops: a toony puff of dust and stars and a wooden bonk, no fireball.
       this.effects.toonPop(this.v, 1.6);
@@ -346,6 +394,24 @@ export class ExplosivesClient {
         continue;
       }
       const f = s.flight;
+      if (s.kind === ExplosiveKind.Bread) {
+        // The server's flight step (gravity, stops on what it hits); the burst (Msg.Boom) ends it.
+        s.acc += dt;
+        while (s.acc >= DT && !f.rest) {
+          s.acc -= DT;
+          s.px = f.x;
+          s.py = f.y;
+          s.pz = f.z;
+          stepBread(this.sim, f, DT);
+        }
+        const a = f.rest ? 1 : s.acc / DT;
+        s.mesh.position.set(s.px + (f.x - s.px) * a, s.py + (f.y - s.py) * a, s.pz + (f.z - s.pz) * a);
+        if (!f.rest) {
+          s.mesh.rotation.x += dt * 6;
+          s.mesh.rotation.y += dt * 2;
+        }
+        continue;
+      }
       if (s.kind === ExplosiveKind.Grenade || s.kind === ExplosiveKind.Decoy) {
         s.acc += dt;
         while (s.acc >= DT) {

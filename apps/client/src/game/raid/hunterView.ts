@@ -25,7 +25,20 @@ export interface HunterLook {
 }
 
 const BLAZE = 0xff6a13;
-const CAMO: Record<number, number> = { [HunterKind.Rifleman]: 0x5d6b3d, [HunterKind.Trapper]: 0x6b5236, [HunterKind.Decoy]: 0x4f6a52, [HunterKind.Boss]: 0x5a3b2a, [HunterKind.Dog]: 0xb07a3c };
+const CAMO: Record<number, number> = { [HunterKind.Rifleman]: 0x5d6b3d, [HunterKind.Trapper]: 0x6b5236, [HunterKind.Decoy]: 0x4f6a52, [HunterKind.Boss]: 0x5a3b2a, [HunterKind.Dog]: 0xb07a3c, [HunterKind.Sniper]: 0x3f5a2c };
+
+/** The sniper's ghillie hood: a tuft of leafy blobs over the head (it wears the rifleman's body). */
+function ghillie(scale = 1): THREE.Group {
+  const g = new THREE.Group();
+  const mats = [toonMaterial(0x4b6b2f), toonMaterial(0x6f8a3a), toonMaterial(0x3a5226)];
+  const blobs: [number, number, number, number][] = [[0, 0.06, 0, 0.17], [0.11, 0.0, 0.05, 0.11], [-0.11, 0.01, 0.04, 0.12], [0.04, 0.02, 0.13, 0.1], [-0.05, -0.02, -0.12, 0.12], [0.08, -0.06, -0.08, 0.09]];
+  blobs.forEach(([x, y, z, r], i) => {
+    const m = new THREE.Mesh(new THREE.IcosahedronGeometry(r * scale, 0), mats[i % mats.length]!);
+    m.position.set(x * scale, y * scale, z * scale);
+    g.add(m);
+  });
+  return g;
+}
 
 /** Greybox: simple shapes with the readable parts (the cap, the gun), and procedural motion. */
 class GreyboxHunter implements HunterLook {
@@ -77,6 +90,7 @@ class GreyboxHunter implements HunterLook {
       const brim = new THREE.Mesh(new THREE.BoxGeometry(0.3 * s, 0.03 * s, 0.2 * s), blaze);
       brim.position.set(0, -0.05 * s, -0.16 * s);
       this.hat.add(cap, brim);
+      if (kind === HunterKind.Sniper) this.hat.add(ghillie());
       this.hat.position.y = 1.72 * s;
       const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.07, 0.08, kind === HunterKind.Boss ? 1.1 : 0.95), dark);
       barrel.position.z = -0.4;
@@ -172,7 +186,17 @@ class ModelHunter implements HunterLook {
 
   constructor(kind: number, art: HunterArt, phone: boolean) {
     this.dog = kind === HunterKind.Dog;
-    const model = cloneSkinned(art.models.get(kind)!);
+    // The sniper wears the rifleman's model with a ghillie hood on its head.
+    const model = cloneSkinned(art.models.get(kind === HunterKind.Sniper ? HunterKind.Rifleman : kind)!);
+    if (kind === HunterKind.Sniper) {
+      const head = model.getObjectByName('HeadTop') ?? model.getObjectByName('Head');
+      const hood = ghillie();
+      if (head) head.add(hood);
+      else {
+        hood.position.y = 1.72;
+        model.add(hood);
+      }
+    }
     this.object.add(model);
     this.clips = this.dog ? art.dogClips : art.clips;
     this.mixer = new THREE.AnimationMixer(model);
@@ -329,7 +353,8 @@ class ModelHunter implements HunterLook {
 
 /** A hunter look: the model when the art is in, the greybox otherwise. */
 export function createHunterLook(kind: number, art: HunterArt | null, phone: boolean): HunterLook {
-  if (art && art.models.has(kind) && (kind === HunterKind.Dog ? art.dogClips.size > 0 : art.clips.size > 0)) {
+  const body = kind === HunterKind.Sniper ? HunterKind.Rifleman : kind;
+  if (art && art.models.has(body) && (kind === HunterKind.Dog ? art.dogClips.size > 0 : art.clips.size > 0)) {
     try {
       return new ModelHunter(kind, art, phone);
     } catch (err) {

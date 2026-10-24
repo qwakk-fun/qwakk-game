@@ -1,47 +1,54 @@
 /**
  * Hunt Season (Av Sezonu): the co-op PvE mode. Hunting season opened and the
- * ducks defend the pond: 1 to 4 signed-in ducks hold the QoreChain Tower in
- * the middle of Kavren against 15 waves of duck hunters (a boss every fifth
- * wave). Server rules in `apps/server/src/raid/`, the room in
- * `apps/server/src/RaidRoom.ts`, the docs in `docs/hunt-season.md`.
+ * ducks defend their castle: 1 to 4 signed-in ducks hold Pond Keep (a duck
+ * castle on a pond island) and the QoreChain core in its courtyard against 10
+ * waves of duck hunters (the Big Hunter on waves 3, 6 and 10). Server rules
+ * in `apps/server/src/raid/`, the room in `apps/server/src/RaidRoom.ts`, the
+ * docs in `docs/hunt-season.md`.
  *
  * Numbers the server alone decides are here only as the defaults of the
  * admin settings (`raid.*`, settings/defs.ts); the client reads the live
- * values from the room state and messages.
+ * values from the room state and messages. Numbers the client simulates or
+ * draws (the cannon's arc, the reach of the keep's controls) are the KEEP and
+ * CANNON constants (keep.ts) and change only with a deploy.
  */
 import { TICK_RATE } from '../constants.ts';
 
 export const RAID = {
   /** Colyseus room name. */
   roomName: 'raid',
-  /** The map: Kavren, the deathmatch town (its QoreChain Tower stands in the middle). */
-  mapId: 'canard-quarter',
+  /** The map: Pond Keep, the duck castle on a pond island (its `raid` markup, raid/keep.ts). */
+  mapId: 'pond-keep',
   /** Ducks per run (parties welcome: up to PARTY.maxSize, which is 4 too). */
   maxDucks: 4,
-  waves: 15,
-  /** A boss wave every this many waves (5, 10, 15). */
-  bossEvery: 5,
+  waves: 10,
+  /** Waves the Big Hunter comes out on. */
+  bossWaves: [3, 6, 10] as readonly number[],
   /** Lobby: the first duck starts this countdown, every later one adds a few seconds up to the cap; a full room starts soon. */
   lobbySeconds: 15,
   joinExtraSeconds: 5,
   lobbyMaxSeconds: 30,
   fullLobbySeconds: 5,
   /** Break between waves (upgrade pick). Admin setting `raid.breakSeconds`. */
-  breakSeconds: 20,
+  breakSeconds: 10,
   /** Results stay up this long after the run ends, then the room closes. */
   endSeconds: 60,
-  /** Tower health. Admin setting `raid.towerHp`. */
-  towerHp: 1000,
+  /** The QoreChain core's health (the run is lost when it falls). Admin setting `raid.coreHp`. */
+  coreHp: 1000,
+  /** The main gate's health. Admin setting `raid.gateHp`. */
+  gateHp: 700,
   /** Most hunters and dogs alive at once; the rest of a wave waits its turn. Admin setting `raid.maxLive`. */
   maxLive: 30,
   /** Grenades every duck gets at the start of each wave (an upgrade adds more). */
   grenadesPerWave: 1,
   /** A trap holds a duck this long (ticks: 1.6 s). Stays a constant: the root is part of the sim. */
   rootTicks: Math.round(1.6 * TICK_RATE),
-  /** Hunters that reach the tower hammer it: damage per second, by kind (admin setting `raid.towerDamageScale` scales it). */
-  towerDps: { 1: 3, 2: 4, 3: 3, 4: 1.5, 5: 12 } as Record<number, number>,
-  /** The tower's base in Kavren (the qorechain_tower prop) and how close counts as "at the tower" (m from its walls). */
-  tower: { x: 0, z: -16, half: 8.3, reach: 2.6 },
+  /** Hunters at the core hammer it: damage per second, by kind (admin setting `raid.coreDamageScale` scales it). */
+  coreDps: { 1: 3, 2: 4, 3: 3, 4: 1.5, 5: 12, 6: 2 } as Record<number, number>,
+  /** Hunters at the gate hammer it: damage per second, by kind (admin setting `raid.gateDamageScale` scales it). */
+  gateDps: { 1: 4, 2: 6, 3: 4, 4: 2.5, 5: 20, 6: 3 } as Record<number, number>,
+  /** How close counts as "at the core" (m past its radius). */
+  coreReach: 1.8,
 } as const;
 
 /** Run stage on the wire (`RaidState.stage`). */
@@ -56,12 +63,37 @@ export const RaidStage = {
 } as const;
 
 export function isBossWave(wave: number): boolean {
-  return wave > 0 && wave % RAID.bossEvery === 0;
+  return RAID.bossWaves.includes(wave);
 }
 
 /** Why a run ended (`Msg.RaidEnd`). */
 export const RaidEndReason = {
   Won: 1,
-  TowerFell: 2,
+  /** The QoreChain core fell. */
+  CoreFell: 2,
   AllDown: 3,
+} as const;
+
+/** The main gate's look and rule (`RaidState.gate`): intact above half health, damaged below, broken at 0 until repaired past `GATE_CLOSE_SHARE`. */
+export const GateState = {
+  Intact: 0,
+  Damaged: 1,
+  Broken: 2,
+} as const;
+
+/** A broken gate holds hunters again once repaired to this share of its health. */
+export const GATE_CLOSE_SHARE = 0.3;
+
+/** The gate's look for a health share (and whether it was broken: it stays broken until repaired past GATE_CLOSE_SHARE). */
+export function gateStateOf(share: number, wasBroken: boolean): number {
+  if (share <= 0 || (wasBroken && share < GATE_CLOSE_SHARE)) return GateState.Broken;
+  return share > 0.5 ? GateState.Intact : GateState.Damaged;
+}
+
+/** The drawbridge (`RaidState.bridge`). */
+export const BridgeState = {
+  Down: 0,
+  Raising: 1,
+  Up: 2,
+  Lowering: 3,
 } as const;

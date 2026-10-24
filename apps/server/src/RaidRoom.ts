@@ -1,6 +1,6 @@
 /**
  * The Hunt Season room: networking glue (gameRoom.ts) around the Raid rules
- * (raid/raid.ts) on Kavren. Signed-in ducks only (the matchmaking guard and
+ * (raid/raid.ts) on Pond Keep. Signed-in ducks only (the matchmaking guard and
  * checkAdmission both refuse guests, like the battle royale). Quick Play
  * joins an open lobby (joinOrCreate), a party leader opens a fresh one
  * (create) and the party follows by room id; the room holds seats for the
@@ -17,8 +17,8 @@
  * meta layer), never from anything a client says.
  */
 import { ServerError, type Client } from '@colyseus/core';
-import { ExplosiveKind, PARTY, RAID, RaidStage, TICK_RATE, raidXp, type InputFrame } from '@qwakk/shared';
-import { DmPickup, GameMode, Hunter, MatchPhase, Msg, RaidEvent, RaidTrap, type PlayerState } from '@qwakk/shared/net';
+import { BridgeState, ExplosiveKind, PARTY, RAID, RaidStage, TICK_RATE, raidXp, type InputFrame } from '@qwakk/shared';
+import { DmPickup, GameMode, Hunter, MatchPhase, Msg, RaidCannon, RaidEvent, RaidTrap, type PlayerState } from '@qwakk/shared/net';
 import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
 import type { BotLike, Seat } from './arena.ts';
 import { angleMilli, cm, GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
@@ -44,6 +44,9 @@ export interface RaidRoomOptions extends GameRoomOptions {
   testHooks?: boolean;
 }
 
+/** Loaf projectile ids on the wire start here (decoys and the deathmatch explosives use small ids of their own). */
+const LOAF_IDS = 1_000_000;
+
 /** Join refusals of a raid room (onAuth). */
 export const RAID_ERROR = {
   /** The run already started, or no seat is free (party seats included). */
@@ -58,8 +61,9 @@ export class RaidRoom extends GameRoom<Raid> {
   private explosivesNet: ExplosivesNet | null = null;
   /** Seats held for a party leader's friends on their way in: party id to seats and the time they expire. */
   private readonly held = new Map<string, { seats: number; until: number }>();
-  /** Results numbers already sent per seat (the second RaidEnd, once the database answered). */
-  private lastTowerEvent = 0;
+  /** Throttles for the core and gate hit events (ms). */
+  private lastCoreEvent = 0;
+  private lastGateEvent = 0;
   private opts: RaidRoomOptions = {};
 
   protected loadMap(): ServerMap {
@@ -80,8 +84,10 @@ export class RaidRoom extends GameRoom<Raid> {
     this.state.phase = MatchPhase.Warmup;
     this.state.raid.waves = RAID.waves;
     const rules: RaidRules = { ...raidRules(), ...(options.rules ?? {}) };
-    this.state.raid.towerMax = rules.towerHp;
-    this.state.raid.towerHp = rules.towerHp;
+    this.state.raid.coreMax = rules.coreHp;
+    this.state.raid.coreHp = rules.coreHp;
+    this.state.raid.gateMax = rules.gateHp;
+    this.state.raid.gateHp = rules.gateHp;
     const net = new ExplosivesNet({
       viewers: () => this.clients,
       viewpoint: (id) => this.viewpointOf(id),
@@ -101,19 +107,36 @@ export class RaidRoom extends GameRoom<Raid> {
         knock: (by, victim, weapon, head) => this.sendKnock(by, victim, weapon, head),
         hurtFrom: (victim, damage, x, z) => send(victim, Msg.Damaged, [angleMilli(victim.sim.x, victim.sim.z, x, z), damage, 0]),
         hunterHit: (shooter, _h, damage, head, killed, blast) => send(shooter, Msg.HitConfirm, [0, damage, head ? 1 : 0, killed ? 1 : 0, 0, blast ? 1 : 0]),
-        hunterDown: (h, killer, head) => this.broadcast(Msg.RaidKill, [h.kind, killer?.pid ?? 0, head ? 1 : 0, cm(h.x), cm(h.y), cm(h.z)]),
+        hunterDown: (h, killer, head, how) => this.broadcast(Msg.RaidKill, [h.kind, killer?.pid ?? 0, head ? 1 : 0, cm(h.x), cm(h.y), cm(h.z), how]),
         hunterShot: (h, traces, weapon) => {
           for (const t of traces) this.queueShotFx(h.id, weapon, h.x, h.z, t.outcome, t.from, t.to);
         },
         whistle: (h) => this.broadcast(Msg.RaidEvent, [RaidEvent.Whistle, Math.round(h.x), Math.round(h.z)]),
-        towerHit: (hp) => {
+        coreHit: (hp) => {
           const now = Date.now();
-          if (now - this.lastTowerEvent < 900 && hp > 0) return;
-          this.lastTowerEvent = now;
-          this.broadcast(Msg.RaidEvent, [RaidEvent.TowerHit, hp, 0]);
+          if (now - this.lastCoreEvent < 900 && hp > 0) return;
+          this.lastCoreEvent = now;
+          this.broadcast(Msg.RaidEvent, [RaidEvent.CoreHit, hp, 0]);
         },
+        coreRepaired: () => this.broadcast(Msg.RaidEvent, [RaidEvent.CoreRepaired, 0, 0]),
+        gateHit: (hp, state) => {
+          const now = Date.now();
+          if (now - this.lastGateEvent < 900) return;
+          this.lastGateEvent = now;
+          this.broadcast(Msg.RaidEvent, [RaidEvent.GateHit, hp, state]);
+        },
+        gateBroken: () => this.broadcast(Msg.RaidEvent, [RaidEvent.GateBroken, 0, 0]),
+        gateFixed: (by) => this.broadcast(Msg.RaidEvent, [RaidEvent.GateFixed, by?.pid ?? 0, 0]),
+        bridge: (state, by) => this.broadcast(Msg.RaidEvent, [RaidEvent.Bridge, state, by?.pid ?? 0]),
+        splash: (n, by) => this.broadcast(Msg.RaidEvent, [RaidEvent.Splash, n, by?.pid ?? 0]),
+        leverDenied: (seat, reason, secs) => send(seat, Msg.RaidEvent, [RaidEvent.LeverDenied, reason, secs]),
+        overheat: (seat, i) => send(seat, Msg.RaidEvent, [RaidEvent.Overheat, i, 0]),
+        loafLaunched: (l, owner) => {
+          const f = l.flight;
+          this.broadcast(Msg.Proj, [l.id + LOAF_IDS, ExplosiveKind.Bread, owner?.pid ?? 0, cm(f.x), cm(f.y), cm(f.z), cm(f.vx), cm(f.vy), cm(f.vz)]);
+        },
+        loafBoom: (l, x, y, z) => this.broadcast(Msg.Boom, [l.id + LOAF_IDS, ExplosiveKind.Bread, cm(x), cm(y), cm(z)]),
         trapped: (seat) => this.broadcast(Msg.RaidEvent, [RaidEvent.Trapped, seat.pid, 0]),
-        repaired: () => this.broadcast(Msg.RaidEvent, [RaidEvent.Repaired, 0, 0]),
         offer: (seat, cards, deadline) => send(seat, Msg.RaidOffer, cards ? [Math.round(deadline), ...cards.flat()] : []),
         self: (seat) => this.sendSelf(seat),
         waveStart: (wave, boss) => {
@@ -150,7 +173,7 @@ export class RaidRoom extends GameRoom<Raid> {
         const m = msg as { op?: unknown; wave?: unknown };
         // Screenshots: one hunter of a kind (`wave` carries the kind) 8 m in front of the asking duck.
         const seat = this.match.seats.get(client.sessionId);
-        if (m.op === 'spawn' && seat && typeof m.wave === 'number' && m.wave >= 1 && m.wave <= 5) {
+        if (m.op === 'spawn' && seat && typeof m.wave === 'number' && m.wave >= 1 && m.wave <= 6) {
           const n = this.match.hunts.hunters.size;
           const side = ((n % 5) - 2) * 2.2;
           const fx = -Math.sin(seat.sim.yaw);
@@ -159,6 +182,12 @@ export class RaidRoom extends GameRoom<Raid> {
           h.yaw = Math.atan2(fx, fz);
           return;
         }
+        // The keep: the gate's health (`wave` carries it), the bridge straight up or down, the lever as if pulled, and a duck moved to a keep spot.
+        if (m.op === 'gate' && typeof m.wave === 'number') return this.match.keep.setGate(m.wave);
+        if (m.op === 'bridge' && typeof m.wave === 'number') return this.match.keep.forceBridge(m.wave === 2 ? BridgeState.Up : BridgeState.Down, this.match.currentTick);
+        if (m.op === 'lever') return void this.match.pullLever(seat ?? null);
+        if (m.op === 'tp' && seat && typeof m.wave === 'number') return this.match.moveForTest(seat, m.wave);
+        if (m.op === 'gatehunters' && typeof m.wave === 'number') return this.match.huntersAtGate(Math.max(1, Math.min(8, Math.floor(m.wave))));
         if (m.op === 'skip' && typeof m.wave === 'number') this.match.skipTo(m.wave);
         else if (m.op === 'clear') this.match.defeatWave();
         else if (m.op === 'start') this.match.start();
@@ -320,9 +349,7 @@ export class RaidRoom extends GameRoom<Raid> {
     if (r.ends === undefined || Math.abs(r.ends - ends) > 40) r.ends = ends;
     const waveAt = Math.max(0, Math.round(m.nowMs - ((m.currentTick - m.waveStartTick) / TICK_RATE) * 1000));
     if (r.waveAt === undefined || (m.stage === RaidStage.Wave && Math.abs(r.waveAt - waveAt) > 40)) r.waveAt = waveAt;
-    const tower = Math.ceil(m.towerHp);
-    if (r.towerHp !== tower) r.towerHp = tower;
-    if (r.towerMax !== m.towerMax) r.towerMax = m.towerMax;
+    this.writeKeep();
     const left = m.hunts.left;
     if (r.left !== left) r.left = left;
     const boss = m.hunts.boss;
@@ -336,6 +363,46 @@ export class RaidRoom extends GameRoom<Raid> {
     this.writeTraps();
     this.writeDrops();
     this.writeRocket();
+  }
+
+  /** The core, the gate, the drawbridge and the cannons (server times in ms since the room started, like `ends`). */
+  private writeKeep(): void {
+    const k = this.match.keep;
+    const r = this.state.raid;
+    const tickMs = (tick: number): number => Math.max(0, Math.round(this.match.nowMs + ((tick - this.match.currentTick) / TICK_RATE) * 1000));
+    const core = Math.ceil(k.coreHp);
+    if (r.coreHp !== core) r.coreHp = core;
+    if (r.coreMax !== k.coreMax) r.coreMax = k.coreMax;
+    const gate = Math.ceil(k.gateHp);
+    if (r.gateHp !== gate) r.gateHp = gate;
+    if (r.gateMax !== k.gateMax) r.gateMax = k.gateMax;
+    if (r.gate !== k.gateState) r.gate = k.gateState;
+    if (r.bridge !== k.bridge) r.bridge = k.bridge;
+    const at = tickMs(k.bridgeStart);
+    if (r.bridgeAt === undefined || Math.abs(r.bridgeAt - at) > 40) r.bridgeAt = at;
+    const ends = tickMs(k.bridgeEnd);
+    if (r.bridgeEnds === undefined || Math.abs(r.bridgeEnds - ends) > 40) r.bridgeEnds = ends;
+    const ready = k.leverReady > this.match.currentTick ? tickMs(k.leverReady) : 0;
+    if (r.leverReady === undefined || Math.abs(r.leverReady - ready) > 40) r.leverReady = ready;
+    const down = k.bridge === BridgeState.Up ? tickMs(k.autoDown) : 0;
+    if (r.bridgeDown === undefined || Math.abs(r.bridgeDown - down) > 40) r.bridgeDown = down;
+    k.cannons.forEach((c, i) => {
+      const key = String(i);
+      let e = r.cannons.get(key);
+      if (!e) {
+        e = new RaidCannon();
+        r.cannons.set(key, e);
+      }
+      if (e.pid !== c.pid) e.pid = c.pid;
+      e.yaw = c.yaw;
+      e.pitch = c.pitch;
+      const heat = Math.max(0, Math.min(255, Math.round((c.heat / 100) * 255)));
+      if (e.heat !== heat) e.heat = heat;
+      const hot = c.hot ? 1 : 0;
+      if (e.hot !== hot) e.hot = hot;
+      const cr = c.ready > this.match.currentTick ? tickMs(c.ready) : 0;
+      if (e.ready === undefined || Math.abs(e.ready - cr) > 40) e.ready = cr;
+    });
   }
 
   private writeHunters(): void {

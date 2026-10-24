@@ -1,7 +1,8 @@
 /**
- * Hunt Season results into PostgreSQL (004_raid.sql): the run, each account
- * duck's part, its XP and level (players.xp, players.level) and its personal
- * best, in one transaction. Only the game server calls this, at the end of a
+ * Hunt Season results into PostgreSQL (004_raid.sql, 005_raid_keep.sql): the
+ * run, each account duck's part, its XP and level (players.xp,
+ * players.level) and its personal best on Pond Keep (raid_keep_bests), in
+ * one transaction. Only the game server calls this, at the end of a
  * run (RaidRoom.recordResult); no HTTP route writes any of it. The run id is
  * unique, so a retried write never grants XP twice. Guests and dev identities
  * (no account row) get nothing.
@@ -92,17 +93,17 @@ export async function insertRaid(sql: Sql, r: RaidRunResult): Promise<Map<string
       await tx`update players set xp = ${after}, level = ${level}, last_seen = now() where id = ${id}`;
       const ms = r.bestMs;
       const [best] = await tx<{ best_wave: number; best_ms: number; was_wave: number | null; was_ms: number | null }[]>`
-        with old as (select best_wave, best_ms from raid_bests where player_id = ${id})
-        insert into raid_bests (player_id, best_wave, best_ms, runs, wins)
+        with old as (select best_wave, best_ms from raid_keep_bests where player_id = ${id})
+        insert into raid_keep_bests (player_id, best_wave, best_ms, runs, wins)
         values (${id}, ${p.wavesCleared}, ${ms}, 1, ${p.won ? 1 : 0})
         on conflict (player_id) do update set
           best_ms = case
-            when excluded.best_wave > raid_bests.best_wave then excluded.best_ms
-            when excluded.best_wave = raid_bests.best_wave then least(raid_bests.best_ms, excluded.best_ms)
-            else raid_bests.best_ms end,
-          best_wave = greatest(raid_bests.best_wave, excluded.best_wave),
-          runs = raid_bests.runs + 1,
-          wins = raid_bests.wins + excluded.wins,
+            when excluded.best_wave > raid_keep_bests.best_wave then excluded.best_ms
+            when excluded.best_wave = raid_keep_bests.best_wave then least(raid_keep_bests.best_ms, excluded.best_ms)
+            else raid_keep_bests.best_ms end,
+          best_wave = greatest(raid_keep_bests.best_wave, excluded.best_wave),
+          runs = raid_keep_bests.runs + 1,
+          wins = raid_keep_bests.wins + excluded.wins,
           updated_at = now()
         returning best_wave, best_ms, (select best_wave from old) as was_wave, (select best_ms from old) as was_ms`;
       const newBest = !!best && p.wavesCleared > 0 && (best.was_wave === null || p.wavesCleared > best.was_wave || (p.wavesCleared === best.was_wave && ms < (best.was_ms ?? Infinity)));

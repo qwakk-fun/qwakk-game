@@ -29,6 +29,8 @@ import props_military  # noqa: E402
 import props_buildings  # noqa: E402
 import props_country  # noqa: E402
 import props_vehicles  # noqa: E402
+import castle  # noqa: E402
+import props_pond  # noqa: E402
 
 MAP_ART = os.path.dirname(HERE)
 GAME = os.path.dirname(os.path.dirname(MAP_ART))
@@ -46,7 +48,7 @@ SHOTS = None
 if "--shots" in argv:
     SHOTS = set(argv[argv.index("--shots") + 1].split(","))
 
-BUILDERS = props_military.BUILDERS + props_buildings.BUILDERS + props_country.BUILDERS + props_vehicles.BUILDERS
+BUILDERS = props_military.BUILDERS + props_buildings.BUILDERS + props_country.BUILDERS + props_vehicles.BUILDERS + castle.BUILDERS + props_pond.BUILDERS
 
 # What each collider kind means for the engine. Rapier colliders are built from colliders.json only.
 KINDS = {
@@ -81,6 +83,11 @@ LOD_UNTIL = {
     "crate_small": (120,), "crate_large": (140,), "ammo_box": (80,), "fuel_barrel": (100,), "signpost": (150,),
     "wood_fence": (150,), "beach_obstacle": (200,), "rock_boulder": (300,), "rock_slab": (300,), "rock_spire": (350,),
     "crater": (150,), "rubble_pile": (200,), "lighthouse": (1200,), "bridge_stone": (600,), "transport_plane": (2000,),
+    # Pond Keep (the Hunt Season castle map): one detailed LOD, the map is 300 m across
+    "castle_tower": (1200,), "castle_wall": (1200,), "castle_wall_short": (1200,), "castle_gatehouse": (1200,), "castle_bridge": (900,),
+    "castle_core": (1200,), "castle_well": (250,), "castle_drawbridge": (900,), "castle_gate": (600,), "castle_lever": (250,), "bread_cannon": (500,), "bread_loaf": (250,),
+    "moat_reeds": (35, 260), "raft_lane": (600,), "raft": (250,), "trench_dugout": (400,), "hunter_watchtower": (900,), "hay_bales": (250,),
+    "hay_cart": (300,),
 }
 
 
@@ -127,15 +134,28 @@ def make_objects(p, mat, lod_props):
             o.hide_render = True
         lods.append(o)
     extra = []
-    for child, loc in getattr(p, "children", []):
-        pivot = bpy.data.objects.new(child.name + "_pivot", None)
-        bpy.context.scene.collection.objects.link(pivot)
-        pivot.parent = root
-        pivot.location = loc
-        c = child.to_object(mat)
-        c.name = child.name + "_mesh"
-        c.parent = pivot
-        extra += [pivot, c]
+
+    def add_children(parent, prop):
+        # pivot empties (named after the child) with the child's mesh under them; children may nest
+        # (bread_cannon: Yaw > Pitch > Muzzle) and may carry a rotation and scale (the drawbridge chains)
+        for child, loc in getattr(prop, "children", []):
+            pivot = bpy.data.objects.new(child.name + "_pivot", None)
+            bpy.context.scene.collection.objects.link(pivot)
+            pivot.parent = parent
+            pivot.location = loc
+            if getattr(child, "rot", None):
+                pivot.rotation_euler = child.rot
+            if getattr(child, "scale", None):
+                pivot.scale = child.scale
+            extra.append(pivot)
+            if child.faces:
+                c = child.to_object(mat)
+                c.name = child.name + "_mesh"
+                c.parent = pivot
+                extra.append(c)
+            add_children(pivot, child)
+
+    add_children(root, p)
     p._root, p._lods, p._extra, p._lod_props = root, lods, extra, lod_props
     render_objs = [lods[0]] + [o for o in extra if o.type == "MESH"]
     return lods[0], render_objs
@@ -225,6 +245,9 @@ def collider_bounds_problems(p, mn, mx):
             if cj["type"] == "box":
                 h = c["h"]
                 corners = [Vector((sx * h.x, sy * h.y, sz * h.z)) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+            elif cj["type"] == "cylinder":
+                r, hh = c["r"], c["halfHeight"]
+                corners = [Vector((dx, dy, s * hh)) for s in (-1, 1) for dx, dy in ((r, 0), (-r, 0), (0, r), (0, -r))]
             else:
                 corners = [Vector((0, 0, s * (c["halfHeight"] + c["r"]))) for s in (-1, 1)]
             pts = [kit.to_gltf_vec(c["c"] + q @ v) for v in corners]
@@ -253,7 +276,7 @@ def export_all(built):
             o.name = "__tmp2_" + nm
         for o, nm in old:
             o.name = nm
-        lod_tris = [p.triangles() + sum(c.triangles() for c, _ in getattr(p, "children", []))] + [lp.triangles() for lp in p._lod_props]
+        lod_tris = [_tris_deep(p)] + [lp.triangles() for lp in p._lod_props]
         tris = lod_tris[0]
         mn, mx = bounds_gltf(objs)
         stats[p.name] = {"category": p.category, "triangles": tris, "lodTriangles": lod_tris, "vertices": len(p.verts),
@@ -271,6 +294,13 @@ def export_all(built):
         for k in ("container", "tile", "nodes", "note"):
             if k in p.meta:
                 entry[k] = p.meta[k]
+        if getattr(p, "children", None):
+            entry["nodes"] = _node_names(p)
+        if "anchors" in p.meta:
+            # named points for the map layout and the game (raid markup), glTF space like the colliders
+            def g(v):
+                return [kit.r4(a) for a in kit.to_gltf_vec(Vector(v))]
+            entry["anchors"] = {k: ([g(v) for v in pts] if isinstance(pts[0], (list, tuple)) else g(pts)) for k, pts in p.meta["anchors"].items()}
         if "walk" in p.meta:
             # waypoints a duck can walk in order (door, stairs, upper floor): checked by apps/server/test/houses.test.ts
             walks = p.meta["walk"] if isinstance(p.meta["walk"][0][0], (list, tuple)) else [p.meta["walk"]]
@@ -279,6 +309,18 @@ def export_all(built):
         problems += check_probes(p)
         problems += collider_bounds_problems(p, mn, mx)
     return stats, colliders, manifest, problems
+
+
+def _tris_deep(p):
+    return p.triangles() + sum(_tris_deep(c) for c, _ in getattr(p, "children", []))
+
+
+def _node_names(p):
+    out = []
+    for c, _ in getattr(p, "children", []):
+        out.append(c.name)
+        out += _node_names(c)
+    return out
 
 
 def write_json(stats, colliders, manifest):
