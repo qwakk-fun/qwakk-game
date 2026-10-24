@@ -117,7 +117,11 @@ export class DevMailSink implements Mailer {
 
 /** The mailer for this configuration: SMTP, the dev sink, or none (production without SMTP). */
 export function createMailer(cfg: { production: boolean; smtp: SmtpConfig | null; mailFrom: string }, quietSink = false): Mailer | null {
-  if (cfg.smtp) return new SmtpMailer(cfg.smtp, cfg.mailFrom);
+  if (cfg.smtp) {
+    // Hostinger (and most hosts) refuse unauthenticated mail: say so at start instead of at the first sign-in.
+    if (!cfg.smtp.user || !cfg.smtp.pass) console.warn('[mail] SMTP_HOST is set but SMTP_USER or SMTP_PASS is missing: the mail server will likely refuse every sign-in code. See docs/deploy.md.');
+    return new SmtpMailer(cfg.smtp, cfg.mailFrom);
+  }
   if (cfg.production) {
     console.warn('[mail] SMTP_HOST is not set in production: sign-in by email is off (POST /api/auth/code answers 503). See docs/deploy.md.');
     return null;

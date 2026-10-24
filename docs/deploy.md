@@ -121,7 +121,7 @@ Apps > Create a New App: `qwakk-game`, "Has Persistent Data" off.
   VITE_TURNSTILE_SITEKEY=<step 2b, or leave unset>
   SMTP_HOST=smtp.hostinger.com
   SMTP_PORT=465
-  SMTP_USER=noreply@qwakk.fun
+  SMTP_USER=hello@qwakk.fun
   SMTP_PASS=<step 2d, the mailbox password>
   MAIL_FROM=Qwakk <noreply@qwakk.fun>
   ```
@@ -134,9 +134,9 @@ Apps > Create a New App: `qwakk-game`, "Has Persistent Data" off.
   | `DATABASE_URL` | for the leaderboard and accounts | runtime | Migrations run at start (`003_accounts.sql` adds the account tables; additive, safe on the live guests). Unset: no leaderboard and no accounts (only guests, so no battle royale), play still works |
   | `SMTP_HOST` | for accounts | runtime | `smtp.hostinger.com`. Unset in production: sign-in by email answers 503 (startup warning), so nobody can sign in and battle royale is unreachable |
   | `SMTP_PORT` | no | runtime | `465` (implicit TLS, the default). `587` uses STARTTLS (required) |
-  | `SMTP_USER` | for accounts | runtime | `noreply@qwakk.fun` |
+  | `SMTP_USER` | for accounts | runtime | The login of a real Hostinger mailbox (today `hello@qwakk.fun`). An alias or forwarder such as `noreply@` cannot log in to SMTP (535 authentication failed) |
   | `SMTP_PASS` | for accounts | runtime | Secret: the mailbox password, set by the owner in CapRover only. Never logged |
-  | `MAIL_FROM` | no | runtime | Default `Qwakk <noreply@qwakk.fun>`. Must be the SMTP user's address (Hostinger refuses other senders) |
+  | `MAIL_FROM` | no | runtime | Default `Qwakk <noreply@qwakk.fun>`. Must be the SMTP user's mailbox or an alias of it (`noreply@` is an alias of `hello@`); if Hostinger refuses the sender, use `Qwakk <hello@qwakk.fun>` |
   | `NODE_OPTIONS` | recommended | runtime | Keeps the V8 heap under the 1 GiB limit |
   | `TURNSTILE_SECRET` | recommended before wide sharing | runtime | Set together with `VITE_TURNSTILE_SITEKEY`, or neither. A secret without a site key makes every new guest fail with 403 `turnstile_failed` |
   | `VITE_TURNSTILE_SITEKEY` | with the secret | build | Public value. CapRover passes app env vars to the Docker build as build args; a change needs Save, then Force Build |
