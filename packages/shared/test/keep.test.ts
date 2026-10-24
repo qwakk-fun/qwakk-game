@@ -35,6 +35,9 @@ import {
   setOcc,
   setToggle,
   stepPlayer,
+  syncKeepShields,
+  BridgeState,
+  GateState,
   unpackEx,
   type InputFrame,
   type PlayerSim,
@@ -305,6 +308,27 @@ describe('the closed drawbridge and the gate (duck sim)', () => {
     setToggle(sim, KEEP_TOGGLE.gate, false);
     const miss = sim.world.castRay(new R.Ray({ x: 0, y: 1.5, z: 5 }, { x: 0, y: 0, z: 1 }), 5.5, true, undefined, (CG.Player << 16) | CG.Bullet);
     expect(miss).toBeNull();
+  });
+});
+
+describe('the keep\'s shields mirrored from the state (the client\'s world)', () => {
+  it('follow the drawbridge and the gate: rays meet them only while the bridge is not down or the gate holds', () => {
+    const { def } = keepMap();
+    const sim = createSimWorld(def);
+    const R = sim.rapier;
+    const groups = (CG.Player << 16) | CG.Bullet;
+    // Through the gate (z 10) and through the raised bridge's spot at the hinge (z 11), from inside.
+    const through = (): number | null => sim.world.castRay(new R.Ray({ x: 0, y: 1.5, z: 5 }, { x: 0, y: 0, z: 1 }), 12, true, undefined, groups)?.timeOfImpact ?? null;
+    syncKeepShields(sim, BridgeState.Down, GateState.Intact);
+    expect(through()).toBeCloseTo(4.75, 1);
+    syncKeepShields(sim, BridgeState.Down, GateState.Broken);
+    expect(through()).toBeNull();
+    syncKeepShields(sim, BridgeState.Up, GateState.Broken);
+    expect(through()).toBeCloseTo(6.05, 1);
+    syncKeepShields(sim, BridgeState.Raising, GateState.Damaged);
+    expect(through()).toBeCloseTo(4.75, 1);
+    syncKeepShields(sim, BridgeState.Down, GateState.Damaged);
+    expect(through()).toBeCloseTo(4.75, 1);
   });
 });
 

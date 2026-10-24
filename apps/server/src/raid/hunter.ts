@@ -75,7 +75,7 @@ export interface HunterAgent {
   perch: number;
   /** A goal found out of reach (behind the gate, over a raised bridge) and the tick to try it again. */
   barred: { x: number; z: number; until: number } | null;
-  /** Where it was at the last progress check and when it last got anywhere or fought (stuck hunters give up, hunts.ts). */
+  /** Where it was at the last progress check and when it last got anywhere or fought (stuck hunters regroup, hunts.ts). */
   checkX: number;
   checkZ: number;
   busyTick: number;

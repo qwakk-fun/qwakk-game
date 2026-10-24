@@ -31,6 +31,7 @@ import {
   RAID,
   RaidStage,
   rayHitbox,
+  syncKeepShields,
   TRAP_SHAPE,
   type HitTarget,
   type KeepGeometry,
@@ -524,10 +525,16 @@ export class RaidClient {
 
   /** The keep each frame, and our own cannon shot predicted for feel (the server fires the real loaf). */
   private frameKeep(dt: number, now: number): void {
-    const keep = this.keep;
-    if (!keep) return;
     const s = this.d.session;
     const st = s.room.state;
+    // Our world's bullet and sight shields follow the keep (tracers, hit markers, loaves and the aim arc meet what the server's do).
+    if (st.raid.bridge !== this.shieldBridge || st.raid.gate !== this.shieldGate) {
+      this.shieldBridge = st.raid.bridge;
+      this.shieldGate = st.raid.gate;
+      syncKeepShields(this.d.sim, st.raid.bridge, st.raid.gate);
+    }
+    const keep = this.keep;
+    if (!keep) return;
     const me = s.me;
     const sim = me?.state as unknown as PlayerSim | undefined;
     const i = this.manning;
@@ -564,6 +571,9 @@ export class RaidClient {
   }
 
   private readonly cannonSim = {} as PlayerSim;
+  /** The keep state our world's shields were last switched to (-1: not yet). */
+  private shieldBridge = -1;
+  private shieldGate = -1;
 
   /** The rifleman's laser and glint while it aims, the boss's wind-up glint; a trapper's gun glints too. */
   private telegraph(v: View, h: Hunter, yaw: number, pitch: number): void {

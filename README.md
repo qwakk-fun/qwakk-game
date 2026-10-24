@@ -76,8 +76,9 @@ qwakk-game/
     src/camera/        Over-the-shoulder spring-arm camera, recoil kick, shake, death camera
     src/player/        Duck avatar: clips, procedural layers, hand IK, weapons, the reload's magazine (reloadMag.ts)
     src/world/         Greybox terrain and props; world/sainte: the map_v1 world by map id (instanced props with LODs, terrain, water, sky, plane, zone wall, loot)
-    src/ui/menu/       The menu: the Play tab's join steps (name and tag, pick a duck from characters.ts, Quick Play or Deathmatch with the Solo / Duo / Squad picker), the stage, parties (partyController.ts, partyPanel.ts, partyClient.ts), live room lists, leaderboard, settings; styles in styles/
-    src/menuHero/      The Play tab's 3D duck that aims at the cursor (its own chunk, loaded after the menu paints)
+    src/ui/menu/       The menu: sign in and the character select (account/), a guest's name and look (guestCard.ts), then the sheet over Duck Plaza (hubSheet.ts: Play list of the modes and live room lists, Team, Leaderboard, Settings, How to play, Account), parties (partyController.ts, partyPanel.ts, partyClient.ts), the last round card; styles in styles/
+    src/hub/           Duck Plaza on the client: the plaza scene, its session and labels (a dynamic import, in the game bundle)
+    src/menuHero/      The character select's 3D duck that aims at the cursor (its own chunk, loaded after the menu paints)
     public/models/     Art from the art workstream (duck, animations, weapons, props, openable crates)
   e2e/two-clients.ts Two real headless browsers in one deathmatch room (map hash, prediction, culling)
   e2e/br-two-clients.ts Two real headless browsers in one battle royale (plane, drop, loot, culling, victory)

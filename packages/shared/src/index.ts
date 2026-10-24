@@ -36,4 +36,5 @@ export * from './raid/markup.ts';
 export * from './raid/keep.ts';
 export * from './raid/cannon.ts';
 export * from './raid/man.ts';
+export * from './raid/keepSync.ts';
 export * from './raid/index.ts';

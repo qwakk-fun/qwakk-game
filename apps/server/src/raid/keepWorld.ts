@@ -72,6 +72,8 @@ export interface KeepEvents {
   gateFixed(by: Seat | null): void;
   /** The drawbridge starts to rise or come down (by a duck, or by itself). */
   bridgeMoving(state: number, by: Seat | null): void;
+  /** A pulled raise did not start: a duck was on the deck when the tick ended. */
+  raiseRefused(by: Seat | null): void;
   overheat(seat: Seat, cannon: number): void;
   loafLaunched(l: Loaf): void;
   /** A loaf landed: the raid splashes the hunters around (x, y, z). */
@@ -205,19 +207,28 @@ export class KeepWorld {
 
   /**
    * A duck pulls the lever: raise a lowered bridge or lower a raised one.
-   * Returns 0 when it moves, else why not (LeverDenied). `deckBusy`: a duck
-   * stands on the deck (the bridge never rises under a duck).
+   * Returns 0 when the pull is taken, else why not (LeverDenied). `deckBusy`:
+   * a duck stands on the deck now (the bridge never rises under a duck).
+   * A raise only starts at the end of the tick, once every duck has stepped
+   * (`step`): a duck that reached the deck later in the same tick refuses it
+   * there, and from the next tick on the KEEP_CLOSED bit keeps every duck
+   * off the deck before it steps.
    */
   pullLever(by: Seat | null, tick: number, deckBusy: boolean): number {
-    if (this.bridge === BridgeState.Raising || this.bridge === BridgeState.Lowering) return LeverDenied.Moving;
+    if (this.bridge === BridgeState.Raising || this.bridge === BridgeState.Lowering || this.raisePending) return LeverDenied.Moving;
     if (tick < this.leverReady) return LeverDenied.Cooldown;
     if (this.bridge === BridgeState.Down) {
       if (deckBusy) return LeverDenied.DuckOnBridge;
-      this.move(BridgeState.Raising, by, tick);
-    } else this.move(BridgeState.Lowering, by, tick);
+      this.raisePending = { by };
+      return 0;
+    }
+    this.move(BridgeState.Lowering, by, tick);
     this.leverReady = tick + Math.round(this.rules.bridgeCooldownSeconds * TICK_RATE);
     return 0;
   }
+
+  /** A raise pulled this tick, started at the tick's end if the deck is clear. */
+  private raisePending: { by: Seat | null } | null = null;
 
   /** Seconds until the lever moves again (0: ready). */
   leverSeconds(tick: number): number {
@@ -251,9 +262,18 @@ export class KeepWorld {
 
   // ---- the tick -----------------------------------------------------------------------
 
-  /** The bridge's travel and auto-lowering, the cannons' cooling, the KEEP_CLOSED bit on every duck. */
-  step(tick: number, seats: Iterable<Seat>): void {
+  /** A pulled raise (deck clear at the tick's end), the bridge's travel and auto-lowering, the cannons' cooling, the keep's bits on every duck. */
+  step(tick: number, seats: readonly Seat[]): void {
     this.tick = tick;
+    const pending = this.raisePending;
+    this.raisePending = null;
+    if (pending && this.bridge === BridgeState.Down) {
+      if (this.deckBusy(seats)) this.ev.raiseRefused(pending.by);
+      else {
+        this.move(BridgeState.Raising, pending.by, tick);
+        this.leverReady = tick + Math.round(this.rules.bridgeCooldownSeconds * TICK_RATE);
+      }
+    }
     if (this.bridge === BridgeState.Raising && tick >= this.bridgeEnd) {
       this.bridge = BridgeState.Up;
       this.autoDown = tick + Math.round(this.rules.bridgeUpMaxSeconds * TICK_RATE);

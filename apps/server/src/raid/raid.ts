@@ -54,7 +54,7 @@ import {
   type SimWorld,
   type UpgradeId,
 } from '@qwakk/shared';
-import { KillWeapon, RaidDrop } from '@qwakk/shared/net';
+import { KillWeapon, LeverDenied, RaidDrop } from '@qwakk/shared/net';
 import { Arena, KILL_BLEED, type ArenaEvents, type ArenaOptions, type BotLike, type BotTarget, type Seat } from '../arena.ts';
 import { DmExplosives, type ExplosiveEvents } from '../dmExplosives.ts';
 import type { ServerMap } from '../maps.ts';
@@ -791,7 +791,8 @@ export class Raid extends Arena {
             if (killer.sim.alive && !killer.sim.down && kd.stats.lifesteal > 0) killer.sim.hp = Math.min(kd.stats.maxHp, killer.sim.hp + kd.stats.lifesteal);
           }
         }
-        if (h.kind === HunterKind.Boss) for (const id of h.hurtBy) {
+        // Boss XP only for a real defeat by a duck (never for one that left without a killer).
+        if (h.kind === HunterKind.Boss && killerId) for (const id of h.hurtBy) {
           const d = this.ducks.get(id);
           if (d) d.bossKills++;
         }
@@ -816,6 +817,9 @@ export class Raid extends Arena {
         if (state !== BridgeState.Raising) return;
         const n = this.hunts.splashGateway(by?.id ?? null);
         if (n > 0) this.rev.splash(n, by);
+      },
+      raiseRefused: (by: Seat | null) => {
+        if (by && this.seats.has(by.id)) this.rev.leverDenied(by, LeverDenied.DuckOnBridge, 0);
       },
       overheat: (seat: Seat, i: number) => this.rev.overheat(seat, i),
       loafLaunched: (l: Loaf) => this.rev.loafLaunched(l, this.seats.get(l.owner) ?? null),

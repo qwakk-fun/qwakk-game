@@ -170,6 +170,32 @@ describe('the drawbridge', () => {
     expect(h.raid.keep.bridge).toBe(BridgeState.Down);
   });
 
+  it('never rises under a duck that reaches the deck later in the same tick (the raise waits for the tick boundary)', async () => {
+    const denied: number[] = [];
+    const moves: number[] = [];
+    const { h, seats } = await raid(2, {}, { leverDenied: (_s, r) => void denied.push(r), bridge: (st) => void moves.push(st) });
+    const [a, b] = seats;
+    h.raid.moveForTest(a!, 5);
+    h.raid.moveForTest(b!, 8);
+    h.run(0.2);
+    // A pulls with the deck clear; B (stepping after A in that tick) lands on the deck.
+    expect(h.raid.pullLever(a!)).toBe(0);
+    const g = h.raid.geometry.bridge;
+    Object.assign(b!.sim, { x: g.x + g.dx * (g.len - 0.4), z: g.z + g.dz * (g.len - 0.4), y: g.y, vx: 0, vy: 0, vz: 0 });
+    h.run(1 / TICK_RATE);
+    expect(h.raid.keep.bridge).toBe(BridgeState.Down);
+    expect(moves).toEqual([]);
+    expect(denied).toEqual([LeverDenied.DuckOnBridge]);
+    expect(b!.sim.dmBuff & KEEP_CLOSED).toBe(0);
+    // B steps off: the next pull raises it.
+    h.raid.moveForTest(b!, 8);
+    h.run(0.1);
+    expect(h.raid.pullLever(a!)).toBe(0);
+    h.run(1 / TICK_RATE);
+    expect(h.raid.keep.bridge).toBe(BridgeState.Raising);
+    for (const s of [a!, b!]) expect(s.sim.dmBuff & KEEP_CLOSED).toBe(KEEP_CLOSED);
+  });
+
   it('hunters on the deck go into the moat (credited to the duck at the lever); the Big Hunter is dunked', async () => {
     const downs: [number, number][] = [];
     const splashes: number[] = [];
@@ -187,6 +213,10 @@ describe('the drawbridge', () => {
     const bossHp = boss.hp;
     h.run(0.1);
     expect(h.raid.pullLever(seat)).toBe(0);
+    // The raise starts at the end of the tick, once every duck has stepped.
+    expect(h.raid.keep.bridge).toBe(BridgeState.Down);
+    h.run(1 / TICK_RATE);
+    expect(h.raid.keep.bridge).toBe(BridgeState.Raising);
     expect(splashes).toEqual([3]);
     expect(downs.filter((d) => d[1] === RaidKillHow.Splash).map((d) => d[0]).sort()).toEqual([HunterKind.Rifleman, HunterKind.Dog]);
     expect(h.raid.ducks.get(seat.id)!.kills).toBe(2);
@@ -210,6 +240,7 @@ describe('the drawbridge', () => {
     h.raid.moveForTest(seat, 5);
     h.run(0.2);
     expect(h.raid.pullLever(seat)).toBe(0);
+    h.run(1 / TICK_RATE);
     expect(downs.filter((x) => x === RaidKillHow.Splash)).toHaveLength(4);
     const gate = h.raid.keep.gateHp;
     h.raid.huntersAtGate(2);
@@ -253,6 +284,65 @@ describe('the drawbridge', () => {
       for (const x of list) if (!x.raft && x.downTicks === 0) expect(x.y, `${x.id} in the moat`).toBeGreaterThan(water.sea - 0.7);
     }
   }, 60_000);
+});
+
+describe('the stuck safety net', () => {
+  /** A hunter on the far bank that cannot move (a stand-in for one wedged in a pocket of the map). */
+  function wedged(h: HeadlessRaid, kind: number) {
+    const b = h.raid.geometry.bridge;
+    const x = h.raid.hunts.spawnForTest(kind, b.x + b.dx * (b.len + 4), b.z + b.dz * (b.len + 4));
+    x.mover.step = () => false;
+    return x;
+  }
+
+  it('waiting at a raised drawbridge is busy (no regroup); stuck while it is down, a hunter regroups, alive, and the wave does not clear', async () => {
+    const cleared: number[] = [];
+    const downs: number[] = [];
+    const { h, seats } = await raid(1, { bridgeUpMaxSeconds: 120 }, { waveClear: (w) => void cleared.push(w), hunterDown: (x) => void downs.push(x.kind) });
+    h.raid.skipTo(1);
+    h.raid.hunts.clear();
+    // The duck hides in the keep (no hunter sees it).
+    h.raid.moveForTest(seats[0]!, 5);
+    h.raid.keep.forceBridge(BridgeState.Up, h.raid.currentTick);
+    const x = wedged(h, HunterKind.Rifleman);
+    h.run(30);
+    expect(x.targetId).toBeNull();
+    expect(h.raid.hunts.regrouped).toBe(0);
+    expect(h.raid.hunts.hunters.has(x.id)).toBe(true);
+    expect(cleared).toEqual([]);
+    expect(h.raid.stage).toBe(RaidStage.Wave);
+    // Bridge down, still wedged: after 20 s it goes back to a trench exit (not defeated), the wave goes on.
+    h.raid.keep.forceBridge(BridgeState.Down, h.raid.currentTick);
+    const hp = x.hp;
+    const from = { x: x.x, z: x.z };
+    h.run(21, () => h.raid.hunts.regrouped > 0);
+    expect(h.raid.hunts.regrouped).toBe(1);
+    expect(Math.hypot(x.x - from.x, x.z - from.z)).toBeGreaterThan(5);
+    expect(x.downTicks).toBe(0);
+    expect(x.hp).toBe(hp);
+    expect(downs).toEqual([]);
+    expect(cleared).toEqual([]);
+    expect(h.raid.stage).toBe(RaidStage.Wave);
+    expect(h.raid.ducks.get(seats[0]!.id)!.wavesCleared).toBe(0);
+    expect(h.raid.ducks.get(seats[0]!.id)!.kills).toBe(0);
+  }, 120_000);
+
+  it('the Big Hunter gives boss XP only when a duck defeats it', async () => {
+    const { h, seats } = await raid(1);
+    h.raid.skipTo(1);
+    h.raid.hunts.clear();
+    stall(h);
+    const seat = seats[0]!;
+    const duck = h.raid.ducks.get(seat.id)!;
+    const boss = h.raid.hunts.spawnForTest(HunterKind.Boss, -100, 100);
+    h.raid.hunts.hurt(boss.id, 10, seat.id, false, 0, 0);
+    // Out without a killer (not by a duck): nothing for those who hurt it.
+    h.raid.hunts.defeatAll(null);
+    expect(duck.bossKills).toBe(0);
+    const again = h.raid.hunts.spawnForTest(HunterKind.Boss, -100, 100);
+    h.raid.hunts.hurt(again.id, 1e6, seat.id, false, 0, 0);
+    expect(duck.bossKills).toBe(1);
+  });
 });
 
 describe('the bread cannons', () => {

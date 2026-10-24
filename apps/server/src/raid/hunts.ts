@@ -102,7 +102,7 @@ type Unit = { kind: number; count: number };
 
 /** A wave past this long: the rest push in (no more sniping from afar), so a wave never drags on. */
 const PUSH_AFTER_TICKS = 60 * TICK_RATE;
-/** While pushing, a hunter stuck this long without moving or fighting gives up (checkStuck). */
+/** While pushing, a hunter stuck this long without moving or fighting regroups at a trench exit (checkStuck). */
 const GIVE_UP_TICKS = 20 * TICK_RATE;
 
 export class HuntWorld {
@@ -355,12 +355,14 @@ export class HuntWorld {
   /**
    * A safety net: while the wave pushes in, a hunter that has neither moved
    * 2 m nor fought nor hammered for 20 s (wedged in a pocket of the map)
-   * gives up and leaves: it counts as beaten, with no XP and no drop, so a
-   * wave never stalls on it.
+   * regroups: it goes back to a trench exit (its health kept) and comes
+   * again. It is never defeated by this, so it never clears a wave, gives XP
+   * or drops anything. Waiting for the drawbridge (the bridge not down) and
+   * riding a raft count as busy.
    */
   private checkStuck(h: HunterAgent, tick: number, push: boolean): void {
     if (h.downTicks > 0) return;
-    const busy = h.targetId !== null || h.act === HunterAct.Hammer || h.act === HunterAct.Aim || h.act === HunterAct.Fire || h.raft !== null || h.swim > 0;
+    const busy = h.targetId !== null || h.act === HunterAct.Hammer || h.act === HunterAct.Aim || h.act === HunterAct.Fire || h.raft !== null || h.swim > 0 || !this.keepState.bridgeDown;
     if (busy || Math.hypot(h.x - h.checkX, h.z - h.checkZ) > 2) {
       h.checkX = h.x;
       h.checkZ = h.z;
@@ -368,13 +370,38 @@ export class HuntWorld {
       return;
     }
     if (!push || tick - h.busyTick < GIVE_UP_TICKS) return;
-    this.gaveUp++;
-    h.helper = true;
-    this.defeat(h, null, false);
+    this.regroup(h, tick);
   }
 
-  /** Hunters that gave up stuck somewhere (stats, tests). */
-  gaveUp = 0;
+  /** Back to the trench exit nearest to it (away from standing ducks), to come again. */
+  private regroup(h: HunterAgent, tick: number): void {
+    this.regrouped++;
+    const ducks = this.host.ducks().filter((d) => d.standing);
+    const pts = this.spawns.filter((p) => ducks.every((d) => Math.hypot(d.x - p.x, d.z - p.z) > 25));
+    const list = pts.length > 0 ? pts : this.spawns;
+    let at = list[0];
+    for (const p of list) if (at && Math.hypot(p.x - h.x, p.z - h.z) < Math.hypot(at.x - h.x, at.z - h.z)) at = p;
+    if (!at) return;
+    h.x = at.x;
+    h.y = groundHeightAt(this.host.sim, at.x, at.y + 2, at.z);
+    h.z = at.z;
+    h.targetId = null;
+    h.lastSeen = null;
+    h.cover = null;
+    h.barred = null;
+    if (h.perch >= 0 && this.perchedBy[h.perch] === h.id) this.perchedBy[h.perch] = null;
+    h.perch = -1;
+    h.phase = 'advance';
+    h.kx = 0;
+    h.kz = 0;
+    h.mover.reset();
+    h.checkX = h.x;
+    h.checkZ = h.z;
+    h.busyTick = tick;
+  }
+
+  /** Hunters that regrouped after being stuck somewhere (stats, tests). */
+  regrouped = 0;
 
   /** A sniper's perch: the one it holds, else the free one nearest to it (null when none is free). */
   private perchOf(h: HunterAgent): P3 | null {
