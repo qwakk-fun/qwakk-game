@@ -188,10 +188,13 @@ GAITS = {
                  yaw=7, heel=16, toe=20),
     "run": dict(speed=3.6, cycle=18 / FPS, stance=0.36, lift=0.16, bob=0.04, drop=0.09, lean=14, roll=3, sway=0.014,
                 yaw=10, heel=10, toe=32),
+    # minions' clumsy charge: high knees, a big bob and waddle, leaning in
+    "charge": dict(speed=4.2, cycle=16 / FPS, stance=0.34, lift=0.24, bob=0.07, drop=0.10, lean=22, roll=7, sway=0.03,
+                   yaw=14, heel=8, toe=34),
 }
 
 
-def gait_pose(ctx, ph, g):
+def gait_pose(ctx, ph, g, upper=True):
     pose = Pose()
     s = g["stance"]
     Lh = g["speed"] * g["cycle"] * s
@@ -225,7 +228,8 @@ def gait_pose(ctx, ph, g):
     bounce = math.sin(TAU * 2 * (ph - 0.1))
     gun = CARRY if g["speed"] < 2 else frame((-0.16, -0.19, 1.10), (0.5, -0.8, 0.3), (-0.2, 0.1, 1.0))
     gun = Matrix.Translation((0, 0, 0.008 * bounce)) @ gun
-    carry_upper(pose, ctx, 0.0, 0.0, gun)
+    if upper:
+        carry_upper(pose, ctx, 0.0, 0.0, gun)
     return pose
 
 
@@ -536,10 +540,187 @@ def whistle(ctx, t):
     return pose
 
 
+# ----------------------------------------------------------------- melee waves: charge, bonk, stagger, launched, get up
+# Shared by every look (the minions were made for them, but a rifleman can be staggered and launched too).
+
+
+def blend_poses(sk, pa, pb, k):
+    """A pose halfway between two solved poses: every body joint's local transform is blended (rotation slerp,
+    the Hips translation lerp), so an IK-planted pose can blend into an FK one (lying down to standing up)."""
+    from hpose import solve, to_basis
+    Ma, _ = solve(sk, pa)
+    Mb, _ = solve(sk, pb)
+    ba, bb = to_basis(sk, Ma), to_basis(sk, Mb)
+    out = Pose()
+    for name in sk.order:
+        if name in SPECIAL or name in STATIC:
+            continue
+        m = blend_m(ba[name], bb[name], k)
+        out.world[name] = (lambda m=m, n=name, p=sk.parent[name]: (lambda M: M[p] @ sk.rel[n] @ m))()
+    return out
+
+
+CHARGE_UP = frame((-0.15, 0.0, 1.49), (0.26, 0.55, 0.79), (0.0, -0.8, 0.55))     # item raised over the head, both hands
+CHOKE = Matrix.Translation((0.0, -0.18, 0.0))       # the left fist slides down the handle, next to the right one
+
+
+def choked(ctx, G, pole=(1.0, 0.2, -0.3)):
+    """Left hand on the handle right above the right fist (socket y = SUPPORT_Y - 0.18): a bat grip for swings."""
+    g = G if callable(G) else (lambda M: G)
+    return lambda M: (g(M) @ CHOKE @ ctx.support, pole, "arm")
+
+
+def charge_pose(ctx, ph):
+    """A clumsy all-out run with the item raised overhead in both hands, leaning in, knees high."""
+    g = GAITS["charge"]
+    pose = gait_pose(ctx, ph, g, upper=False)
+    flail = math.sin(TAU * ph)
+    up = Matrix.Translation((0.02 * flail, 0.0, 0.025 * math.sin(TAU * 2 * (ph - 0.1))))
+    pose.add("Head", rx=-6, rz=8 * flail)
+    G = chest_gun(ctx, up @ CHARGE_UP)
+    hold(pose, ctx, G, pole_r=(-1.0, 0.2, -0.3), left_override=choked(ctx, G))
+    return pose
+
+
+def charge_clip():
+    g = GAITS["charge"]
+    frames = round(g["cycle"] * FPS)
+    return (lambda ctx, t: charge_pose(ctx, (t * FPS / frames) % 1.0)), frames
+
+
+BONK_EVENTS = {"hit": 0.38}
+BONK_DOWN = frame((-0.04, -0.34, 1.16), (0.10, -0.93, -0.22), (0.0, -0.22, 0.97))   # item slammed down in front, at a duck's head height
+
+
+def bonk(ctx, t):
+    """The minion attack: raise the item overhead, then smash it down in front (contact at `hit` 0.38 s, the
+    Muzzle point (spoon bowl, net hoop) about 0.8 m ahead at a duck's chest or head height), a wobble, back
+    to the carry."""
+    pose = Pose()
+    plant(pose, ctx, {"Left": (0.04, 0.14), "Right": (0.05, -0.10)}, drop=0.03)
+    up = keys(t, [(0, 0), (0.26, 1), (0.30, 1), (0.36, 0)])
+    down = keys(t, [(0.28, 0), (0.37, 1), (0.52, 1), (0.70, 0)])
+    wob = spring(t, 0.38, 1.0, 4.0, 9.0)
+    pose.hips = pose.hips + Vector((0, 0.03 * up - 0.04 * down, -0.05 * down))
+    pose.add("Hips", rx=-6 * up + 8 * down)
+    pose.add("Spine", rx=-10 * up + 8 * down)
+    pose.add("Spine1", rx=-6 * up + 6 * down + 2 * wob)
+    pose.add("Neck", rx=8 * up - 12 * down)
+    pose.add("Head", rx=6 * up - 8 * down + 4 * wob)
+    G = blend_m(CARRY, CHARGE_UP, up)
+    G = blend_m(G, BONK_DOWN, down)
+    G = G @ Matrix.Rotation(-4 * DEG * wob, 4, "X")
+    Gc = chest_gun(ctx, G)
+    near = max(up, down)
+    hold(pose, ctx, Gc, pole_r=(-1.0, 0.2, -0.4),
+         left_override=lambda M: (blend_m(Gc(M) @ ctx.support, Gc(M) @ CHOKE @ ctx.support, ss(0.0, 0.6, near)),
+                                  (1.0, 0.2, -0.4), "arm"))
+    return pose
+
+
+def stagger(ctx, t):
+    """Hit-stop knockback: rocked back on the heels, arms flung, one step back to catch the balance,
+    recovered by 0.5 s. The engine moves the hunter back (no root motion)."""
+    pose = Pose()
+    k = keys(t, [(0, 0), (0.07, 1), (0.30, 0.55), (0.50, 0)]) + spring(t, 0.30, 0.15, 3.0, 8.0)
+    step = keys(t, [(0.08, 0), (0.24, 1), (0.40, 1), (0.50, 0)])
+    lift = math.sin(math.pi * ss(0.08, 0.24, t)) * 0.10 if t < 0.24 else 0.0
+    plant(pose, ctx, {"Left": (0.04, 0.04 - 0.05 * step), "Right": (0.06, -0.05 - 0.22 * step)}, drop=0.03 + 0.05 * k)
+    m, pole, kind = pose.ik["RightFoot"]
+    pose.ik["RightFoot"] = (Matrix.Translation((0, 0, lift)) @ m, pole, kind)
+    pose.loc["Hips"] += Vector((0, 0.10 * k, 0))
+    pose.add("Hips", rx=-10 * k)
+    pose.add("Spine", rx=-14 * k, ry=6 * k)
+    pose.add("Spine1", rx=-8 * k, rz=-10 * k)
+    pose.add("Neck", rx=-16 * k, rz=8 * k)
+    pose.add("Head", rx=-14 * k, ry=-10 * k)
+    flung = Matrix.Translation((0.0, 0.10 * k, 0.16 * k)) @ Matrix.Rotation(-25 * DEG * k, 4, "X")
+    hold(pose, ctx, chest_gun(ctx, flung @ CARRY))
+    return pose
+
+
+LAUNCH_EVENTS = {"ground": 0.78}
+
+
+def launched(ctx, t):
+    """Thrown by a shockwave: blasted up and over in a full backward flip, limbs flailing, and dropped flat on
+    the back (`ground` 0.78 s, a bounce), ending in Defeat_Dizzy's lying pose, so it chains into Get_Up (back
+    on the feet) or Defeat_Dizzy (out). In place: the engine adds the knockback travel and keeps the feet
+    origin on the ground."""
+    pose = Pose()
+    T = LAUNCH_EVENTS["ground"]
+    if t >= T:
+        _lying(pose, ctx, 0.0)
+        pose.hips = pose.hips + Vector((0, 0, abs(spring(t, T, 0.09, 2.5, 7.0))))
+        return pose
+    x = t / T
+    lie = Vector((0, 0.34, -(hp.HIPS_Z - 0.19)))
+    peak = 1.05
+    height = 4 * peak * x * (1 - x) * (1 - 0.2 * x)       # a fast rise, a fall to the lying height
+    pose.hips = Vector((0, lie.y * ss(0.3, 1.0, x), lie.z * x ** 2.2 + height))
+    spin = -(88 + 360) * ss(0.05, 1.0, x) ** 1.15
+    pose.add("Hips", rx=spin)
+    flail = math.sin(TAU * 3.5 * t)
+    curl = math.sin(math.pi * x)
+    pose.add("Spine", rx=10 * curl)
+    pose.add("Neck", rx=-18 * (1 - curl) + 10 * curl, rz=10 * flail)
+    pose.add("Head", rx=-10 + 8 * curl)
+    pose.side("Left", "Arm", ry=lerp(55, -10, curl) + 18 * flail, rx=-30 * curl)
+    pose.side("Right", "Arm", ry=lerp(55, 5, curl) - 18 * flail, rx=-20 * curl)
+    pose.side("Left", "ForeArm", rz=-30 - 20 * curl)
+    pose.side("Right", "ForeArm", rz=-25)
+    pose.both("UpLeg", rx=-70 * curl - 10 * flail)
+    pose.both("Leg", rx=80 * curl + 10)
+    pose.both("Foot", rx=-15)
+    pose.curl("LeftHandFingers", -20)
+    pose.curl("RightHandFingers", -85)
+    if t > T - 0.06:   # ease into the lying pose for the last frames
+        lying = Pose()
+        _lying(lying, ctx, 0.0)
+        return blend_poses(ctx.sk, pose, lying, ss(T - 0.06, T, t))
+    return pose
+
+
+def get_up(ctx, t):
+    """From the lying pose (end of Launched or Defeat_Dizzy) back onto the feet: sit up 0.0 to 0.35, a hop up
+    to the feet 0.35 to 0.70, a dazed head shake and back to the Idle carry by 0.90 s."""
+    lying = Pose()
+    _lying(lying, ctx, 0.0)
+    sit = Pose()
+    sit.hips = Vector((0, 0.18, -(hp.HIPS_Z - 0.26)))
+    sit.add("Hips", rx=-30)
+    sit.add("Spine", rx=18)
+    sit.add("Spine1", rx=10)
+    sit.add("Neck", rx=6)
+    sit.both("UpLeg", rx=-70)
+    sit.both("Leg", rx=100)
+    sit.both("Foot", rx=-10)
+    sit.both("Arm", ry=65, rx=10)
+    sit.both("ForeArm", rz=-20)
+    sit.curl("RightHandFingers", -85)
+    sit.curl("LeftHandFingers", -20)
+    stand = idle(ctx, 0.0)
+    if t < 0.35:
+        return blend_poses(ctx.sk, lying, sit, ss(0.0, 0.35, t))
+    if t < 0.70:
+        crouch = idle(ctx, 0.0)
+        crouch.hips = crouch.hips + Vector((0, 0.06, -0.22))
+        crouch.add("Hips", rx=24)
+        crouch.add("Spine", rx=16)
+        k = ss(0.35, 0.70, t)
+        mid = blend_poses(ctx.sk, sit, crouch, min(1.0, k * 1.6))
+        return mid if k < 0.62 else blend_poses(ctx.sk, crouch, stand, ss(0.62, 1.0, k))
+    shake = math.sin(TAU * 3.0 * (t - 0.70)) * (1 - ss(0.80, 0.90, t))
+    stand.add("Head", rz=14 * shake)
+    stand.add("Neck", rz=6 * shake)
+    return stand
+
+
 def registry():
     """name -> (fn, frames, loop, layer, special bones animated)."""
     walk, wf = gait_clip("walk")
     run, rf = gait_clip("run")
+    charge, cf = charge_clip()
     return {
         "Idle": (idle, 72, True, FULL, ()),
         "Walk": (walk, wf, True, FULL, ()),
@@ -555,9 +736,15 @@ def registry():
         "Defeat_Dizzy": (defeat_dizzy, 36, True, FULL, ("Hat", "FxStars")),
         "Taunt": (taunt, 54, False, FULL, ()),
         "Whistle": (whistle, 48, False, FULL, ("Whistle",)),
+        "Charge": (charge, cf, True, FULL, ()),
+        "Bonk": (bonk, 21, False, FULL, ()),
+        "Stagger": (stagger, 15, False, FULL, ()),
+        "Launched": (launched, 33, False, FULL, ()),
+        "Get_Up": (get_up, 27, False, FULL, ()),
     }
 
 
-EVENTS = {"Reload": RELOAD_EVENTS, "Throw": THROW_EVENTS, "Whistle": WHISTLE_EVENTS,
+EVENTS = {"Reload": RELOAD_EVENTS, "Throw": THROW_EVENTS, "Whistle": WHISTLE_EVENTS, "Bonk": BONK_EVENTS,
+          "Launched": LAUNCH_EVENTS,
           "Defeat": {"hatOff": 0.0, "ground": DEFEAT_LIE, "stars": DEFEAT_STARS}}
-AUTHORED_SPEED = {"Walk": GAITS["walk"]["speed"], "Run": GAITS["run"]["speed"]}
+AUTHORED_SPEED = {"Walk": GAITS["walk"]["speed"], "Run": GAITS["run"]["speed"], "Charge": GAITS["charge"]["speed"]}

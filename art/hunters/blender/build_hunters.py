@@ -113,13 +113,14 @@ def main():
     # ---- hunter models
     for lid, c in chars.items():
         path = os.path.join(EXPORT, FILES[lid])
-        boss = looks.LOOKS[lid].get("boss")
-        export_hunter(c, path, root_scale=hp.BOSS_SCALE if boss else None)
+        scale = looks.scale_of(lid)
+        export_hunter(c, path, root_scale=scale if scale != 1.0 else None)
         publish(path, FILES[lid])
-        c.info["scale"] = hp.BOSS_SCALE if boss else 1.0
+        c.info["scale"] = scale
         st = dict(c.info)
         st["glb_bytes"] = os.path.getsize(path)
-        st["scale"] = round(hp.BOSS_SCALE, 6) if boss else 1.0
+        st["scale"] = round(scale, 6)
+        st["minion"] = bool(looks.LOOKS[lid].get("minion"))
         st.update(measure.hunter(c, sk, ctx, reg, st["scale"]))
         stats["hunters"][lid] = st
 

@@ -3,7 +3,8 @@
 | Asset | Source | License |
 | --- | --- | --- |
 | Duck models (classic and mallard), animations, rifle, pistol (`apps/client/public/models/`) | Made for Qwakk by script in this repo (`art/`) | Owned by Qwakk |
-| Hunt Season hunters, dog, decoy, trap and defeat effects (`apps/client/public/models/hunters/`) | Made for Qwakk by script in this repo (`art/hunters/`, Blender driven by Python) | Owned by Qwakk |
+| Hunt Season hunters, minions (beater, recruit), dog, decoy, trap and defeat effects (`apps/client/public/models/hunters/`) | Made for Qwakk by script in this repo (`art/hunters/`, Blender driven by Python) | Owned by Qwakk |
+| Hunt Season melee kit: katana, scabbard, the duck's katana clips, swing effects and the XP feather (`apps/client/public/models/melee/`) | Made for Qwakk by script in this repo (`art/melee/`, Blender driven by Python) | Owned by Qwakk |
 | Sound effects (gunshots, reloads, hit marker, headshot, kill confirm, quack, damage; Hunt Season's horn, whistle, duck call, decoy pop, trap snap) | Synthesized at runtime with WebAudio in `apps/client/src/audio/sound.ts`; no sample files | Owned by Qwakk |
 | Ground textures (`apps/client/public/textures/ground/`) | Procedural, made for Qwakk by script in this repo (`art/ground/`, Blender and numpy); no photos, scans or texture packs | Owned by Qwakk |
 | Greybox island, effects, HUD | Generated in code in this repo | Owned by Qwakk |

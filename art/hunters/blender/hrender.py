@@ -69,9 +69,9 @@ class Stage:
         for o in kit.decoy + kit.trap + [kit.stars, kit.poof]:
             self.show_obj(o, False)
         self.duck = self._import_duck(os.path.join(models, "duck.glb"))
-        if "boss" in chars:     # the GLB carries this on its Root node; in Blender the rig object takes it
-            s = chars["boss"].info.get("scale", 1.0)
-            chars["boss"].rig.scale = (s, s, s)
+        for c in chars.values():     # the GLB carries this on its Root node; in Blender the rig object takes it
+            s = c.info.get("scale", 1.0)
+            c.rig.scale = (s, s, s)
         self.labels = []
 
     def _dress(self, lods, rig):
@@ -193,6 +193,8 @@ def run(chars, sk, ctx, reg, palette, the_dog, kit, attach, renders, quick, only
         turnarounds(st, renders, idle)
     if wanted("lineup"):
         lineup(st, renders, idle)
+    if wanted("minions"):
+        minions_lineup(st, renders, idle)
     if wanted("lod"):
         lod_sheet(st, renders, idle)
     if wanted("dog"):
@@ -283,6 +285,50 @@ def lineup(st, renders, idle):
     st.duck["rig"].location = (0, 0, 0)
 
 
+def minions_lineup(st, renders, idle):
+    """The two horde minions next to the classic duck and a rifleman (front three-quarter, with heights), plus
+    an elevated telephoto view like the game camera's."""
+    if "beater" not in st.chars:
+        return
+    size((1500, 760))
+    order = ["rifleman", "beater", "recruit"]
+    xs = {"duck": -1.9, "rifleman": -0.7, "beater": 0.45, "recruit": 1.5}
+    who = [st.chars[k] for k in order]
+    st.solo(who, duck=True)
+    for k in order:
+        c = st.chars[k]
+        st.pose(c, idle(st.ctx, 0.4))
+        st.place(c, xs[k], 0, -18)
+    st.duck["rig"].location = (xs["duck"], 0, 0)
+    st.duck["rig"].rotation_euler = (0, 0, math.radians(-18))
+    bpy.context.view_layer.update()
+    for disc in [o for o in bpy.data.objects if o.name.startswith("GroundGlow")]:
+        disc.scale = (3.0, 1.2, 1)
+    cam = render.frame_camera("cam_min", (-0.2, 0, 1.15), 5.4, yaw_deg=0, pitch_deg=5, lens=60)
+    tops = {k: max(p.z for p in measure.positions(st.chars[k].lods[0])) for k in order}
+    tops["duck"] = max(max(p.z for p in measure.positions(m)) for m in st.duck["meshes"])
+    tris = {k: sum(len(p.vertices) - 2 for p in st.chars[k].lods[0].data.polygons) for k in order}
+    names = {"duck": "Qwakk duck", "rifleman": "rifleman", "beater": "Beater (minion)", "recruit": "Recruit (minion)"}
+    for k, x in xs.items():
+        extra = f", {tris[k]} tris" if k in tris else ""
+        st.label(f"{names[k]} {tops[k]:.2f} m{extra}", (x - 0.5, -0.6, 0.02), cam, size=0.065)
+    render.render(cam, os.path.join(renders, "minions_lineup.png"))
+    st.clear_labels()
+    size((1500, 520))
+    cam2 = render.frame_camera("cam_min_far", (-0.2, 0, 0.9), 6.0, yaw_deg=168, pitch_deg=14, lens=120)
+    for k in order:
+        st.place(st.chars[k], xs[k], 0, 180 - 18)
+    st.duck["rig"].rotation_euler = (0, 0, math.radians(180 - 18))
+    bpy.context.view_layer.update()
+    render.render(cam2, os.path.join(renders, "minions_lineup_back.png"))
+    for disc in [o for o in bpy.data.objects if o.name.startswith("GroundGlow")]:
+        disc.scale = (1, 1, 1)
+    for c in who:
+        st.place(c)
+    st.duck["rig"].location = (0, 0, 0)
+    st.duck["rig"].rotation_euler = (0, 0, 0)
+
+
 def lod_sheet(st, renders, idle):
     size((420, 560))
     rows = []
@@ -354,7 +400,8 @@ def props_sheet(st, renders):
     k.decoy_root.location = (0, 0, 0)
 
 
-ANIM_CAST = {"Throw": "decoy", "Whistle": "boss", "Taunt": "boss"}
+ANIM_CAST = {"Throw": "decoy", "Whistle": "boss", "Taunt": "boss", "Charge": "beater", "Bonk": "beater",
+             "Stagger": "recruit", "Launched": "beater", "Get_Up": "recruit"}
 
 
 def anim_sheets(st, renders, only):

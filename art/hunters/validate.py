@@ -12,19 +12,22 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(os.path.dirname(HERE)), "apps", "client", "public", "models", "hunters")
 
-LOOKS = ("rifleman", "trapper", "decoy", "boss")
-BOSS_SCALE = 1.24
+LOOKS = ("rifleman", "trapper", "decoy", "boss", "beater", "recruit")
+MINIONS = ("beater", "recruit")
+SCALES = {"boss": 1.24, "recruit": 0.72}     # Root node scale per look (1 for the others)
 JOINTS = ["Root", "Hips", "Spine", "Spine1", "Spine2", "Neck", "Head", "HeadTop", "Hat", "Whistle", "LeftShoulder",
           "LeftArm", "LeftForeArm", "LeftHand", "LeftHandFingers", "LeftHandProp", "RightShoulder", "RightArm",
           "RightForeArm", "RightHand", "RightHandFingers", "WeaponSocket", "Muzzle", "LeftUpLeg", "LeftLeg",
           "LeftFoot", "LeftToeBase", "RightUpLeg", "RightLeg", "RightFoot", "RightToeBase", "FxStars", "FxPoof"]
 HIDDEN = ("FxStars", "FxPoof", "LeftHandProp")
 CLIPS = {"Idle": 2.4, "Walk": 0.8, "Run": 0.6, "Aim": 2.0, "Aim_Up": 2.0, "Aim_Down": 2.0, "Fire": 0.3,
-         "Reload": 1.8, "Throw": 1.2, "Hit": 0.4, "Defeat": 2.0, "Defeat_Dizzy": 1.2, "Taunt": 1.8, "Whistle": 1.6}
+         "Reload": 1.8, "Throw": 1.2, "Hit": 0.4, "Defeat": 2.0, "Defeat_Dizzy": 1.2, "Taunt": 1.8, "Whistle": 1.6,
+         "Charge": 0.533, "Bonk": 0.7, "Stagger": 0.5, "Launched": 1.1, "Get_Up": 0.9}
 UPPER = ("Aim", "Aim_Up", "Aim_Down", "Fire", "Reload", "Throw")
-LOOPS = ("Idle", "Walk", "Run", "Aim", "Aim_Up", "Aim_Down", "Defeat_Dizzy")
+LOOPS = ("Idle", "Walk", "Run", "Aim", "Aim_Up", "Aim_Down", "Defeat_Dizzy", "Charge")
 DOG_CLIPS = {"Idle": 2.0, "Run": 0.4, "Bite": 0.6, "Hit": 0.367, "Defeat": 1.5, "Defeat_Dizzy": 1.2}
 TRI_LOD0, TRI_LOD2 = 4000, 1500
+TRI_MINION_LOD0 = 2000
 
 
 def read(path):
@@ -96,7 +99,7 @@ def check_clips(doc, blob, expect, problems, label, upper=(), loops=(), upper_ro
     return clips
 
 
-def check_lods(doc, label, problems, budget=True):
+def check_lods(doc, label, problems, budget=True, lod0_budget=TRI_LOD0):
     nodes = by_name(doc)
     out = []
     for k in range(3):
@@ -106,8 +109,8 @@ def check_lods(doc, label, problems, budget=True):
             out.append(0)
             continue
         out.append(tris(doc, n))
-    if budget and out[0] > TRI_LOD0:
-        problems.append(f"{label} LOD0 {out[0]} triangles over {TRI_LOD0}")
+    if budget and out[0] > lod0_budget:
+        problems.append(f"{label} LOD0 {out[0]} triangles over {lod0_budget}")
     if budget and out[2] > TRI_LOD2:
         problems.append(f"{label} LOD2 {out[2]} triangles over {TRI_LOD2}")
     if not out[0] > out[1] > out[2]:
@@ -143,14 +146,15 @@ def main():
             if nodes[h].get("scale") != [0.0, 0.0, 0.0]:
                 problems.append(f"{lid}: {h} node scale should be 0")
         rs = nodes["Root"].get("scale", [1, 1, 1])
-        want = BOSS_SCALE if lid == "boss" else 1.0
+        want = SCALES.get(lid, 1.0)
         if max(abs(v - want) for v in rs) > 1e-6:
             problems.append(f"{lid}: Root scale {rs}, expected {want}")
         if [m["name"] for m in doc["materials"]] != ["Hunter"] or len(doc.get("images", [])) != 1:
             problems.append(f"{lid}: expected one material 'Hunter' with one palette image")
         if doc.get("animations"):
             problems.append(f"{lid}: model file should carry no clips (they live in hunter_anims.glb)")
-        report[lid] = {"triangles": check_lods(doc, lid, problems), "bytes": os.path.getsize(path)}
+        budget = TRI_MINION_LOD0 if lid in MINIONS else TRI_LOD0
+        report[lid] = {"triangles": check_lods(doc, lid, problems, lod0_budget=budget), "bytes": os.path.getsize(path)}
 
     doc, blob = read(os.path.join(OUT, "hunter_anims.glb"))
     names = {n.get("name") for n in doc["nodes"]}

@@ -1,5 +1,5 @@
 {
- "anims_glb_bytes": 283396,
+ "anims_glb_bytes": 358676,
  "attach": {
   "dog": {
    "Poof": {
@@ -101,6 +101,22 @@
    "loop": true,
    "seconds": 2.0
   },
+  "Bonk": {
+   "animates": [],
+   "frames": 21,
+   "ik_reach_error_m": 0.005,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.7
+  },
+  "Charge": {
+   "animates": [],
+   "frames": 16,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 0.533
+  },
   "Defeat": {
    "animates": [
     "FxPoof",
@@ -132,6 +148,14 @@
    "loop": false,
    "seconds": 0.3
   },
+  "Get_Up": {
+   "animates": [],
+   "frames": 27,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.9
+  },
   "Hit": {
    "animates": [],
    "frames": 12,
@@ -148,6 +172,14 @@
    "loop": true,
    "seconds": 2.4
   },
+  "Launched": {
+   "animates": [],
+   "frames": 33,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 1.1
+  },
   "Reload": {
    "animates": [],
    "frames": 54,
@@ -163,6 +195,14 @@
    "layer": "full",
    "loop": true,
    "seconds": 0.6
+  },
+  "Stagger": {
+   "animates": [],
+   "frames": 15,
+   "ik_reach_error_m": 0.0072,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.5
   },
   "Taunt": {
    "animates": [],
@@ -257,7 +297,7 @@
     "seconds": 0.4
    }
   },
-  "glb_bytes": 257468,
+  "glb_bytes": 257504,
   "manifest": {
    "clips": {
     "Bite": {
@@ -294,7 +334,7 @@
     }
    },
    "file": "dog.glb",
-   "glbBytes": 257468,
+   "glbBytes": 257504,
    "height": 1.016,
    "hitbox": {
     "run": {
@@ -330,8 +370,76 @@
   ]
  },
  "hunters": {
+  "beater": {
+   "glb_bytes": 167144,
+   "hat_top_m": 1.81,
+   "head_top_node_m": 1.972,
+   "height_m": 1.81,
+   "hitbox": {
+    "aim": {
+     "bodyHi": 1.297,
+     "bodyLo": 0.195,
+     "bodyR": 0.195,
+     "bodyX": -0.001,
+     "bodyZ": 0.004,
+     "headR": 0.185,
+     "headX": -0.036,
+     "headY": 1.533,
+     "headZ": 0.047
+    },
+    "run": {
+     "bodyHi": 1.202,
+     "bodyLo": 0.2,
+     "bodyR": 0.2,
+     "bodyX": 0.016,
+     "bodyZ": 0.019,
+     "headR": 0.185,
+     "headX": 0.042,
+     "headY": 1.446,
+     "headZ": 0.107
+    },
+    "stand": {
+     "bodyHi": 1.31,
+     "bodyLo": 0.195,
+     "bodyR": 0.195,
+     "bodyX": -0.0,
+     "bodyZ": 0.001,
+     "headR": 0.185,
+     "headX": 0.003,
+     "headY": 1.552,
+     "headZ": 0.01
+    }
+   },
+   "minion": true,
+   "muzzle_aim_m": [
+    -0.085,
+    1.317,
+    0.835
+   ],
+   "muzzle_socket": [
+    0.0,
+    0.585,
+    0.012
+   ],
+   "scale": 1.0,
+   "skull_top_m": 1.742,
+   "stand_bounds_m": {
+    "depth": 1.018,
+    "width": 0.808
+   },
+   "triangles": [
+    1976,
+    1138,
+    930
+   ],
+   "vertices": [
+    1118,
+    678,
+    560
+   ]
+  },
   "boss": {
-   "glb_bytes": 304740,
+   "glb_bytes": 304776,
    "hat_top_m": 2.522,
    "head_top_node_m": 2.445,
    "height_m": 2.522,
@@ -370,6 +478,7 @@
      "headZ": 0.012
     }
    },
+   "minion": false,
    "muzzle_aim_m": [
     -0.105,
     1.703,
@@ -398,7 +507,7 @@
    ]
   },
   "decoy": {
-   "glb_bytes": 337748,
+   "glb_bytes": 337784,
    "hat_top_m": 1.802,
    "head_top_node_m": 1.972,
    "height_m": 1.802,
@@ -437,6 +546,7 @@
      "headZ": 0.01
     }
    },
+   "minion": false,
    "muzzle_aim_m": [
     -0.085,
     1.367,
@@ -464,8 +574,76 @@
     877
    ]
   },
+  "recruit": {
+   "glb_bytes": 191512,
+   "hat_top_m": 1.325,
+   "head_top_node_m": 1.42,
+   "height_m": 1.325,
+   "hitbox": {
+    "aim": {
+     "bodyHi": 0.908,
+     "bodyLo": 0.184,
+     "bodyR": 0.184,
+     "bodyX": -0.001,
+     "bodyZ": 0.003,
+     "headR": 0.133,
+     "headX": -0.026,
+     "headY": 1.104,
+     "headZ": 0.034
+    },
+    "run": {
+     "bodyHi": 0.837,
+     "bodyLo": 0.192,
+     "bodyR": 0.192,
+     "bodyX": 0.01,
+     "bodyZ": 0.01,
+     "headR": 0.133,
+     "headX": 0.03,
+     "headY": 1.041,
+     "headZ": 0.077
+    },
+    "stand": {
+     "bodyHi": 0.917,
+     "bodyLo": 0.185,
+     "bodyR": 0.185,
+     "bodyX": -0.0,
+     "bodyZ": 0.001,
+     "headR": 0.133,
+     "headX": 0.002,
+     "headY": 1.117,
+     "headZ": 0.007
+    }
+   },
+   "minion": true,
+   "muzzle_aim_m": [
+    -0.061,
+    0.94,
+    0.756
+   ],
+   "muzzle_socket": [
+    0.0,
+    0.8,
+    0.0
+   ],
+   "scale": 0.72,
+   "skull_top_m": 1.254,
+   "stand_bounds_m": {
+    "depth": 0.924,
+    "width": 0.56
+   },
+   "triangles": [
+    1976,
+    1166,
+    1004
+   ],
+   "vertices": [
+    1119,
+    693,
+    603
+   ]
+  },
   "rifleman": {
-   "glb_bytes": 284656,
+   "glb_bytes": 284692,
    "hat_top_m": 1.801,
    "head_top_node_m": 1.972,
    "height_m": 1.801,
@@ -504,6 +682,7 @@
      "headZ": 0.01
     }
    },
+   "minion": false,
    "muzzle_aim_m": [
     -0.085,
     1.371,
@@ -532,7 +711,7 @@
    ]
   },
   "trapper": {
-   "glb_bytes": 326732,
+   "glb_bytes": 326768,
    "hat_top_m": 1.812,
    "head_top_node_m": 1.972,
    "height_m": 1.812,
@@ -571,6 +750,7 @@
      "headZ": 0.01
     }
    },
+   "minion": false,
    "muzzle_aim_m": [
     -0.085,
     1.381,
@@ -605,7 +785,7 @@
    "manifest": {
     "file": "decoy.glb",
     "forward": "+Z",
-    "glbBytes": 32368,
+    "glbBytes": 32404,
     "length": 0.38,
     "lodUntil": [
      15.0,
@@ -629,7 +809,7 @@
    "file": "hunter_fx.glb",
    "manifest": {
     "file": "hunter_fx.glb",
-    "glbBytes": 24908,
+    "glbBytes": 24944,
     "nodes": [
      "Stars",
      "Poof"
@@ -645,7 +825,7 @@
    "file": "trap.glb",
    "manifest": {
     "file": "trap.glb",
-    "glbBytes": 46820,
+    "glbBytes": 46856,
     "nodes": {
      "root": "Trap",
      "states": [

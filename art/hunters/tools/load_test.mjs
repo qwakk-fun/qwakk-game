@@ -35,6 +35,7 @@ async function load(file) {
 }
 
 const problems = [];
+const manifest0 = JSON.parse(fs.readFileSync(path.join(dir, 'hunters.json'), 'utf8'));
 
 /** Pose one action at time t (restarts it, so a finished clamped action poses again). */
 function at(mixer, action, t) {
@@ -65,7 +66,7 @@ function world(root, name) {
   return root.getObjectByName(name).getWorldPosition(new THREE.Vector3());
 }
 
-for (const id of ['rifleman', 'trapper', 'decoy', 'boss']) {
+for (const id of ['rifleman', 'trapper', 'decoy', 'boss', 'beater', 'recruit']) {
   const gltf = await load(`hunter_${id}.glb`);
   const root = gltf.scene;
   const info = {};
@@ -105,6 +106,24 @@ for (const id of ['rifleman', 'trapper', 'decoy', 'boss']) {
       if (mu.y < m.y + 0.2) problems.push(`${id}: Aim_Up does not raise the muzzle`);
       up.stop();
       action.play();
+    }
+    if (name === 'Launched') {
+      at(mixer, action, 0);
+      const h0 = world(root, 'Hips').y;
+      at(mixer, action, 0.35);
+      const h1 = world(root, 'Hips').y;
+      at(mixer, action, clip.duration);
+      const h2 = world(root, 'Hips').y;
+      info.launched = { start: +h0.toFixed(3), peak: +h1.toFixed(3), end: +h2.toFixed(3) };
+      if (h1 < h0 + 0.5 * (h0 / 0.95)) problems.push(`${id}: Launched does not throw the hunter up`);
+      if (h2 > 0.4 * (h0 / 0.95)) problems.push(`${id}: Launched does not end lying down`);
+    }
+    if (name === 'Bonk') {
+      at(mixer, action, manifest0.clips.Bonk.events.hit);
+      const m = world(root, 'Muzzle');
+      info.bonkHit = [+m.x.toFixed(3), +m.y.toFixed(3), +m.z.toFixed(3)];
+      const s = world(root, 'HeadTop').y / 1.972;
+      if (m.z < 0.45 * s || m.y > 1.3 * s || m.y < 0.15 * s) problems.push(`${id}: Bonk does not bring the item down in front`);
     }
     if (name === 'Defeat') {
       at(mixer, action, 0);

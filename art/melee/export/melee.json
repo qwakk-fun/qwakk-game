@@ -1,0 +1,495 @@
+{
+ "arcs": {
+  "Heavy_Release": {
+   "measured": {
+    "fromDeg": 103.9,
+    "inner": 0.564,
+    "reach": 1.387,
+    "sweptDeg": 504.3,
+    "toDeg": -400.4,
+    "yMax": 0.816,
+    "yMin": 0.557
+   },
+   "suggestedHit": {
+    "note": "full turn: everything within the radius is hit once",
+    "radius": 1.64,
+    "shape": "circle"
+   }
+  },
+  "Quack_Shockwave": {
+   "suggestedHit": {
+    "note": "not a blade hit: the shockwave leaves the feet at the impact event and grows; scale melee_fx Shockwave to match",
+    "radiusFrom": 0.5,
+    "radiusTo": 4.5,
+    "seconds": 0.35,
+    "shape": "ring"
+   }
+  },
+  "Slash_1": {
+   "measured": {
+    "fromDeg": 116.5,
+    "inner": 0.505,
+    "reach": 1.37,
+    "sweptDeg": 186.3,
+    "toDeg": -69.7,
+    "yMax": 1.174,
+    "yMin": 0.655
+   },
+   "suggestedHit": {
+    "centerDeg": 23.4,
+    "halfAngleDeg": 108.1,
+    "note": "a pie slice around the duck (radius = blade tip reach + 0.25 m of forgiveness)",
+    "radius": 1.62,
+    "shape": "arc"
+   }
+  },
+  "Slash_2": {
+   "measured": {
+    "fromDeg": -83.6,
+    "inner": 0.542,
+    "reach": 1.362,
+    "sweptDeg": 191.1,
+    "toDeg": 107.5,
+    "yMax": 1.42,
+    "yMin": 0.907
+   },
+   "suggestedHit": {
+    "centerDeg": 12.0,
+    "halfAngleDeg": 110.5,
+    "note": "a pie slice around the duck (radius = blade tip reach + 0.25 m of forgiveness)",
+    "radius": 1.61,
+    "shape": "arc"
+   }
+  },
+  "Slash_3": {
+   "impactTip": [
+    -0.518,
+    0.474,
+    1.211
+   ],
+   "measured": {
+    "fromDeg": 17.4,
+    "inner": 0.253,
+    "reach": 1.343,
+    "sweptDeg": 22.7,
+    "toDeg": 18.0,
+    "yMax": 2.143,
+    "yMin": -0.031
+   },
+   "suggestedHit": {
+    "center": [
+     -0.39,
+     0.88
+    ],
+    "note": "a circle on the ground centered between the blade's base and tip at the impact, [x, z] in model space",
+    "radius": 1.1,
+    "shape": "circle"
+   }
+  },
+  "Ultimate_Spin": {
+   "measured": {
+    "fromDeg": 37.3,
+    "inner": 0.647,
+    "reach": 1.371,
+    "sweptDeg": 360.0,
+    "toDeg": -322.7,
+    "yMax": 0.92,
+    "yMin": 0.801
+   },
+   "suggestedHit": {
+    "note": "one full turn per 0.4 s; tick damage a few times per turn",
+    "radius": 1.72,
+    "shape": "circle"
+   }
+  }
+ },
+ "attach": {
+  "katana": {
+   "node": "RightHand",
+   "note": "Katana root in the RightHand joint (like weapons/attach.json)",
+   "position": [
+    -0.0,
+    0.08,
+    -0.07
+   ],
+   "quaternion": [
+    -0.5,
+    0.5,
+    0.5,
+    0.5
+   ]
+  },
+  "scabbard": {
+   "node": "Spine1",
+   "note": "Scabbard root in this joint; diagonally across the back",
+   "position": [
+    -0.255,
+    0.21,
+    -0.3
+   ],
+   "quaternion": [
+    -0.325573,
+    0.940842,
+    0.077096,
+    0.053616
+   ]
+  },
+  "seat": {
+   "node": "KatanaSeat",
+   "note": "sheathed: make Katana a child of the KatanaSeat empty with an identity transform (this is the seat's own pose inside Scabbard, for reference)",
+   "position": [
+    0.0,
+    0.1085,
+    0.0
+   ],
+   "quaternion": [
+    -0.0,
+    -0.0,
+    -1.0,
+    0.0
+   ]
+  }
+ },
+ "axes": "glTF: Y up, the duck faces +Z, meters, feet at y = 0; angles are degrees from forward, positive to the duck's right",
+ "checkpoints": {
+  "note": "the Tip empty's position in the duck's model space at these exact frames, the clip played alone (for tests)",
+  "points": [
+   {
+    "clip": "Katana_Idle",
+    "frame": 0,
+    "time": 0.0,
+    "tip": [
+     -0.844,
+     1.4,
+     0.76
+    ]
+   },
+   {
+    "clip": "Slash_1",
+    "frame": 5,
+    "time": 0.1667,
+    "tip": [
+     0.438,
+     0.78,
+     1.256
+    ]
+   },
+   {
+    "clip": "Slash_2",
+    "frame": 4,
+    "time": 0.1333,
+    "tip": [
+     0.775,
+     1.007,
+     1.053
+    ]
+   },
+   {
+    "clip": "Slash_3",
+    "frame": 9,
+    "time": 0.3,
+    "tip": [
+     -0.518,
+     0.474,
+     1.211
+    ]
+   },
+   {
+    "clip": "Heavy_Release",
+    "frame": 3,
+    "time": 0.1,
+    "tip": [
+     0.522,
+     0.75,
+     1.285
+    ]
+   },
+   {
+    "clip": "Ultimate",
+    "frame": 7,
+    "time": 0.2333,
+    "tip": [
+     -0.419,
+     2.125,
+     0.017
+    ]
+   },
+   {
+    "clip": "Draw",
+    "frame": 13,
+    "time": 0.4333,
+    "tip": [
+     -0.844,
+     1.45,
+     0.76
+    ]
+   }
+  ]
+ },
+ "clips": {
+  "Dash": {
+   "events": {
+    "moveEnd": 0.2,
+    "moveStart": 0.03
+   },
+   "flow": "from anything with the katana out; ends in Katana_Idle",
+   "frames": 8,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.267
+  },
+  "Draw": {
+   "events": {
+    "grab": 0.1333,
+    "ready": 0.4333
+   },
+   "flow": "from the unarmed upper body (Idle); ends in Katana_Idle's upper body",
+   "frames": 14,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 0.467
+  },
+  "Heavy_Charge": {
+   "flow": "loop while the heavy button is held (enter from Katana_Idle with a 0.15 s crossfade)",
+   "frames": 30,
+   "layer": "full",
+   "loop": true,
+   "seconds": 1.0
+  },
+  "Heavy_Release": {
+   "events": {
+    "activeEnd": 0.44,
+    "activeStart": 0.04,
+    "impact": 0.09,
+    "recover": 0.5
+   },
+   "flow": "from Heavy_Charge on release; recovers to Katana_Idle",
+   "frames": 18,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.6
+  },
+  "Katana_Idle": {
+   "flow": "loop; the base of every katana move",
+   "frames": 60,
+   "layer": "full",
+   "loop": true,
+   "seconds": 2.0
+  },
+  "Katana_Run": {
+   "flow": "loop over Run_* or Sprint (upper layer); sync its time to the run's phase",
+   "frames": 11,
+   "layer": "upper",
+   "loop": true,
+   "seconds": 0.367,
+   "syncWith": {
+    "Run_F": 0.367,
+    "note": "same length as Run_F: set its time to the run's normalized time x 0.367"
+   }
+  },
+  "Quack_Shockwave": {
+   "events": {
+    "impact": 0.24,
+    "recover": 0.38
+   },
+   "flow": "from anything with the katana out; recovers to Katana_Idle",
+   "frames": 15,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.5
+  },
+  "Sheathe": {
+   "events": {
+    "release": 0.3
+   },
+   "flow": "from Katana_Idle's upper body; ends in the unarmed Idle upper body",
+   "frames": 15,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 0.5
+  },
+  "Slash_1": {
+   "events": {
+    "activeEnd": 0.2,
+    "activeStart": 0.13,
+    "comboClose": 0.34,
+    "comboOpen": 0.18,
+    "impact": 0.16,
+    "recover": 0.27
+   },
+   "flow": "from Katana_Idle or Katana_Run; recovers to Katana_Idle",
+   "frames": 12,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.4
+  },
+  "Slash_2": {
+   "events": {
+    "activeEnd": 0.2,
+    "activeStart": 0.11,
+    "comboClose": 0.36,
+    "comboOpen": 0.19,
+    "impact": 0.15,
+    "recover": 0.29
+   },
+   "flow": "from Slash_1 inside its combo window; recovers to Katana_Idle",
+   "frames": 13,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.433
+  },
+  "Slash_3": {
+   "events": {
+    "activeEnd": 0.33,
+    "activeStart": 0.24,
+    "impact": 0.3,
+    "recover": 0.4
+   },
+   "flow": "from Slash_2 inside its combo window; recovers to Katana_Idle",
+   "frames": 16,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.533
+  },
+  "Ultimate": {
+   "events": {
+    "flash": 0.24
+   },
+   "flow": "activation; ends in Ultimate_Spin's first pose",
+   "frames": 12,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.4
+  },
+  "Ultimate_Spin": {
+   "flow": "loop for the blade storm's duration; leave to Katana_Idle with a 0.1 s crossfade",
+   "frames": 12,
+   "layer": "full",
+   "loop": true,
+   "seconds": 0.4
+  }
+ },
+ "dash": {
+  "distance": 3.0,
+  "moveEnd": 0.2,
+  "moveStart": 0.03,
+  "note": "fraction of the distance covered at each 30 fps frame of Dash (frame 0 to 8); no root motion in the clip",
+  "progress": [
+   0.0,
+   0.0426,
+   0.414,
+   0.6888,
+   0.8725,
+   0.9722,
+   1.0,
+   1.0,
+   1.0
+  ]
+ },
+ "files": {
+  "anims": "duck_melee_anims.glb",
+  "fx": "melee_fx.glb",
+  "katana": "katana.glb"
+ },
+ "fx": {
+  "EliteRing": {
+   "note": "ground ring under an elite enemy; spin slowly",
+   "radius": 0.6
+  },
+  "Feather": {
+   "height": 0.3,
+   "note": "XP pickup, toon material, origin at its middle; bob and spin it"
+  },
+  "Shockwave": {
+   "note": "ground ring with a short wall; scale up from the impact, fade by time",
+   "radius": 1.0
+  },
+  "SlashArc": {
+   "degrees": 200.0,
+   "note": "flat crescent on the XZ plane centered on +Z; u=0 at the duck's right end, u=1 the bright leading left end; scale by the swing reach, mirror x for left-to-right, tilt for diagonals",
+   "radius": 1.0
+  },
+  "material": "MeleeFx: vertex colors (COLOR_0) hold the glow ramp; draw additive, depthWrite off, double sided",
+  "triangles": {
+   "EliteRing": 256,
+   "Feather": 304,
+   "Shockwave": 480,
+   "SlashArc": 224
+  }
+ },
+ "katana": {
+  "axes": "katana space: blade along +Y, cutting edge toward -Z, flats along X",
+  "length": 1.08,
+  "nodes": {
+   "Blade": "mesh, child of Katana",
+   "Grip": "empty at the origin",
+   "Katana": "mesh, origin at the grip (the right fist's center)",
+   "Tip": "empty at the point",
+   "TrailEnd": "empty on the edge near the tip",
+   "TrailStart": "empty on the edge near the guard"
+  },
+  "points": {
+   "Grip": [
+    0.0,
+    0.0,
+    -0.0
+   ],
+   "Tip": [
+    0.0,
+    0.915,
+    -0.058
+   ],
+   "TrailEnd": [
+    0.0,
+    0.89,
+    -0.009
+   ],
+   "TrailStart": [
+    0.0,
+    0.19,
+    0.037
+   ]
+  },
+  "triangles": {
+   "Blade": 304,
+   "Katana": 1152,
+   "Scabbard": 744
+  }
+ },
+ "upperBones": [
+  "Spine",
+  "Spine1",
+  "Spine2",
+  "Neck",
+  "Head",
+  "HeadTop_End",
+  "Jaw",
+  "LeftShoulder",
+  "LeftArm",
+  "LeftForeArm",
+  "LeftHand",
+  "LeftHandThumb1",
+  "LeftHandThumb2",
+  "LeftHandThumb3",
+  "LeftHandIndex1",
+  "LeftHandIndex2",
+  "LeftHandIndex3",
+  "LeftHandMiddle1",
+  "LeftHandMiddle2",
+  "LeftHandMiddle3",
+  "RightShoulder",
+  "RightArm",
+  "RightForeArm",
+  "RightHand",
+  "RightHandThumb1",
+  "RightHandThumb2",
+  "RightHandThumb3",
+  "RightHandIndex1",
+  "RightHandIndex2",
+  "RightHandIndex3",
+  "RightHandMiddle1",
+  "RightHandMiddle2",
+  "RightHandMiddle3"
+ ],
+ "version": 1
+}

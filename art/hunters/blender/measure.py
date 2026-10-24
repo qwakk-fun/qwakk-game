@@ -124,6 +124,8 @@ def manifest(stats, files):
             "height": st["height_m"], "skullTop": st["skull_top_m"], "hatTop": st["hat_top_m"],
             "headTopNode": st["head_top_node_m"], "hitbox": st["hitbox"], "muzzleAim": st["muzzle_aim_m"],
         }
+        if st.get("minion"):
+            hunters[lid]["minion"] = True
     return {
         "version": 1,
         "axes": "glTF: Y up, characters face +Z, meters, feet at y = 0 (turn the model to face the sim's -Z like the ducks)",

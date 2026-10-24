@@ -30,7 +30,7 @@ class Character:
 
 
 def build_hunter(look_id, material):
-    lod_parts = [looks.build(look_id, lod) for lod in range(3)]
+    lod_parts = [looks.build(look_id, lod) for lod in looks.LOOKS[look_id].get("lods", (0, 1, 2))]
     muzzle = lod_parts[0][1]
     rig, bones = hrig.build_armature("Rig_" + look_id, hrig.bone_specs(muzzle))
     objs, spans0 = [], None

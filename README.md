@@ -833,6 +833,16 @@ Without clips, a procedural pose takes over (leg swing, crouch, both hands on th
 - `hunter_anims.glb`: `Idle`, `Walk` (1.4 m/s), `Run` (3.6 m/s), `Aim`, `Aim_Up`, `Aim_Down`, `Fire`, `Reload`, `Throw`, `Hit`, `Defeat`, `Defeat_Dizzy`, `Taunt`, `Whistle` (full-body and upper-body layers, events in the manifest). The toony defeat pops the hat off and shows stars and a dust poof from `hunter_fx.glb` attached to the hidden `FxStars`/`FxPoof` joints (node scale 0 until a clip scales them up).
 - `dog.glb` (its own rig and clips: `Idle`, `Run`, `Bite`, `Hit`, `Defeat`, `Defeat_Dizzy`), `decoy.glb` (the thrown wooden decoy), `trap.glb` (`Open`, `Sprung`).
 - Hitboxes follow the duck's style (a head sphere plus a vertical body capsule per pose, measured from the meshes): see the tables in `art/hunters/README.md`.
+- Horde minions for the melee waves, on the same skeleton and clips: `hunter_beater.glb` (a lanky villager with a pot helmet and a big wooden spoon) and `hunter_recruit.glb` (a kid-sized hunter, `Root` scale 0.72, with an oversized cap and a butterfly net), under 2,000 triangles at LOD0, flagged `"minion": true` in `hunters.json`. New clips for every hunter look: `Charge` (4.2 m/s), `Bonk` (event `hit`), `Stagger`, `Launched` (event `ground`, ends lying down) and `Get_Up`.
+
+### Melee (Hunt Season)
+
+`melee/` holds the duck's katana kit, built by `art/melee/` (`sh art/melee/build.sh`; the full contract, with the clip table, events, attach poses and hit arcs, is `art/melee/README.md`, the numbers are in `melee/melee.json`). Not wired into the client yet.
+
+- `katana.glb`: `Katana` (origin at the grip, blade +Y, edge -Z) with the `Blade` mesh and the `Grip`, `TrailStart`, `TrailEnd` and `Tip` empties; `Scabbard` with its `KatanaSeat` empty. The katana rides `RightHand`, the scabbard `Spine1` (diagonally across the back), at the poses in `melee.json` `attach`.
+- `duck_melee_anims.glb`: the classic duck's bones, a separate file next to `duck_anims.glb` (which is unchanged): `Katana_Idle`, `Katana_Run` (upper), `Slash_1`, `Slash_2`, `Slash_3` (a 3-hit combo with impact, combo window and recover events), `Heavy_Charge`, `Heavy_Release` (a 360 degree spin), `Dash` (no root motion: the sim moves the duck 3.0 m along `melee.json` `dash.progress`), `Quack_Shockwave`, `Ultimate`, `Ultimate_Spin`, `Draw` and `Sheathe` (upper; the katana moves between the hand and `KatanaSeat` at their `grab` and `release` events).
+- `melee_fx.glb`: `SlashArc`, `Shockwave`, `EliteRing` (additive glow ribbons, the ramp in vertex colors) and the `Feather` XP pickup.
+- Checks: `python3 art/melee/validate.py` and `node art/melee/tools/load_test.mjs` (three.js playback, the attach pose and the draw and sheathe hand-overs).
 
 ## Known issues
 

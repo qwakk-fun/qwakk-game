@@ -48,6 +48,9 @@ PALETTE = {
     "star": "#ffd43b", "star_deep": "#f6b928", "poof": "#f1ece2", "poof_deep": "#cfc8ba",
     # trap
     "trap_flag": "#ff6a13", "stake": "#8a5a33",
+    # minions (appended: every cell above keeps its place)
+    "smock": "#6f93c4", "smock_deep": "#557aa9", "patch": "#c9a24a", "straw": "#f0c968", "straw_deep": "#c99a3c",
+    "pot": "#aab3bf", "pot_deep": "#7d8794",
 }
 CAMO = {
     # 4 colors each, from base to the darkest blotch
@@ -106,7 +109,7 @@ DOG = dict(
 # Segment counts per LOD: every builder asks seg(n, lod). Small details have a max LOD.
 LOD_FACTORS = (1.0, 0.62, 0.42)
 LOD_DISTANCES = (18.0, 40.0, 120.0)   # draw LOD k while camera distance <= this (desktop; about 0.6x on phones)
-BUDGET = dict(hunter_lod0=4000, hunter_lod2=1500, dog_lod0=3000, prop_lod0=800)
+BUDGET = dict(hunter_lod0=4000, hunter_lod2=1500, dog_lod0=3000, prop_lod0=800, minion_lod0=2000)
 
 # ---------------------------------------------------------------- toon (renders, the same recipe as the ducks)
 OUTLINE_WIDTH = 0.0075

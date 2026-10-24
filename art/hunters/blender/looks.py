@@ -364,6 +364,19 @@ LOOKS = {
 }
 
 
+from minions import MINION_LOOKS  # noqa: E402  (the minion looks reuse the helpers above)
+
+LOOKS.update(MINION_LOOKS)
+
+
+def scale_of(look_id):
+    """The Root node scale a look ships with (boss 1.24, recruit 0.72, everyone else 1)."""
+    look = LOOKS[look_id]
+    if look.get("boss"):
+        return hp.BOSS_SCALE
+    return look.get("scale", 1.0)
+
+
 def build(look_id, lod):
     """Parts of one look at one LOD, plus the Muzzle in WeaponSocket space."""
     look = LOOKS[look_id]

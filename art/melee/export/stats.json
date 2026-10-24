@@ -1,0 +1,216 @@
+{
+ "anims_glb_bytes": 291416,
+ "arcs": {
+  "Heavy_Release": {
+   "measured": {
+    "fromDeg": 103.9,
+    "inner": 0.564,
+    "reach": 1.387,
+    "sweptDeg": 504.3,
+    "toDeg": -400.4,
+    "yMax": 0.816,
+    "yMin": 0.557
+   },
+   "suggestedHit": {
+    "note": "full turn: everything within the radius is hit once",
+    "radius": 1.64,
+    "shape": "circle"
+   }
+  },
+  "Quack_Shockwave": {
+   "suggestedHit": {
+    "note": "not a blade hit: the shockwave leaves the feet at the impact event and grows; scale melee_fx Shockwave to match",
+    "radiusFrom": 0.5,
+    "radiusTo": 4.5,
+    "seconds": 0.35,
+    "shape": "ring"
+   }
+  },
+  "Slash_1": {
+   "measured": {
+    "fromDeg": 116.5,
+    "inner": 0.505,
+    "reach": 1.37,
+    "sweptDeg": 186.3,
+    "toDeg": -69.7,
+    "yMax": 1.174,
+    "yMin": 0.655
+   },
+   "suggestedHit": {
+    "centerDeg": 23.4,
+    "halfAngleDeg": 108.1,
+    "note": "a pie slice around the duck (radius = blade tip reach + 0.25 m of forgiveness)",
+    "radius": 1.62,
+    "shape": "arc"
+   }
+  },
+  "Slash_2": {
+   "measured": {
+    "fromDeg": -83.6,
+    "inner": 0.542,
+    "reach": 1.362,
+    "sweptDeg": 191.1,
+    "toDeg": 107.5,
+    "yMax": 1.42,
+    "yMin": 0.907
+   },
+   "suggestedHit": {
+    "centerDeg": 12.0,
+    "halfAngleDeg": 110.5,
+    "note": "a pie slice around the duck (radius = blade tip reach + 0.25 m of forgiveness)",
+    "radius": 1.61,
+    "shape": "arc"
+   }
+  },
+  "Slash_3": {
+   "impactTip": [
+    -0.518,
+    0.474,
+    1.211
+   ],
+   "measured": {
+    "fromDeg": 17.4,
+    "inner": 0.253,
+    "reach": 1.343,
+    "sweptDeg": 22.7,
+    "toDeg": 18.0,
+    "yMax": 2.143,
+    "yMin": -0.031
+   },
+   "suggestedHit": {
+    "center": [
+     -0.39,
+     0.88
+    ],
+    "note": "a circle on the ground centered between the blade's base and tip at the impact, [x, z] in model space",
+    "radius": 1.1,
+    "shape": "circle"
+   }
+  },
+  "Ultimate_Spin": {
+   "measured": {
+    "fromDeg": 37.3,
+    "inner": 0.647,
+    "reach": 1.371,
+    "sweptDeg": 360.0,
+    "toDeg": -322.7,
+    "yMax": 0.92,
+    "yMin": 0.801
+   },
+   "suggestedHit": {
+    "note": "one full turn per 0.4 s; tick damage a few times per turn",
+    "radius": 1.72,
+    "shape": "circle"
+   }
+  }
+ },
+ "clips": {
+  "Dash": {
+   "frames": 8,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.267
+  },
+  "Draw": {
+   "frames": 14,
+   "ik_reach_error_m": 0.0138,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 0.467
+  },
+  "Heavy_Charge": {
+   "frames": 30,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 1.0
+  },
+  "Heavy_Release": {
+   "frames": 18,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.6
+  },
+  "Katana_Idle": {
+   "frames": 60,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 2.0
+  },
+  "Katana_Run": {
+   "frames": 11,
+   "ik_reach_error_m": 0.0,
+   "layer": "upper",
+   "loop": true,
+   "seconds": 0.367
+  },
+  "Quack_Shockwave": {
+   "frames": 15,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.5
+  },
+  "Sheathe": {
+   "frames": 15,
+   "ik_reach_error_m": 0.0003,
+   "layer": "upper",
+   "loop": false,
+   "seconds": 0.5
+  },
+  "Slash_1": {
+   "frames": 12,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.4
+  },
+  "Slash_2": {
+   "frames": 13,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.433
+  },
+  "Slash_3": {
+   "frames": 16,
+   "ik_reach_error_m": 0.0053,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.533
+  },
+  "Ultimate": {
+   "frames": 12,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": false,
+   "seconds": 0.4
+  },
+  "Ultimate_Spin": {
+   "frames": 12,
+   "ik_reach_error_m": 0.0,
+   "layer": "full",
+   "loop": true,
+   "seconds": 0.4
+  }
+ },
+ "fx": {
+  "EliteRing": 256,
+  "Feather": 304,
+  "Shockwave": 480,
+  "SlashArc": 224
+ },
+ "fx_glb_bytes": 44984,
+ "katana": {
+  "glb_bytes": 67772,
+  "length_m": 1.08,
+  "triangles": {
+   "Blade": 304,
+   "Katana": 1152,
+   "Scabbard": 744
+  }
+ }
+}
