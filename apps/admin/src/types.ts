@@ -2,7 +2,7 @@
 
 export interface RoomInfo {
   roomId: string;
-  kind: 'dm' | 'br' | 'raid';
+  kind: 'dm' | 'br' | 'raid' | 'hub';
   label: string;
   mode: string;
   mapId: string;

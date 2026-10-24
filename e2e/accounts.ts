@@ -4,15 +4,17 @@
  * preview` of the test bundle and headless Chrome playing through the menu
  * (npm run build:test first, and the local database: npm run db:up).
  *
- *   Guest: the sign-in screen, "Play as guest", Quick Play is locked (it opens
- *   sign-in), the server refuses a guest session a battle royale room, and
- *   Deathmatch plays.
+ *   Guest: the sign-in screen, "Play as guest", the guest card (name and
+ *   look), Duck Plaza; in the menu sheet Battle Royale is locked (it opens
+ *   sign-in, Back returns to the plaza), the server refuses a guest session a
+ *   battle royale room, and Deathmatch plays.
  *   Account: sign up by email (the code from the dev mail sink, typed into
  *   the code boxes), accept the terms, hatch two ducks (one Toski), pick it,
- *   the main menu shows it, the account tab, Quick Play joins a battle royale
+ *   Duck Plaza shows it, the sheet's account tab, Battle Royale joins a battle royale
  *   wearing the duck's look; then log out, sign in again with a new code and
  *   see both ducks.
- *   Phone: the sign-in screen and the character select, upright and sideways.
+ *   Phone: the sign-in screen and the character select, upright and sideways,
+ *   then the plaza and its sheet.
  *
  * Screenshots (desktop and phone) go to OUTDIR. Usage: npm run e2e:accounts [-- OUTDIR]
  */
@@ -25,7 +27,7 @@ import { Client } from '@colyseus/sdk';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { BR } from '@qwakk/shared';
 import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
-import { accountSeed, e2eDatabase, fetchAccount, mailCode, seedBrowser, signUpApi } from './lib/accounts.ts';
+import { accountSeed, e2eDatabase, fetchAccount, mailCode, openSheet, pickDuck, seedBrowser, signUpApi, waitPlaza } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-accounts');
@@ -99,20 +101,26 @@ async function guest(browser: Browser): Promise<void> {
   await page.goto(MENU);
   await page.locator('.qa-auth').waitFor({ timeout: 20000 });
   await page.locator('.qa-guest').click();
-  await page.locator('#menu[data-screen="main"]').waitFor();
-  const locked = await page.locator('.qm-btn-play').getAttribute('class');
-  if (!locked?.includes('is-locked')) throw new Error('Quick Play is not locked for a guest');
-  if (!(await page.locator('.qm-gate').isVisible())) throw new Error('no sign-in nudge for the guest');
+  // A new guest names its duck on the guest card, then walks into Duck Plaza.
+  await page.locator('.qm-guest:not([hidden])').waitFor({ timeout: 10000 });
   await page.locator('#qm-name').fill('GuestDuck');
+  await page.screenshot({ path: `${out}/g0-guest-card.png` });
+  // Enter in the name field (or the button) saves the name, gets the #tag and walks in.
   await page.locator('#qm-name').press('Enter');
-  await until('guest tag', () => page.locator('.qm-tag').innerText(), (t) => /^#\d{4}$/.test(t), 15000);
+  await waitPlaza(page);
+  const tag = (JSON.parse((await page.evaluate(() => localStorage.getItem('qwakk.identity'))) ?? '{}') as { tag?: string }).tag ?? '';
+  if (!/^\d{4}$/.test(tag)) throw new Error(`no guest tag: "${tag}"`);
+  // The menu sheet: Battle Royale is locked for a guest.
+  await openSheet(page);
+  const locked = await page.locator('.qm-sheet-mode[data-mode="br"]').getAttribute('class');
+  if (!locked?.includes('is-locked')) throw new Error('Battle Royale is not locked for a guest');
   await sleep(600);
-  await page.screenshot({ path: `${out}/g1-guest-menu-br-locked.png` });
-  // Quick Play as a guest opens the sign-in screen instead of a match.
-  await page.locator('.qm-btn-play').click();
+  await page.screenshot({ path: `${out}/g1-guest-sheet-br-locked.png` });
+  // Battle Royale as a guest opens the sign-in screen instead of a match; Back returns to the plaza.
+  await page.locator('.qm-sheet-mode[data-mode="br"]').click();
   await page.locator('#menu[data-screen="login"] .qa-auth-back:not([hidden])').waitFor({ timeout: 5000 });
   await page.locator('.qa-auth-back').click();
-  await page.locator('#menu[data-screen="main"]').waitFor();
+  await waitPlaza(page);
 
   // The server refuses the guest's session in a battle royale (matchmaking guard).
   const id = JSON.parse((await page.evaluate(() => localStorage.getItem('qwakk.identity'))) ?? '{}') as { token?: string };
@@ -127,8 +135,9 @@ async function guest(browser: Browser): Promise<void> {
   if (code !== ACCOUNT_ERROR.needsAccount) throw new Error(`a guest session got into a battle royale (code ${code})`);
   console.log(`guest: battle royale refused by the server (${code})`);
 
-  // Deathmatch plays.
-  await page.locator('.qm-btn[data-mode="dm"]').click();
+  // Deathmatch plays (the sheet's mode list; the portal is in e2e/hub.ts).
+  await openSheet(page);
+  await page.locator('.qm-sheet-mode[data-mode="dm"]').click();
   await until('guest in the deathmatch', () => snap(page), (s) => s?.mode === 0 && s.players >= 1 && s.server?.alive === 1, 60000);
   console.log('guest: deathmatch joined');
   await ctx.close();
@@ -205,14 +214,15 @@ async function account(browser: Browser): Promise<{ token: string; expiresAt: nu
   if (!play.includes('Quackers')) throw new Error(`the Play button says "${play}"`);
   console.log(`select: 2 ducks${drawn ? ' in 3D' : ''}, ${play}`);
   await page.locator('.qd-play').click();
-  await page.locator('#menu[data-screen="main"]').waitFor();
+  await waitPlaza(page);
+  const me = await page.evaluate(() => (window as any).__qwakkHub.snapshot().ducks.find((d: { self: boolean }) => d.self));
+  if (me?.name !== 'Quackers' || me.character !== 1 || me.level !== 1) throw new Error(`the plaza duck: ${JSON.stringify(me)}`);
+  await sleep(800);
+  await page.screenshot({ path: `${out}/a6-plaza-account.png` });
+  await openSheet(page, 5);
   const who = await page.locator('.qm-active-name').innerText();
-  if (!/Quackers\s*#\d{4}/.test(who)) throw new Error(`the Play tab shows "${who}"`);
+  if (!/Quackers\s*#\d{4}/.test(who)) throw new Error(`the account tab shows "${who}"`);
   if (await page.locator('#qm-name').isVisible()) throw new Error('the guest name field shows for an account duck');
-  await page.locator('.qm-art-duck.is-3d').waitFor({ timeout: 20000 }).catch(() => {});
-  await sleep(600);
-  await page.screenshot({ path: `${out}/a6-main-menu-account.png` });
-  await page.locator('#qm-tab-account').click();
   await page.locator('.qm-account-email').waitFor();
   await sleep(300);
   await page.screenshot({ path: `${out}/a7-account-screen.png` });
@@ -227,10 +237,11 @@ async function account(browser: Browser): Promise<{ token: string; expiresAt: nu
   await sleep(300);
   await page.screenshot({ path: `${out}/a7b-delete-account-dialog.png` });
   await page.keyboard.press('Escape');
-  await page.locator('#qm-tab-play').click();
+  await page.locator('.qa-dialog').waitFor({ state: 'detached', timeout: 5000 }).catch(() => {});
+  await openSheet(page, 0);
 
   // Quick Play: a battle royale as Quackers, wearing Toski.
-  await page.locator('.qm-btn-play').click();
+  await page.locator('.qm-sheet-mode[data-mode="br"]').click();
   const br = await until('in a battle royale', () => snap(page), (s) => s?.mode === 1 && s.players >= 1, 60000);
   if (!br.characters?.[1]) throw new Error(`the duck is not wearing its look in the room: ${JSON.stringify(br.characters)}`);
   console.log(`account: battle royale joined, looks in the room ${JSON.stringify(br.characters)}`);
@@ -289,16 +300,18 @@ async function phone(browser: Browser, session: { token: string; expiresAt: numb
     await sleep(900);
     await page.screenshot({ path: `${out}/p4-phone-select-landscape.png` });
     await noSideScroll(page, 'phone select landscape');
-    // Play as the duck: the main menu on a phone, upright.
-    await page.locator('.qd-play').tap();
-    await page.locator('#menu[data-screen="main"]').waitFor();
+    // Play as the duck: Duck Plaza on a phone, sideways and upright (the rotate screen).
+    await pickDuck(page, 60_000, true);
+    await sleep(1500);
+    await page.screenshot({ path: `${out}/p5-phone-plaza-landscape.png` });
     await page.setViewportSize({ width: 390, height: 844 });
     await sleep(700);
-    await page.screenshot({ path: `${out}/p5-phone-main-portrait.png` });
-    await page.locator('#qm-tab-account').tap();
+    await page.screenshot({ path: `${out}/p5b-phone-plaza-portrait.png` });
+    await page.setViewportSize({ width: 844, height: 390 });
+    await sleep(500);
+    await openSheet(page, 5);
     await sleep(400);
-    await page.screenshot({ path: `${out}/p6-phone-account-portrait.png` });
-    await noSideScroll(page, 'phone account portrait');
+    await page.screenshot({ path: `${out}/p6-phone-account-sheet.png` });
     await ctx.close();
   }
 }

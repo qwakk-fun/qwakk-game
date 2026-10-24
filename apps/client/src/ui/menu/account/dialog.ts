@@ -18,10 +18,13 @@ export function openDialog(opts: { title: string; body: (Node | string)[]; conte
   const title = h('h2', { class: 'qa-dialog-title', id: 'qa-dialog-title' }, opts.title);
   const card = h('div', { class: `qm-card qa-dialog-card${opts.danger ? ' is-danger' : ''}`, role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'qa-dialog-title' }, title, ...opts.body.map((b) => (typeof b === 'string' ? h('p', { class: 'qa-dialog-text' }, b) : b)), opts.content);
   const el = h('div', { class: 'qa-dialog' }, card);
-  const host = document.getElementById('menu') ?? document.body;
+  // Over the plaza the menu page is hidden: the dialog goes into the open menu sheet (it carries the menu tokens too).
+  const host = document.querySelector<HTMLElement>('#hub-sheet:not([hidden])') ?? document.getElementById('menu') ?? document.body;
   const onKey = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      // Only the dialog closes (not the plaza's menu sheet under it).
+      e.stopPropagation();
       d.close();
     }
   };

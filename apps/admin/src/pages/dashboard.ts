@@ -107,7 +107,7 @@ export function dashboardPage(): Page {
       h(
         'div',
         { class: 'room-main' },
-        h('div', { class: 'room-name' }, h('span', { class: `badge is-${r.kind}` }, r.kind === 'dm' ? 'DM' : r.kind === 'raid' ? 'HUNT' : 'BR'), h('strong', {}, label), h('span', { class: 'muted mono' }, r.kind !== 'dm' ? `#${r.roomId.slice(0, 4).toUpperCase()}` : r.mapId)),
+        h('div', { class: 'room-name' }, h('span', { class: `badge is-${r.kind}` }, r.kind === 'dm' ? 'DM' : r.kind === 'raid' ? 'HUNT' : r.kind === 'hub' ? 'PLAZA' : 'BR'), h('strong', {}, label), h('span', { class: 'muted mono' }, r.kind !== 'dm' ? `#${r.roomId.slice(0, 4).toUpperCase()}` : r.mapId)),
         h(
           'dl',
           { class: 'room-stats' },

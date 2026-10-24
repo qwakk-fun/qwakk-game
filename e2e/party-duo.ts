@@ -27,7 +27,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { Button, KNOCK } from '@qwakk/shared';
-import { accountSeed, e2eDatabase, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
+import { accountSeed, e2eDatabase, openSheet, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-party');
@@ -90,15 +90,17 @@ async function walkNear(page: Page, target: string, range: number): Promise<numb
 }
 const partyNames = async (p: Page): Promise<string[]> => (await p.locator('.qm-party-member .qm-party-name').allInnerTexts()).map((t) => t.replace(/\s+/g, ''));
 
-/** A creates a party in the menu, B opens the share link; both see two members. Returns the code. */
+/** A creates a party in the plaza's menu sheet (Team), B opens the share link; both see two members. Returns the code. */
 async function formParty(a: Page, b: Page, menuUrl: string): Promise<string> {
   await a.goto(menuUrl);
   await pickDuck(a);
+  await openSheet(a, 1);
   await a.locator('.qm-party button', { hasText: 'Create party' }).click();
   const code = await a.locator('.qm-party-codetext').innerText({ timeout: 20000 });
   await b.goto(`${menuUrl}&party=${code}`);
-  // The party link waits on the character select; it joins once B plays as its duck.
+  // The party link waits on the character select; it joins once B is in the plaza as its duck.
   await pickDuck(b);
+  await openSheet(b, 1);
   await until('both see two members', async () => [await partyNames(a), await partyNames(b)], ([x, y]) => x?.length === 2 && y?.length === 2, 20000);
   console.log(`party ${code}: ${(await partyNames(a)).join(', ')}`);
   return code;
@@ -124,10 +126,14 @@ async function deathmatch(browser: import('playwright').Browser): Promise<void> 
   await sleep(300);
   await a.screenshot({ path: `${out}/1-party-menu-leader.png` });
   await b.screenshot({ path: `${out}/2-party-menu-member.png` });
-  // Members wait for the leader: B's Play buttons are off.
-  if (!(await b.locator('.qm-btn-play').isDisabled())) throw new Error('a party member can start a match on its own');
+  // Members wait for the leader: B's own pick does not start a match.
+  await openSheet(b, 0);
+  await b.locator('.qm-sheet-mode[data-mode="dm"]').click();
+  await sleep(1500);
+  if (await snap(b)) throw new Error('a party member started a match on its own');
 
-  await a.locator('.qm-btn[data-mode="dm"]').click();
+  await openSheet(a, 0);
+  await a.locator('.qm-sheet-mode[data-mode="dm"]').click();
   const sa = await until('A in the deathmatch', () => snap(a), (s) => s?.mode === 0 && s.players === 2, 60000);
   const sb = await until('B followed into the room', () => snap(b), (s) => s?.mode === 0 && s.players === 2, 60000);
   if (!sa.team.myTeam || sa.team.myTeam !== sb.team.myTeam) throw new Error(`not allies: ${sa.team.myTeam} / ${sb.team.myTeam}`);
@@ -173,9 +179,9 @@ async function duo(browser: import('playwright').Browser): Promise<void> {
   const a = A.page;
   const b = B.page;
   await formParty(a, b, `http://localhost:${WEB_PORT}/game/?lang=en&server=${server_}&hud=0&menu=1&autopilot=br&aptarget=${VILLAGE.x},${VILLAGE.z}`);
-  const mode = await a.locator('.qm-mode.is-on').innerText();
-  if (mode !== 'Duo') throw new Error(`a party of two should pick Duo, picked ${mode}`);
-  await a.locator('.qm-btn-play').click();
+  // A party of two opens a Duo room.
+  await openSheet(a, 0);
+  await a.locator('.qm-sheet-mode[data-mode="br"]').click();
   const sa = await until('A in a duo room', () => snap(a), (s) => s?.mode === 1 && s.team.teamSize === 2 && s.players === 2, 60000);
   const sb = await until('B followed', () => snap(b), (s) => s?.mode === 1 && s.players === 2, 60000);
   if (!sa.team.myTeam || sa.team.myTeam !== sb.team.myTeam) throw new Error(`not one team: ${sa.team.myTeam} / ${sb.team.myTeam}`);

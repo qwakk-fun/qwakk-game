@@ -18,7 +18,7 @@ import { checkName } from './names.ts';
 import { offlineTag, upsertPlayer } from './players.ts';
 import { CONNECTIONS_PER_IP, ConnectionCounter, LIMITS, RateLimiter } from './rateLimit.ts';
 import { SCORE } from './score.ts';
-import { mintDeviceToken, signSession, verifyDeviceToken, verifySessionToken } from './token.ts';
+import { isUuid, mintDeviceToken, signSession, verifyDeviceToken, verifySessionToken } from './token.ts';
 import { verifyTurnstile, type FetchLike } from './turnstile.ts';
 import { isBanned } from '../ops/bans.ts';
 import { isIpBlocked } from '../ops/ipBlocks.ts';
@@ -143,6 +143,23 @@ export class MetaService {
 
   private get db(): Sql | null {
     return this.dbState === 'up' ? this.sql : null;
+  }
+
+  /**
+   * An account duck's level (players.level, written only by recordRaid), for
+   * the badge over it in the hub. Null without a database, for an unknown id
+   * or on failure; never throws.
+   */
+  async playerLevel(playerId: string): Promise<number | null> {
+    const db = this.db;
+    if (!db || !isUuid(playerId)) return null;
+    try {
+      const rows = await db<{ level: number }[]>`select level from players where id = ${playerId}`;
+      return rows[0]?.level ?? null;
+    } catch (err) {
+      console.error('[meta] playerLevel failed:', err instanceof Error ? err.message : err);
+      return null;
+    }
   }
 
   // ---- contract -----------------------------------------------------------

@@ -33,7 +33,7 @@ import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
 import { BridgeState, Button, RAID, RaidStage } from '@qwakk/shared';
-import { accountSeed, e2eDatabase, fetchAccount, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
+import { accountSeed, e2eDatabase, fetchAccount, openSheet, pickDuck, seedBrowser, signUpApi, waitPlaza } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-raid');
@@ -139,10 +139,11 @@ async function solo(browser: Browser): Promise<void> {
   const before = (await fetchAccount(API, A.token)).characters[0]!;
   await a.goto(menuUrl('&autopilot=raid'));
   await pickDuck(a);
-  await a.locator('.qm-btn[data-mode="raid"]').waitFor();
-  await sleep(1500);
+  await openSheet(a, 0);
+  await a.locator('.qm-sheet-mode[data-mode="raid"]').waitFor();
+  await sleep(800);
   await a.screenshot({ path: `${out}/01-menu-hunt-season.png` });
-  await a.locator('.qm-btn[data-mode="raid"]').click();
+  await a.locator('.qm-sheet-mode[data-mode="raid"]').click();
   await until('in a hunt', () => snap(a), (s) => s?.mode === 2, 60000);
   const map = (await snap(a)).mapId;
   if (map !== RAID.mapId) throw new Error(`the hunt is on ${map}, not ${RAID.mapId}`);
@@ -276,9 +277,12 @@ async function solo(browser: Browser): Promise<void> {
   console.log(`XP ${before.xp} -> ${after.xp}, level ${before.level} -> ${after.level}, best ${JSON.stringify(after.raidBest)}`);
   if (!(after.xp > before.xp)) throw new Error('the duck got no XP');
   if (!after.raidBest || after.raidBest.wave < 3) throw new Error('no personal best stored');
-  // Back to the pond: the menu shows the new level and the XP bar.
+  // Back to the pond: Duck Plaza (in front of the Hunt Season gate) with the new level; the sheet's account tab shows the XP bar.
   await a.locator('.raid-end-buttons .back').click();
-  await a.locator('#menu[data-screen="main"]').waitFor({ timeout: 20000 });
+  await waitPlaza(a);
+  const plazaLevel = await a.evaluate(() => (window as any).__qwakkHub.snapshot().ducks.find((d: { self: boolean }) => d.self)?.level ?? 0);
+  if (plazaLevel !== after.level) throw new Error(`the plaza shows level ${plazaLevel}, the account has ${after.level}`);
+  await openSheet(a, 5);
   await until('the menu shows the XP', () => a.locator('.qm-active-xp .qm-xp-text').innerText().catch(() => ''), (t) => /XP|Max/.test(t), 10000);
   await sleep(2500);
   await a.screenshot({ path: `${out}/13-menu-after-xp.png` });
@@ -292,14 +296,14 @@ async function party(browser: Browser): Promise<void> {
   const b = B.page;
   await a.goto(menuUrl());
   await pickDuck(a);
+  await openSheet(a, 1);
   await a.locator('.qm-party button', { hasText: 'Create party' }).click();
   const code = await a.locator('.qm-party-codetext').innerText({ timeout: 20000 });
   await b.goto(`${menuUrl()}&party=${code}`);
-  await b.locator('.qd-play:not([disabled])').tap({ timeout: 30000 });
-  await b.locator('#menu[data-screen="main"]').waitFor({ timeout: 30000 });
+  await pickDuck(b, 60_000, true);
   await until('party of two', () => a.locator('.qm-party-member').count(), (c) => c === 2, 20000);
-  await until('the raid card offers the party hunt', () => a.locator('.qm-btn[data-mode="raid"] .qm-btn-sub').innerText(), (t) => t.includes('party'), 10000);
-  await a.locator('.qm-btn[data-mode="raid"]').click();
+  await openSheet(a, 0);
+  await a.locator('.qm-sheet-mode[data-mode="raid"]').click();
   const sa = await until('A in a hunt', () => snap(a), (s) => s?.mode === 2, 60000);
   const sb = await until('B followed into the hunt', () => snap(b), (s) => s?.mode === 2, 60000).catch(async (err) => {
     console.error('B menu:', await b.locator('.qm-status').innerText().catch(() => '?'), '|', await b.locator('.qm-party').innerText().catch(() => '?'), '| screen', await b.locator('#menu').getAttribute('data-screen').catch(() => '?'));

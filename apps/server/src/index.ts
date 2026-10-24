@@ -49,6 +49,8 @@ import { createDmBot } from './dmBot.ts';
 import { allowCreateRoom, allowPartyCreate, allowPartyJoin, applyMatchmakingCors, checkUpgradeOrigin, guardJoinIps, joinIp, metaHttpHandler, startMeta, verifySession } from './meta/index.ts';
 import { parties } from './party/registry.ts';
 import { PartyRoom } from './party/PartyRoom.ts';
+import { HubRoom, type HubRoomOptions } from './hub/HubRoom.ts';
+import { HUB } from '@qwakk/shared/hub';
 import { QwakkLobby } from './lobby.ts';
 import { installMatchmakingGuard } from './matchmaking.ts';
 import { CLOSE_CODE, LOBBY_ROOM } from '@qwakk/shared/lobby';
@@ -163,6 +165,8 @@ server.define(RAID.roomName, RaidRoom, raidOptions).sortBy({ clients: -1 });
 server.define(LOBBY_ROOM, QwakkLobby);
 // Parties: private rooms joined by code (party/PartyRoom.ts); never listed.
 server.define(PARTY.roomName, PartyRoom);
+// Duck Plaza, the social hub between matches (hub/HubRoom.ts): Quick Play fills the fullest open plaza first.
+server.define(HUB.roomName, HubRoom, { statsMs: roomOptions.statsMs } satisfies HubRoomOptions).sortBy({ clients: -1 });
 // Room creation limits and join option filtering on every matchmaking request (matchmaking.ts).
 installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
   // Read on every request: the admin settings (br.maxRooms; QWAKK_BR_MAX_ROOMS overrides).
@@ -173,6 +177,7 @@ installMatchmakingGuard(matchMaker.controller, LOBBY_ROOM, {
     get [RAID.roomName]() {
       return raidMaxRooms();
     },
+    [HUB.roomName]: HUB.maxRooms,
   },
   // Maintenance and the team modes switched off (admin settings).
   beforeCreate,

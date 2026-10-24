@@ -22,6 +22,8 @@ export interface MapAssets {
   ground: Uint8Array;
   /** Hash of map_v1.json, the heights and colliders.json (in that order). */
   hash: string;
+  /** The parsed map_v1.json as is (map-specific sections, such as the hub's). */
+  raw: unknown;
 }
 
 /** The asset URL of one map file, or null when the map does not ship it. */
@@ -70,7 +72,7 @@ export async function loadMapAssets(id: string, onProgress?: (done: number, tota
   const { def, extras } = buildMapDef(id, json, heightBytes, colliders);
   const samples = (def.terrain.cells + 1) * (def.terrain.cells + 1);
   const ground = groundBytes.byteLength > 0 ? decodeGround(groundBytes, samples) : new Uint8Array(samples);
-  return { def, extras, ground, hash: hashBytes([jsonBytes, heightBytes, colliderBytes]) };
+  return { def, extras, ground, hash: hashBytes([jsonBytes, heightBytes, colliderBytes]), raw: json };
 }
 
 /** Yelova (the battle royale map; the dev map viewer). */

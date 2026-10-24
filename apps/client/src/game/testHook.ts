@@ -55,6 +55,7 @@ export function exposeTestHook(v: TestView): void {
       }
       return {
         sessionId: s.sessionId,
+        roomId: s.room.roomId,
         backend: v.backend,
         fps: v.timer.fps,
         frameMsAvg: v.timer.avg,

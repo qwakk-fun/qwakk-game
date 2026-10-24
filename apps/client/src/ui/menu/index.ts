@@ -7,7 +7,7 @@ import { loadSettings, toGameSettings, type GameSettings } from '../../settings.
 import type { HeroModule } from './heroSlot.ts';
 import { characterById, gameId, loadCharacter } from './characters.ts';
 import { Menu } from './menu.ts';
-import type { ExitReason, GameMode, MatchSummary, StartOptions } from './types.ts';
+import type { EnterHubOptions, ExitReason, GameMode, HubHandleLike, MatchSummary, StartOptions } from './types.ts';
 
 export type { ExitReason, GameMode, MatchSummary, StartOptions } from './types.ts';
 
@@ -15,6 +15,8 @@ export type { ExitReason, GameMode, MatchSummary, StartOptions } from './types.t
 export interface GameEntry {
   startGame(opts: { mode: GameMode; roomId?: string; create?: boolean; team?: number; token?: string; name?: string; character?: number; settings: GameSettings }): Promise<{ roomId: string } | void>;
   onGameExit(cb: (reason: ExitReason, summary?: MatchSummary) => void): void;
+  /** Duck Plaza, the hub between matches (src/hub/hubHost.ts). */
+  enterHub(opts: EnterHubOptions): Promise<HubHandleLike>;
 }
 
 /**
@@ -36,8 +38,9 @@ export function directStart(devtools: boolean, search = location.search): StartO
 }
 
 /**
- * Show the menu; Play loads the game module on demand. `hero` loads the 3D
- * duck for the Play tab after the menu has painted (optional: the image stays).
+ * Show the menu (sign in, the character select); then Duck Plaza and the
+ * matches load from the game module on demand. `hero` loads the 3D ducks of
+ * the character select after the menu has painted (optional: the images stay).
  */
 export function bootMenu(load: () => Promise<GameEntry>, hero?: () => Promise<HeroModule>): Menu {
   let entry: Promise<GameEntry> | null = null;
@@ -49,15 +52,18 @@ export function bootMenu(load: () => Promise<GameEntry>, hero?: () => Promise<He
     });
     return entry;
   };
+  const hook = (game: GameEntry): GameEntry => {
+    if (!hooked) {
+      hooked = true;
+      game.onGameExit((reason, summary) => menu.show({ reason, summary }));
+    }
+    return game;
+  };
   const menu = new Menu({
     async start(opts) {
-      const game = await get();
-      if (!hooked) {
-        hooked = true;
-        game.onGameExit((reason, summary) => menu.show({ reason, summary }));
-      }
-      return game.startGame(opts);
+      return hook(await get()).startGame(opts);
     },
+    load: async () => hook(await get()),
     prefetch: () => void get().catch(() => {}),
     showQuality: true,
     hero,

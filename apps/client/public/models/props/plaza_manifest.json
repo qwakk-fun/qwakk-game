@@ -1,0 +1,238 @@
+{
+ "version": 2,
+ "palette": "props_palette.png (embedded in every GLB)",
+ "shadowTint": {
+  "characters": "#d9a6a0",
+  "environment": "#b4bccf",
+  "note": "toon shadow side = base color multiplied by the tint; ducks use characters, props and terrain use environment"
+ },
+ "lodNote": "draw lods[k] while camera distance <= lods[k].until (meters, desktop; about 0.6x on phones); nothing past cullDistance. Each LOD node carries the quantization scale and offset: bake lodNode.matrix into the geometry before instancing",
+ "props": {
+  "plaza_portal": {
+   "category": "plaza",
+   "file": "plaza_portal.glb",
+   "triangles": 3152,
+   "bounds": {
+    "min": [
+     -3.65,
+     0.0,
+     -1.57
+    ],
+    "max": [
+     3.65,
+     7.35,
+     1.57
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 400,
+     "triangles": 3152
+    }
+   ],
+   "cullDistance": 400,
+   "note": "mode portal: opening x -2.1..2.1, straight to 3.4, semicircle r 2.1 (peak 5.5); plaque x -1.6..1.6, y 5.7..6.4 at z +-0.86 (glTF); the client draws the swirl and the sign"
+  },
+  "plaza_fountain": {
+   "category": "plaza",
+   "file": "plaza_fountain.glb",
+   "triangles": 1698,
+   "bounds": {
+    "min": [
+     -3.5,
+     0.0,
+     -3.5
+    ],
+    "max": [
+     3.5,
+     3.33,
+     3.5
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 300,
+     "triangles": 1698
+    }
+   ],
+   "cullDistance": 300
+  },
+  "plaza_bench": {
+   "category": "plaza",
+   "file": "plaza_bench.glb",
+   "triangles": 796,
+   "bounds": {
+    "min": [
+     -0.94,
+     0.0,
+     -0.3836
+    ],
+    "max": [
+     0.94,
+     0.9489,
+     0.352
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 120,
+     "triangles": 796
+    }
+   ],
+   "cullDistance": 120
+  },
+  "plaza_lamp": {
+   "category": "plaza",
+   "file": "plaza_lamp.glb",
+   "triangles": 310,
+   "bounds": {
+    "min": [
+     -0.2333,
+     0.0,
+     -0.2333
+    ],
+    "max": [
+     0.2333,
+     4.17,
+     0.2333
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 160,
+     "triangles": 310
+    }
+   ],
+   "cullDistance": 160
+  },
+  "plaza_statue": {
+   "category": "plaza",
+   "file": "plaza_statue.glb",
+   "triangles": 2078,
+   "bounds": {
+    "min": [
+     -0.9,
+     0.0,
+     -0.9
+    ],
+    "max": [
+     0.9795,
+     3.665,
+     0.9
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 300,
+     "triangles": 2078
+    }
+   ],
+   "cullDistance": 300
+  },
+  "plaza_flowerbed": {
+   "category": "plaza",
+   "file": "plaza_flowerbed.glb",
+   "triangles": 1438,
+   "bounds": {
+    "min": [
+     -1.6,
+     0.0,
+     -0.7
+    ],
+    "max": [
+     1.6,
+     0.7248,
+     0.7
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 140,
+     "triangles": 1438
+    }
+   ],
+   "cullDistance": 140
+  },
+  "plaza_board": {
+   "category": "plaza",
+   "file": "plaza_board.glb",
+   "triangles": 332,
+   "bounds": {
+    "min": [
+     -3.5,
+     0.0,
+     -0.7
+    ],
+    "max": [
+     3.5,
+     5.3,
+     0.4
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 300,
+     "triangles": 332
+    }
+   ],
+   "cullDistance": 300
+  },
+  "plaza_stall": {
+   "category": "plaza",
+   "file": "plaza_stall.glb",
+   "triangles": 1272,
+   "bounds": {
+    "min": [
+     -1.7,
+     0.0,
+     -0.9347
+    ],
+    "max": [
+     2.1892,
+     2.6854,
+     1.04
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 160,
+     "triangles": 1272
+    }
+   ],
+   "cullDistance": 160
+  },
+  "plaza_cafe": {
+   "category": "plaza",
+   "file": "plaza_cafe.glb",
+   "triangles": 524,
+   "bounds": {
+    "min": [
+     -1.4,
+     0.0,
+     -1.4
+    ],
+    "max": [
+     1.4,
+     2.73,
+     1.4
+    ]
+   },
+   "lods": [
+    {
+     "node": "LOD0",
+     "until": 120,
+     "triangles": 524
+    }
+   ],
+   "cullDistance": 120
+  }
+ }
+}

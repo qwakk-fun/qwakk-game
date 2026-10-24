@@ -90,8 +90,45 @@ export function accountSeed(s: { session: SignedIn; ducks: CharacterView[] }): S
   return { account: { token: s.session.accountToken, expiresAt: s.session.expiresAt, email: s.session.account.email, ...(s.ducks[0] ? { active: s.ducks[0].id } : {}) } };
 }
 
-/** On the character select: press Play (the picked duck) and wait for the main menu. */
-export async function pickDuck(page: import('playwright').Page, timeout = 30_000): Promise<void> {
-  await page.locator('.qd-play:not([disabled])').click({ timeout });
-  await page.locator('#menu[data-screen="main"]').waitFor({ timeout });
+/** Is this page in Duck Plaza now (the hub's test hook sees our own duck)? */
+export function inPlaza(page: import('playwright').Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const s = (window as unknown as { __qwakkHub?: { snapshot(): { me: number; leaving: boolean } } }).__qwakkHub?.snapshot();
+    return !!s && s.me > 0 && !s.leaving && document.body.classList.contains('in-hub');
+  });
+}
+
+/** Wait until the page is in Duck Plaza (after the character select, the guest card or a match). */
+export async function waitPlaza(page: import('playwright').Page, timeout = 60_000): Promise<void> {
+  const end = Date.now() + timeout;
+  while (!(await inPlaza(page).catch(() => false))) {
+    if (Date.now() > end) throw new Error('not in Duck Plaza in time');
+    await new Promise((r) => setTimeout(r, 200));
+  }
+}
+
+/** On the character select: press Play (the picked duck) and wait for Duck Plaza. */
+export async function pickDuck(page: import('playwright').Page, timeout = 60_000, tap = false): Promise<void> {
+  const play = page.locator('.qd-play:not([disabled])');
+  if (tap) await play.tap({ timeout });
+  else await play.click({ timeout });
+  await waitPlaza(page, timeout);
+}
+
+/** A guest without a name yet: the guest card (name and look), then Duck Plaza. */
+export async function guestIntoPlaza(page: import('playwright').Page, name: string, timeout = 60_000): Promise<void> {
+  await page.locator('.qm-guest:not([hidden])').waitFor({ timeout });
+  await page.locator('#qm-name').fill(name);
+  await page.locator('.qm-guest-enter').click();
+  await waitPlaza(page, timeout);
+}
+
+/** Open the menu sheet over the plaza (Esc with the mouse free) on a tab (play, team, leaderboard, settings, howto, account). */
+export async function openSheet(page: import('playwright').Page, tab = 0): Promise<void> {
+  if (await page.locator('#hub-sheet:not([hidden])').count() === 0) {
+    if (await page.evaluate(() => document.pointerLockElement !== null)) await page.evaluate(() => document.exitPointerLock());
+    await page.keyboard.press('Escape');
+    await page.locator('#hub-sheet:not([hidden])').waitFor({ timeout: 10_000 });
+  }
+  await page.locator('.qm-sheet-tab').nth(tab).click();
 }

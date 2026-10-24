@@ -60,6 +60,17 @@ function fresh(id: StoredIdentity, name: string): boolean {
  * from the server (a new guest passes the Turnstile check first when it is on).
  */
 export async function ensureSession(name: string, turnstileHost?: HTMLElement): Promise<SessionInfo> {
+  // One request at a time per name: a submit and a change event in the same moment share it (one guest, not two).
+  const running = inFlight.get(name);
+  if (running) return running;
+  const p = sessionFor(name, turnstileHost).finally(() => inFlight.delete(name));
+  inFlight.set(name, p);
+  return p;
+}
+
+const inFlight = new Map<string, Promise<SessionInfo>>();
+
+async function sessionFor(name: string, turnstileHost?: HTMLElement): Promise<SessionInfo> {
   const id = loadIdentity();
   if (fresh(id, name)) return id as SessionInfo;
   let turnstile: string | undefined;

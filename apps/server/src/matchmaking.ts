@@ -7,7 +7,7 @@
  * every matchmaking request goes through, and:
  *
  *   - keep only the client options a room reads (name, token, spectate,
- *     team, character; the lobby takes none). Everything else a client sends would otherwise reach
+ *     team, character, the hub portal; the lobby takes none). Everything else a client sends would otherwise reach
  *     onCreate merged over nothing (seat counts, seeds, timers);
  *   - refuse `create` on rooms that are not player-creatable (the lobby);
  *   - never create a join-only room (the static deathmatch rooms, opened by
@@ -31,6 +31,7 @@ import { ServerError } from '@colyseus/core';
 import { isCharacterId, TEAM_SIZES } from '@qwakk/shared';
 import { isPartyCode, LOBBY_ERROR } from '@qwakk/shared/lobby';
 import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
+import { isPortalId } from '@qwakk/shared/hub';
 
 /** The part of `matchMaker.controller` we wrap (A: Colyseus' AuthContext). */
 export interface MatchmakingController<A extends { ip?: string | undefined }> {
@@ -105,6 +106,8 @@ export function cleanClientOptions(roomName: string, lobbyName: string, raw: unk
   if (typeof o.team === 'number' && (TEAM_SIZES as readonly number[]).includes(o.team)) out.team = o.team;
   // The picked duck (looks only): a catalog id or nothing (the room falls back to the classic duck).
   if (isCharacterId(o.character)) out.character = o.character;
+  // The hub: back from this mode, appear in front of its portal (a portal id or nothing).
+  if (isPortalId(o.portal)) out.portal = o.portal;
   return out;
 }
 

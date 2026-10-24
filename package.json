@@ -21,7 +21,7 @@
     "test": "npm test --workspaces --if-present",
     "bench": "npm run bench -w @qwakk/server --",
     "start": "npm start -w @qwakk/server",
-    "e2e": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-lobby.ts && node --disable-warning=ExperimentalWarning e2e/party-duo.ts && node --disable-warning=ExperimentalWarning e2e/mobile-touch.ts && node --disable-warning=ExperimentalWarning e2e/chat.ts && node --disable-warning=ExperimentalWarning e2e/accounts.ts && node --disable-warning=ExperimentalWarning e2e/raid.ts",
+    "e2e": "node --disable-warning=ExperimentalWarning e2e/two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-two-clients.ts && node --disable-warning=ExperimentalWarning e2e/br-lobby.ts && node --disable-warning=ExperimentalWarning e2e/party-duo.ts && node --disable-warning=ExperimentalWarning e2e/mobile-touch.ts && node --disable-warning=ExperimentalWarning e2e/chat.ts && node --disable-warning=ExperimentalWarning e2e/accounts.ts && node --disable-warning=ExperimentalWarning e2e/raid.ts && node --disable-warning=ExperimentalWarning e2e/hub.ts",
     "e2e:chat": "node --disable-warning=ExperimentalWarning e2e/chat.ts",
     "e2e:accounts": "node --disable-warning=ExperimentalWarning e2e/accounts.ts",
     "test:net": "node --disable-warning=ExperimentalWarning e2e/pause-resume.ts",
@@ -51,7 +51,9 @@
     "shots:menu": "node --disable-warning=ExperimentalWarning e2e/menu-shots.ts",
     "e2e:admin": "node --disable-warning=ExperimentalWarning e2e/admin.ts",
     "e2e:localization": "node --disable-warning=ExperimentalWarning e2e/localization.ts",
-    "shots:characters": "node --disable-warning=ExperimentalWarning e2e/character-review.ts"
+    "shots:characters": "node --disable-warning=ExperimentalWarning e2e/character-review.ts",
+    "e2e:hub": "node --disable-warning=ExperimentalWarning e2e/hub.ts",
+    "bench:hub": "npm run bench:hub -w @qwakk/server --"
   },
   "devDependencies": {
     "@types/node": "26.6.5",

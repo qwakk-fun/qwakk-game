@@ -378,6 +378,10 @@ textarea {
   background: rgba(103, 232, 176, 0.14);
   color: #67e8b0;
 }
+.badge.is-hub {
+  background: rgba(125, 196, 255, 0.14);
+  color: #7dc4ff;
+}
 .badge.is-bad {
   background: rgba(255, 107, 91, 0.16);
   color: var(--bad);

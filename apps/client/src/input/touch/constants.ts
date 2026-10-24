@@ -27,6 +27,9 @@ export const TOUCH = {
   pressFlashMs: 90,
   /** The left half of the screen (minus the buttons) moves; the right half looks. Share of the width. */
   moveZoneShare: 0.42,
+  /** A look-side touch shorter than this (ms) that moved less than `tapSlop` px is a tap (the plaza picks a duck with it). */
+  tapMs: 280,
+  tapSlop: 10,
 } as const;
 
 /** Touch sensitivity setting range (a multiplier of TOUCH.lookRadPerPx). */

@@ -36,6 +36,7 @@ qwakk-game/
     src/inventory.ts   Inventory rules: carrying capacity, pickups and why one is refused, drops, crate contents on the wire
     src/zone.ts        Circle plan (final circle first, from the map's candidates) and timeline
     src/plane.ts       The drop plane's route from the map's flight paths
+    src/hub/           Duck Plaza, the hub between matches: constants and messages, the map's hub data and portal triggers, the hub duck in the sim, the hub schema
     test/              Vitest: determinism, movement feel, weapons, hitscan, loot, armor, heals, drop, zone
   apps/server/       Colyseus 0.18 game server (Node 24, runs the .ts sources directly)
     src/gameRoom.ts    Networking glue for both modes: auth, joins, inputs, patches, views, messages
@@ -46,6 +47,7 @@ qwakk-game/
     src/dmBot.ts       Deathmatch bot on map_v1 maps: the fighting brain plus navmesh walking (nav/navWalker.ts)
     src/br/            Battle royale rules, teams (teams.ts), loot in the world, results, bots (landing, looting, fighting, reviving)
     src/party/         Parties: the party room (joined by code) and the registry the game rooms read by verified player id
+    src/hub/           Duck Plaza: the hub room (no combat, portals, invites into parties, chat bubbles, emotes), its interest, invites, teams, chat filter and map
     src/admin/         Admin panel: login (scrypt password, TOTP, lockout, signed session cookie), the /admin routes and JSON API, the dashboard, the store (settings, audit log, bans)
     src/settings/      Runtime settings: definitions with ranges and defaults (the constants), validation, the live bot skills, server weapon damage, typed reads for the rooms
     src/ops/           What the panel acts on: the live room registry, notices and the menu status, bans, IP blocks (memory only), deathmatch rooms opening and closing, the room creation policy
@@ -224,12 +226,14 @@ npm run e2e:mobile -- DIR # touch controls on an emulated phone (landscape, mult
 npm run perf:mobile -- DIR # phone frame time under emulation, CPU throttled 4x (THROTTLE=6 for more)
 npm run e2e:party -- DIR # parties: menu party, deathmatch allies, Duo battle royale team, knock and revive (always on port 2567)
 npm run e2e:accounts -- DIR # accounts: guest locks, email sign-up with the dev mail sink, two ducks, battle royale, log out and in, phone shots
+npm run e2e:hub -- DIR # Duck Plaza: two ducks meet, invite, team up, walk into the Deathmatch portal together and come back; a guest's locked portal; a phone (port 2567, local PostgreSQL)
 npm run e2e:raid -- DIR # Hunt Season on Pond Keep: a solo run on the dev autopilot (waves 1 and 2, a card), then the keep with test hooks (the wall walk, a bread cannon manned and fired with no prediction corrections, the gate hammered and repaired, the drawbridge lever and the raft lanes, the boss), the win, XP stored; then a party run with a phone (port 2567, local PostgreSQL)
 npm run test:net     # pause and stall recovery against the real server
 npm run test:br      # headless 16-bot battle royale (server workspace)
 npm run bench        # deathmatch benchmark: 32 clients, or 1 client and 31 server bots, in one and in all three catalog rooms, opened with QWAKK_DM_ROOMS=3 (npm run bench -- 4 64 for client counts in one room)
 npm run bench:br     # battle royale benchmark: network clients plus bots, bandwidth, CPU, culling (npm run bench:br -- 4 60 2 for Duo)
 npm run bench:raid   # Hunt Season benchmark: headless waves 8 to 10 and 30 hunters at once with a duck at a cannon, then 4 network clients (one at a cannon) alone and next to a full deathmatch room (port 2597)
+npm run bench:hub    # Duck Plaza benchmark: one plaza of 40 network clients walking, jumping, quacking and chatting, crowded and spread (port 2594)
 npm run shots:menu -- DIR # the menu at 1440x900, 1024x768, 390x844 and 844x390 with every tab (build:test first, port 2567)
 npm run shots -- DIR # screenshots of a deathmatch firefight, then hip vs aim down sights and the reloads (two ducks in a battle royale warm-up; build:test first)
 npm run perf:br -- DIR # battle royale frame time, CPU per frame and draw calls in headless Chrome
@@ -237,7 +241,7 @@ npm run perf:map -- DIR # the map alone in the dev map viewer
 npm run map:sync     # copy the map workstream's export into packages/shared/src/maps
 ```
 
-The e2e scripts use ports 2567 and 5173 by default. The menu-driven ones (`br-lobby`, `party-duo`, `mobile-touch`, `accounts`, `raid`) also need the local PostgreSQL (`npm run db:up`): battle royale needs an account, so they sign up through the dev mail sink on a throwaway database. While `npm run dev` holds the ports, build a test bundle that calls another port and point the scripts at it:
+The e2e scripts use ports 2567 and 5173 by default. The menu-driven ones (`br-lobby`, `party-duo`, `mobile-touch`, `accounts`, `raid`, `hub`) also need the local PostgreSQL (`npm run db:up`): battle royale needs an account, so they sign up through the dev mail sink on a throwaway database. While `npm run dev` holds the ports, build a test bundle that calls another port and point the scripts at it:
 
 ```sh
 cd apps/client && VITE_DEVTOOLS=1 VITE_SERVER_PORT=2577 npx vite build --outDir /tmp/dist-test-2577 --emptyOutDir && cd ../..
@@ -248,13 +252,13 @@ Server environment switches: `QWAKK_BOTS=0` (no bots), `QWAKK_MAX_CLIENTS` (huma
 
 ## Meta: identity, leaderboard, menu
 
-The menu is the first screen. Players sign in by email (a 6-digit code, no passwords) and pick one of up to four ducks on a character select, or play as a guest: a nickname, a server-given `#1234` tag and a signed identity, Deathmatch only. Battle royale needs an account. Accounts, their data model, routes and the QoreX plug-in point: `docs/accounts.md`. Finished matches feed a per-season leaderboard, per duck. The leaderboard is in-game stats only (no prizes, no tokens) and only the game server writes it. Data handling for the privacy page: `docs/privacy-notes.md`.
+The menu is the first screen. Players sign in by email (a 6-digit code, no passwords) and pick one of up to four ducks on a character select, or play as a guest: a nickname, a server-given `#1234` tag and a signed identity, Deathmatch only. Then they walk into Duck Plaza, the shared 3D square between matches, and enter a mode through its portal (`docs/duck-plaza.md`); everything else the menu offers is in the plaza's sheet (Esc). Battle royale needs an account. Accounts, their data model, routes and the QoreX plug-in point: `docs/accounts.md`. Finished matches feed a per-season leaderboard, per duck. The leaderboard is in-game stats only (no prizes, no tokens) and only the game server writes it. Data handling for the privacy page: `docs/privacy-notes.md`.
 
 ### Code
 
 - `apps/server/src/meta/`: `index.ts` (the contract the rooms use), `service.ts` (sessions, limits, recording, reads), `http.ts` (routes), `token.ts` (HMAC tokens), `names.ts` with `blocked-names.json` (name rules and word filter), `rateLimit.ts`, `ip.ts`, `turnstile.ts`, `score.ts`, `matches.ts`, `leaderboard.ts`, `players.ts`, `migrate.ts`, `config.ts`.
 - `apps/server/db/migrations/`: plain SQL, applied in order at server start.
-- `apps/client/src/ui/menu/`: the menu (pure DOM, no game imports, so it paints before the game bundle loads), `apps/client/src/settings.ts` (saved settings), `apps/client/public/ui/` (menu art). The Play tab is a join flow in three numbered steps: name your duck (`nameStep.ts`), pick your duck (`characterStep.ts` over the catalog in `characters.ts`: Qwakk and Toski, remembered in the browser as `qwakk.character` and sent as the `character` join option) and drop in (`playStep.ts`: the Solo / Duo / Squad picker, Quick Play, Deathmatch). Next to it the stage (`stage.ts`: the picked duck, in 3D, with a name plate; picking another duck swaps the model) and the lobby column (party, live rooms). Layouts: three columns from 1200 px, two below that with the lobby underneath, title beside a small duck on upright phones (the tabs dock at the bottom as an app bar), and title and duck beside the steps on phones on their side. Touch targets are at least 44 px and the page keeps clear of notches (safe area insets). Every string is in `copy.ts`.
+- `apps/client/src/ui/menu/`: the menu (pure DOM, no game imports, so it paints before the game bundle loads), `apps/client/src/settings.ts` (saved settings), `apps/client/public/ui/` (menu art). `menu.ts` owns the flow: the entry screens (`account/`: sign in, the character select), a guest's name and look the first time (`guestCard.ts`: `nameStep.ts` and `characterStep.ts` over the catalog in `characters.ts`: Qwakk and Toski, remembered in the browser as `qwakk.character` and sent as the `character` join option), then Duck Plaza (`src/hub/`, from the game bundle) and the sheet over it (`hubSheet.ts`, Esc or the touch Pause button): Play (the three modes as a plain list, with the guest locks and the party rules of the portals, and the live room lists, `roomsPanel.ts`), Team (`partyPanel.ts`), Leaderboard, Settings and the language, How to play, Account. Back from a match the plaza shows the last round (`resultCard.ts`) for a few seconds. The old main menu modules (`playStep.ts`, `stage.ts`, `tabs.ts`, `teamPicker.ts`) are no longer imported. Touch targets are at least 44 px and the page keeps clear of notches (safe area insets). Every string is in `copy.ts`.
 - `apps/client/src/menuHero/`: the Play tab's duck in 3D. The picked duck's portrait (`public/ui/duck-rifle.webp`, `duck-mallard-rifle.webp`) paints with the menu and stays as the fallback; after paint, `main.ts` hands the menu a dynamic import of this module (`ui/menu/heroSlot.ts` runs it, so the menu chunk carries no Three.js; it shares the Three.js chunk with the game). It renders the picked duck's model (`duck.glb` or `duck_<key>.glb`; a new pick loads and compiles the other model, then swaps it in with a quack) with the rifle in `Rifle_Aim` (legs from `Idle`), framed, shaded and outlined like the image (the art's `hold_rifle_three_quarter` render recipe) on a transparent canvas (the stage's glow shows through), and fades in over the image after its first frame. The duck turns its body, head and rifle toward the cursor within natural limits (`AIM` in `aim.ts`, critically damped easing), relaxes back to the image pose when the cursor leaves the window, and gives a small recoil and a quack when clicked. Touch screens get a lazy glance now and then and follow a tap. It stays on the image with reduced motion, data saver, no WebGL2 or a load error. Light: WebGL2 at a pixel ratio of at most 1.5, frames only while something moves, nothing on other tabs or a hidden page, and it frees its renderer, geometry and textures before the game starts (it comes back on the menu after the round).
 
 ### Contract for the game rooms (`apps/server/src/meta/index.ts`)
@@ -669,6 +673,15 @@ The table is from the softer deathmatch bots and spawn protection (24 ducks per 
 - The culling is the largest cost with many humans: 32 human viewers test about 1,000 pairs every 3 ticks (89,000 rays a second per room). It runs for a third of the viewers each tick; before that change the 32-human room had a 27.6 ms tick p95 (now 10.9 ms).
 - Tick times on this Mac are pessimistic for light loads: the same 32-bot room costs 0.7 ms per tick in a tight loop but 3.4 ms when it wakes every 33 ms like the server (macOS moves a mostly idle process to slower cores and clocks), which is why one room shows a higher tick time than each of three. Measure on the target box before tuning the CapRover CPU limit.
 - An empty room sleeps (no tick loop) until someone joins: 0 CPU.
+
+Duck Plaza (`npm run bench:hub`, same machine, port 2594, after the navmeshes loaded): one plaza of 40 network clients (HUB.maxClients) walking, sprinting and jumping with random inputs, a quack every 5 s and a chat line every 10 s each; 30 s measured. The plaza has no combat, no bots and no culling rays: near poses (20 m) every tick, far ones (70 m) at 10 Hz, nothing beyond.
+
+| Hub room | Tick avg / p95 / max (ms) | Patch avg / p95 (ms) | Server CPU (% of 1 core) | RSS (MB) | Down per client (KB/s) | Poses held per client |
+| --- | --- | --- | --- | --- | --- | --- |
+| 40 clients, crowding the spawn square | 3.375 / 5.316 / 10.24 | 1.079 / 1.837 | 21.0 | 433 | 9.97 | 38.9 of 39 |
+| 40 clients, spread over the plaza | 4.044 / 6.204 / 9.27 | 0.952 / 1.995 | 22.7 | 421 | 7.27 | 32.7 of 39 |
+
+A full plaza costs well under a full deathmatch room (1 x (32 + 0) above: 8.67 ms tick, 32.7 percent CPU) with 25 percent more players: no shots, hit checks or visibility rays, only the movement step and the poses. With a 30 m near radius instead of 20 m the crowded square cost 11.6 KB/s down per client.
 
 Phase 1 numbers (greybox, 8 ducks per room, no culling, network bots only):
 

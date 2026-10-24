@@ -41,9 +41,49 @@ export interface PlayTarget {
   team?: number;
 }
 
+/** A member of the team as the plaza shows it (the party view: names and tags only). */
+export interface HubTeamMember {
+  name: string;
+  tag: string;
+  leader: boolean;
+  you: boolean;
+  busy: boolean;
+}
+
+/** What the plaza (src/hub/hubHost.ts) takes to start. Types only, so the menu never imports the game. */
+export interface EnterHubOptions {
+  token?: string;
+  character?: number;
+  account: boolean;
+  portal?: GameMode | null;
+  settings: GameSettings;
+  hooks: {
+    portal(mode: GameMode): void;
+    party(code: string): void;
+    leaveTeam(): void;
+    signIn(): void;
+    pause(): void;
+    closed(code: number): void;
+  };
+}
+
+/** The menu's handle on the plaza while it is open. */
+export interface HubHandleLike {
+  leave(): void;
+  setTeam(members: HubTeamMember[]): void;
+  setPaused(on: boolean): void;
+  resume(): void;
+  applySettings(settings: GameSettings): void;
+  toast(text: string, action?: { label: string; run: () => void }): void;
+  readonly touch: boolean;
+  readonly roomId: string;
+}
+
 export interface MenuHooks {
   /** Load the game and join; resolves once the player is in, with the room joined. */
   start(opts: StartOptions): Promise<{ roomId: string } | void>;
+  /** The game bundle (it holds the plaza too). */
+  load(): Promise<{ enterHub(opts: EnterHubOptions): Promise<HubHandleLike> }>;
   /** Warm the game bundle in the background after the menu has painted. */
   prefetch?(): void;
   /** Show the graphics preset (only when the game applies it). */

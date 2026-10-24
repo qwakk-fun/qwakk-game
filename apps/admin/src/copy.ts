@@ -72,7 +72,7 @@ export const COPY = {
     ping: (ms: number) => `${ms} ms`,
     kd: (k: number, d: number) => `${k} / ${d}`,
   },
-  phases: { waiting: 'Waiting', countdown: 'Countdown', playing: 'Playing', intermission: 'Break', ended: 'Ended', idle: 'Idle (empty)' } as Record<string, string>,
+  phases: { waiting: 'Waiting', countdown: 'Countdown', playing: 'Playing', intermission: 'Break', ended: 'Ended', idle: 'Idle (empty)', open: 'Open' } as Record<string, string>,
   settings: {
     title: 'Settings',
     sub: 'Server-only numbers. Changes are checked on the server and logged.',

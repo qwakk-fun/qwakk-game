@@ -74,9 +74,18 @@ export class SainteProps {
     this.group.name = 'props';
   }
 
-  static async create(props: readonly PropInstance[], half: number, quality: 'high' | 'low'): Promise<SainteProps> {
+  /**
+   * `extraManifests`: more manifests next to the kit's (a map's own props, such as
+   * Duck Plaza's plaza_manifest.json, named by its map_v1.json `propManifests`).
+   */
+  static async create(props: readonly PropInstance[], half: number, quality: 'high' | 'low', extraManifests: readonly string[] = []): Promise<SainteProps> {
     const self = new SainteProps(quality === 'low' ? 0.6 : 1);
     const manifest = (await (await fetch(`${PROPS_BASE}manifest.json`)).json()) as Manifest;
+    for (const name of extraManifests) {
+      if (!/^[a-z0-9_-]+\.json$/.test(name)) continue;
+      const extra = (await (await fetch(`${PROPS_BASE}${name}`)).json()) as Manifest;
+      manifest.props = { ...extra.props, ...manifest.props };
+    }
     await self.build(props, half, manifest);
     return self;
   }

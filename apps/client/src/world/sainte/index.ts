@@ -75,7 +75,8 @@ export async function createSainteWorld(scene: THREE.Scene, assets: MapAssets, o
   const river = def.water ? createRiver(def.water) : null;
   if (river) scene.add(river);
   const { statics, crateSpots } = splitCrates(extras.props, assets);
-  const props = await SainteProps.create(statics, (def.terrain.cells * def.terrain.cellSize) / 2, opts.quality);
+  const extraManifests = (assets.raw as { propManifests?: unknown } | null)?.propManifests;
+  const props = await SainteProps.create(statics, (def.terrain.cells * def.terrain.cellSize) / 2, opts.quality, Array.isArray(extraManifests) ? extraManifests.filter((m): m is string => typeof m === 'string') : []);
   scene.add(props.group);
   const crates = new CratesView(crateSpots, opts.quality);
   scene.add(crates.group);

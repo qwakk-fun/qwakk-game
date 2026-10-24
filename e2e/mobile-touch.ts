@@ -5,14 +5,15 @@
  * first). Fingers are real touch events (DevTools Input.dispatchTouchEvent),
  * which the page sees as touch pointer events, several at once.
  *
- *   Menu: signed in (battle royale needs an account; a throwaway database),
- *   the phone taps Play on the character select; Play is on for a phone, the
- *   menu fits landscape and portrait.
- *   Deathmatch from the menu, tap to play: the stick moves the duck (the
+ *   Duck Plaza: signed in (battle royale needs an account; a throwaway
+ *   database), the phone taps Play on the character select and lands in the
+ *   plaza; the first tap turns the touch layer on (no combat buttons there),
+ *   portrait shows the rotate screen, Pause opens the menu sheet.
+ *   Deathmatch from the sheet, tap to play: the stick moves the duck (the
  *   server's position changes), a drag on the right turns it (the server's
  *   yaw follows), Fire shoots (the server's magazine drops) while the stick
  *   and a look drag are held, Reload reloads. Portrait shows the rotate
- *   screen. Pause, leave, then a battle royale from the menu: the Jump out
+ *   screen. Pause, leave (back to the plaza), then a battle royale from the sheet: the Jump out
  *   button leaves the plane (the server's mode goes to freefall) and Glide
  *   opens the glider.
  *
@@ -25,7 +26,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type CDPSession, type Page } from 'playwright';
 import { Mode } from '@qwakk/shared';
-import { accountSeed, e2eDatabase, seedBrowser, signUpApi } from './lib/accounts.ts';
+import { accountSeed, e2eDatabase, openSheet, pickDuck, seedBrowser, signUpApi, waitPlaza } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-mobile');
@@ -174,34 +175,40 @@ async function main(): Promise<void> {
     const cdp = await ctx.newCDPSession(page);
     const f = new Fingers(cdp);
 
-    // Menu: a phone can play.
+    // Duck Plaza on a phone: the character select's Play, the plaza, touch play on the first tap.
     await page.goto(`http://localhost:${WEB_PORT}/game/?lang=en&hud=0&menu=1`);
-    await page.locator('.qd-play:not([disabled])').tap({ timeout: 30000 });
-    await page.locator('#menu[data-screen="main"]').waitFor();
-    await sleep(1500); // the menu's entrance animation
+    await pickDuck(page, 60_000, true);
+    await sleep(1200);
     const coarse = await page.evaluate(() => ({ coarse: matchMedia('(pointer: coarse)').matches, fine: matchMedia('(any-pointer: fine)').matches, touch: navigator.maxTouchPoints }));
     console.log(`phone: ${JSON.stringify(coarse)}`);
     if (!coarse.coarse || coarse.fine) throw new Error('the emulated phone does not report a coarse pointer only');
-    if (await page.locator('.qm-btn-play').isDisabled()) throw new Error('Play is off on a phone');
-    if (!(await visible(page, '.qm-mobile'))) throw new Error('no phone note in the menu');
-    await page.screenshot({ path: `${out}/1-menu-landscape.png` });
-    const scrollW = await page.evaluate(() => document.querySelector('#menu')!.scrollWidth);
-    if (scrollW > W + 1) throw new Error(`the menu scrolls sideways in landscape (${scrollW}px)`);
-    await page.setViewportSize({ width: H, height: W });
-    await sleep(300);
-    await page.screenshot({ path: `${out}/2-menu-portrait.png` });
-    const scrollWp = await page.evaluate(() => document.querySelector('#menu')!.scrollWidth);
-    if (scrollWp > H + 1) throw new Error(`the menu scrolls sideways in portrait (${scrollWp}px)`);
-    await page.setViewportSize({ width: W, height: H });
-    await sleep(300);
-    await page.locator('#qm-tab-howto').tap();
+    await page.screenshot({ path: `${out}/1-plaza-landscape.png` });
+    await f.tap(W * 0.72, H * 0.3);
+    await until('touch play in the plaza', () => page.evaluate(() => !document.querySelector('.tc')!.hasAttribute('hidden')), (v) => v, 5000);
+    if (!(await visible(page, '.tc-jump')) || (await visible(page, '.tc-fire:not(.tc-fire-l)'))) throw new Error('the plaza touch layer shows combat buttons, or no Jump');
     await sleep(500);
-    await page.screenshot({ path: `${out}/2b-menu-howto-touch.png`, fullPage: true });
-    await page.locator('#qm-tab-play').tap();
+    await page.screenshot({ path: `${out}/1b-plaza-touch.png` });
+    await page.setViewportSize({ width: H, height: W });
+    await sleep(400);
+    if (!(await visible(page, '#rotate'))) throw new Error('no rotate screen over the plaza in portrait');
+    await page.screenshot({ path: `${out}/2-plaza-portrait.png` });
+    await page.setViewportSize({ width: W, height: H });
+    await sleep(400);
+    // The pause button opens the menu sheet; How to play, then Deathmatch from the sheet.
+    const plazaPause = await center(page, '.tc-pause');
+    await f.tap(plazaPause.x, plazaPause.y);
+    await page.locator('#hub-sheet:not([hidden])').waitFor({ timeout: 5000 });
+    await sleep(600); // the pause tap's own click is dropped for a moment (TOUCH.clickGuardMs)
+    await page.locator('.qm-sheet-tab').nth(4).tap();
+    await sleep(500);
+    await page.screenshot({ path: `${out}/2b-sheet-howto-touch.png` });
+    const scrollW = await page.evaluate(() => document.querySelector('#hub-sheet')!.scrollWidth);
+    if (scrollW > W + 1) throw new Error(`the sheet scrolls sideways in landscape (${scrollW}px)`);
+    await page.locator('.qm-sheet-tab').nth(0).tap();
     await sleep(300);
 
-    // Deathmatch from the menu, then tap to play.
-    await page.locator('.qm-btn[data-mode="dm"]').tap();
+    // Deathmatch from the sheet, then tap to play.
+    await page.locator('.qm-sheet-mode[data-mode="dm"]').tap();
     await until('in the deathmatch', () => snap(page), (s) => s?.mode === 0 && s.players >= 1 && s.server?.alive === 1, 60000);
     await until('tap to play card', () => page.locator('#status').innerText(), (t) => t.includes('Tap to play'), 10000);
     await page.screenshot({ path: `${out}/3-dm-tap-to-play.png` });
@@ -289,11 +296,11 @@ async function main(): Promise<void> {
     await page.screenshot({ path: `${out}/8-paused.png` });
     const leave = await center(page, '#leave');
     await f.tap(leave.x, leave.y);
-    await until('menu again', () => visible(page, '#menu'), (v) => v, 10000);
-    if (await page.evaluate(() => document.body.classList.contains('touch-game'))) throw new Error('the menu kept the touch game state');
+    await waitPlaza(page);
 
-    // Battle royale from the menu: jump out and glide with the touch buttons.
-    await page.locator('.qm-btn-play').tap();
+    // Battle royale from the sheet: jump out and glide with the touch buttons.
+    await openSheet(page, 0);
+    await page.locator('.qm-sheet-mode[data-mode="br"]').tap();
     await until('in a battle royale', () => snap(page), (s) => s?.mode === 1 && s.players >= 1, 60000);
     await until('tap to play card', () => page.locator('#status').innerText(), (t) => t.includes('Tap to play'), 10000);
     const card2 = await center(page, '#overlay .card');

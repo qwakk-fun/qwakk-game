@@ -4,14 +4,15 @@
  * headless Chrome player and two Node players (npm run build:test first).
  *
  *   1. Node B creates a room. A Node lobby watcher sees it listed: counting down with one human.
- *   2. Chrome A (signed in: battle royale needs an account) opens the menu, picks
- *      its duck, sees the room in the live list and joins it from there. The waiting room shows the roster and the plane countdown.
+ *   2. Chrome A (signed in: battle royale needs an account) picks its duck, walks
+ *      into Duck Plaza, opens the menu sheet (Esc), sees the room in the live list
+ *      and joins it from there. The waiting room shows the roster and the plane countdown.
  *   3. Node C picks the room from the lobby list and joins: the countdown gains 15 seconds
  *      (listed as counting down; the waiting room shows the plane timer).
  *   4. When it ends, bots fill the seats (16 ducks) and the match starts; the
  *      room is listed as in progress and a late join by id is refused.
  *   5. The three static deathmatch rooms are listed (name, 0/32) in the lobby
- *      and the menu; a menu clicks Join on one: the lobby lists 1 human there
+ *      and the plaza's menu sheet; a guest clicks Join on one: the lobby lists 1 human there
  *      and the player is in a full room (MATCH.players ducks, the rest bots).
  *
  * Saves screenshots: room list, waiting room, countdown, list during the
@@ -29,7 +30,7 @@ import { chromium, type Page } from 'playwright';
 import { BR, MATCH, ROOM } from '@qwakk/shared';
 import { DM_ROOMS, LOBBY_ROOM, type RoomListing } from '@qwakk/shared/lobby';
 import { IslandState, MatchPhase } from '@qwakk/shared/net';
-import { accountSeed, e2eDatabase, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
+import { accountSeed, e2eDatabase, guestIntoPlaza, openSheet, pickDuck, seedBrowser, signUpApi } from './lib/accounts.ts';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const out = process.argv[2] ?? join(tmpdir(), 'qwakk-shots-lobby');
@@ -136,6 +137,7 @@ async function main(): Promise<void> {
     a.on('console', (m) => m.type() === 'error' && !m.text().includes('404') && console.error('[A] console:', m.text()));
     await a.goto(menuUrl);
     await pickDuck(a);
+    await openSheet(a);
     const row = a.locator(`.qm-room[data-room="${id}"]`);
     await row.waitFor({ timeout: 30000 });
     const rowText = await row.innerText();
@@ -173,6 +175,8 @@ async function main(): Promise<void> {
     await seedBrowser(ctxD, { guest: true }); // a guest: the deathmatch rooms are open to it
     const d = await ctxD.newPage();
     await d.goto(menuUrl);
+    await guestIntoPlaza(d, 'LobbyGuest');
+    await openSheet(d);
     await d.locator(`.qm-room[data-room="${id}"].is-countdown`).waitFor({ timeout: 15000 });
     await sleep(400);
     await d.screenshot({ path: `${out}/4-list-countdown.png` });

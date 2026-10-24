@@ -47,6 +47,11 @@ export async function recordMatch(result: import('./matches.ts').MatchResult): P
   }
 }
 
+/** An account duck's level (the hub's badge). Null without a database or on failure; never throws. */
+export async function playerLevel(playerId: string): Promise<number | null> {
+  return meta().playerLevel(playerId);
+}
+
 /** A finished Hunt Season run: stored, with the XP of its account ducks granted. Null without a database or on failure; never throws. */
 export async function recordRaid(result: import('./raid.ts').RaidRunResult): Promise<Map<string, import('./raid.ts').RaidGrant> | null> {
   try {

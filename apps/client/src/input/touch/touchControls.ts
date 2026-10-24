@@ -48,6 +48,8 @@ export interface TouchFrame {
   nades?: number;
   rockets?: number;
   rocketOut?: boolean;
+  /** Duck Plaza (no combat): only the stick, look, Jump and the pause button. */
+  hub?: boolean;
 }
 
 export interface TouchHooks {
@@ -55,6 +57,8 @@ export interface TouchHooks {
   pause(): void;
   /** A mouse click on the layer (a touch laptop): switch to mouse play. */
   mouse(): void;
+  /** A short tap on the look side (no drag): the plaza picks the duck under the finger (CSS px). */
+  tap?(x: number, y: number): void;
 }
 
 // Jump is held (a tap still latches one press): the deathmatch hero flies while it is held.
@@ -187,7 +191,9 @@ export class TouchControls {
 
   private onUp(e: PointerEvent): void {
     const f = this.fingers.up(e.pointerId);
-    if (f) this.release(f);
+    if (!f) return;
+    this.release(f);
+    if (e.type === 'pointerup' && f.role === 'look' && f.travel <= TOUCH.tapSlop && performance.now() - f.t0 <= TOUCH.tapMs) this.hooks.tap?.(e.clientX, e.clientY);
   }
 
   /** Stick offset from its center: axes and sprint into Controls, and the knob drawn. */
@@ -258,7 +264,9 @@ export class TouchControls {
       for (const bits of [Button.Aim, Button.Crouch]) if (c.touchHeldHas(bits)) c.setTouchHeld(bits, false);
     }
     const show = new Set<ButtonId>(['pause']);
-    if (t.mapOpen) show.add('map');
+    if (t.hub) {
+      if (!t.modal) show.add('jump');
+    } else if (t.mapOpen) show.add('map');
     else if (!t.modal) {
       show.add('board');
       if (t.br) show.add('map');

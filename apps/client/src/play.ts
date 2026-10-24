@@ -18,10 +18,13 @@ import { coarsePointer, isTouchOnly } from './input/touch/device.ts';
 import { enterPlayScreen, leavePlayScreen, setTouchGame } from './input/touch/screen.ts';
 import { COPY } from './ui/menu/copy.ts';
 import { Session } from './net/session.ts';
-import { createRenderer, freshScene, type RenderContext } from './render/renderer.ts';
+import { freshScene, type RenderContext } from './render/renderer.ts';
+import { sharedRenderer } from './render/shared.ts';
 import { buildWorld, MapMismatchError } from './world/worldHandle.ts';
 
 export type { ExitReason, ExitSummary } from './game.ts';
+/** Duck Plaza, the hub between matches (the menu enters it after the character select). */
+export { enterHub } from './hub/hubHost.ts';
 
 export interface StartGameOptions {
   mode: 'br' | 'dm' | 'raid';
@@ -48,7 +51,6 @@ const status = document.getElementById('status') as HTMLElement;
 const hudEl = document.getElementById('hud') as HTMLElement;
 const reconnect = document.getElementById('reconnect') as HTMLButtonElement;
 
-let ctxPromise: Promise<RenderContext> | null = null;
 let exitCallback: ExitCallback | null = null;
 let current: { game: Game; session: Session; mode: 'br' | 'dm' | 'raid'; ended: boolean } | null = null;
 let leaveButton: HTMLButtonElement | null = null;
@@ -60,12 +62,12 @@ export function onGameExit(cb: ExitCallback): void {
 }
 
 function renderer(): Promise<RenderContext> {
-  ctxPromise ??= createRenderer(canvas, config);
-  return ctxPromise;
+  return sharedRenderer();
 }
 
 function setOverlay(text: string, opts: { stopped?: boolean; leave?: boolean } = {}): void {
   overlay.classList.remove('hidden');
+  delete overlay.dataset.hub;
   overlay.dataset.stopped = opts.stopped ? '1' : '';
   status.textContent = text;
   reconnect.hidden = !opts.stopped || exitCallback !== null;

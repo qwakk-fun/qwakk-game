@@ -16,7 +16,8 @@
     "bench:br": "node --disable-warning=ExperimentalWarning bench/br.ts",
     "test:br": "vitest run test/br.test.ts test/nav.test.ts",
     "bench:raid": "node --disable-warning=ExperimentalWarning bench/raid.ts",
-    "test:raid": "vitest run test/raid"
+    "test:raid": "vitest run test/raid",
+    "bench:hub": "node --disable-warning=ExperimentalWarning bench/hub.ts"
   },
   "dependencies": {
     "@colyseus/core": "0.18.18",

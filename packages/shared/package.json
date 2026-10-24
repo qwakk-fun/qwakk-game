@@ -11,7 +11,10 @@
     "./accounts": "./src/accounts.ts",
     "./raid": "./src/raid/index.ts",
     "./progress": "./src/raid/progress.ts",
-    "./maps/*": "./src/maps/*"
+    "./maps/*": "./src/maps/*",
+    "./hub": "./src/hub/index.ts",
+    "./hub/schema": "./src/hub/schema.ts",
+    "./hub/sim": "./src/hub/hubSim.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -92,6 +92,19 @@ A storybook stone duck castle on an island in a pond for Hunt Season; `docs/pond
 - Animated GLBs are not in `props`: the game places them from `raid.props` (`castle_drawbridge` with a `Hinge`, `castle_gate` with `Intact`, `Damaged`, `Broken`, `Planks`, `bread_cannon` with `Yaw`, `Pitch`, `Muzzle`, `castle_lever` with `Handle`, `bread_loaf`). The manifest lists each one's `nodes` and every castle piece's `anchors` (named points in glTF space, which `gen_pond.py` turns into the markup). Collider records may carry `states` (the gate's).
 - Checks: `apps/server/test/pondKeep.test.ts` (determinism, heightfield, stale copy, the markup, the cannons' line of fire, the moat crossing for ducks and for the navmesh) and `houses.test.ts` (every castle, raft lane and watchtower walk path).
 
+## The hub: Duck Plaza (`duck-plaza`)
+
+The social square between matches (`../../docs/duck-plaza.md`), built from the same kit plus nine props of its own that live in their own files, so the kit's shared `colliders.json` and `manifest.json` are never touched: `blender/props_plaza.py` (the portal arch, fountain, bench, lamp, duck statue, flower bed, leaderboard board, market stall, cafe set; the kit palette only) and `blender/build_plaza_props.py` write `apps/client/public/models/props/plaza_*.glb`, `plaza_manifest.json` and `export/duck-plaza/plaza_colliders.json` (renders in `renders/duck-plaza/`). `layout/gen_plaza.py` writes `export/duck-plaza/` (map_v1 with a `hub` section: portals, spawns, exits per mode, the board, the pond, the fountain; `propManifests` names the extra manifest for the client). `npm run map:sync` merges the plaza colliders into the copy in `packages/shared/src/maps/duck-plaza/`.
+
+```sh
+sh qwakk-game/art/map/build_plaza.sh [--no-render] [--quick]   # plaza props (Blender), compression, then the layout
+```
+
+- Size: 128 x 128 m terrain (2 m cells), a hedgerow ring around a rounded square of about 104 x 104 m, wooded hills outside.
+- Layout: the Duck Pond in the middle (water at 2.0 m, at most 0.62 m deep, the statue island), the promenade around it (benches, lamps, flower beds), Fountain Square in the south (spawns, fountain, market, cafe, the board), the three portal arches on paved aprons (Deathmatch north, Battle Royale west, Hunt Season east), townhouses in the corners, park trees.
+- Portal arch numbers the game uses: the opening is x -2.1..2.1, straight sides to 3.4 m, a half circle of 2.1 m on top (peak 5.5); the plaque faces x -1.6..1.6, y 5.7..6.4 at z +-0.86; the board face x -2.9..2.9, y 1.55..4.65 at z +0.13 (glTF space).
+- Checks: `apps/server/test/duckPlaza.test.ts`.
+
 ## Conventions
 
 - Meters. Blender authoring space is Z up with the front facing -Y; the GLB is Y up with the front facing +Z (the same as the duck). Origins sit on the ground. Buildings: the origin is the footprint center at ground level, the ground floor top is 0.15 m, the upper floor top is 3.15 m.

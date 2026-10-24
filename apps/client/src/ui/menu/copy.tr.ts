@@ -189,5 +189,43 @@ export const TR = {
     ] as [string, string][],
     fair: 'Adil oyun: Her vuruşa sunucu karar verir, sıralama yalnızca sunucunun sayılarını kabul eder.',
   },
+  hub: {
+    title: 'Ördek Meydanı', loading: 'Ördek Meydanı\'na gidiliyor...', clickToWalk: 'Gezmek için tıkla', tapToWalk: 'Gezmek için dokun',
+    level: (n: number) => `Sv ${n}`, guest: 'Misafir',
+    hints: 'WASD yürü · Space zıpla · Bir ördeğe tıkla · T sohbet · Q vakla · B dans · Esc menü',
+    touchHints: 'Selam vermek için bir ördeğe dokun · oynamak için bir portala yürü',
+    portals: {
+      dm: { name: 'Deathmatch', sub: 'Kavren · yeniden doğarsın' },
+      br: { name: 'Battle Royale', sub: 'Yelova · son ördek kazanır' },
+      raid: { name: 'Av Sezonu', sub: 'Ortak mod · kuleyi koru' },
+    },
+    signIn: 'Girmek için giriş yap', signInAction: 'Giriş yap', entering: (mode: string) => `${mode} yolunda...`,
+    invite: 'Takıma davet et', quack: 'Vakla', dance: 'Dans et', leaveTeam: 'Takımdan ayrıl', teammate: 'Takım arkadaşı', close: 'Kapat',
+    invitesYou: 'seni takımına çağırıyor', accept: 'Katıl', decline: 'Sağ ol, kalsın', team: 'Takımın', leader: 'lider', inMatch: 'maçta',
+    notes: {
+      sent: (name: string) => `${name} davet edildi`, declined: (name: string) => `${name} daveti geri çevirdi`,
+      youDeclined: (name: string) => `${name} davetini geri çevirdin`, expired: 'Davetin süresi doldu', teamFull: 'Takım dolu (4 ördek)',
+      busy: (name: string) => `${name} şu an meşgul`, limited: 'Yavaş ol, biraz sonra tekrar dene', teammates: (name: string) => `${name} zaten takımında`,
+      locked: (mode: string) => `${mode} için hesap gerekir.`, leaderPicks: 'Oyunu takım liderin seçer. Tek başına gitmek için takımdan ayrıl.',
+      partyGuest: 'Bu mod için takımdaki herkesin giriş yapmış olması gerekir.', joined: (name: string) => `${name} takımına katıldı`,
+      joinedTeam: (name: string) => `${name} takımına katıldın`, failed: 'Takım kurulamadı. Tekrar dene.', tooFar: (name: string) => `${name} yanına biraz daha yaklaş`,
+      left: 'Takımdan ayrıldın', following: (name: string) => `${name} ile oyuna gidiliyor...`, closed: 'Meydan bağlantısı koptu.',
+    },
+    board: { title: 'Sezonun en iyi ördekleri', loading: 'Tüyler sayılıyor...', empty: 'Henüz puan yok. İlk sen ol!', offline: 'Puan tablosu biraz dinleniyor', points: (n: number) => `${n} puan` },
+  },
+  sheet: {
+    title: 'Menü', resume: 'Meydana dön', modes: 'Oyna', modesNote: 'Ya da meydanda bir portala yürü.', team: 'Takım',
+    teamNote: 'Davet etmek için meydanda bir ördeğe tıkla ya da takım kodunu paylaş.', leaderboard: 'Sıralama', settings: 'Ayarlar', howto: 'Nasıl oynanır',
+    account: 'Hesap', switchDuck: 'Ördek değiştir', changeGuest: 'İsmi veya ördeği değiştir', logout: 'Çıkış yap', signIn: 'Giriş yap', back: 'Geri',
+    retry: 'Meydana dön', plazaDown: 'Meydana şu an ulaşılamıyor. Buradan oynamaya devam edebilirsin.',
+    plazaKeys: [
+      ['Bir ördeğe tıkla', 'Takıma davet et veya vakla'], ['Bir portala yürü', 'O modu oyna (takımın da gelir)'],
+      ['Q / B', 'Vakla / dans et'], ['Y / N', 'Davete katıl veya geç'],
+    ] as [string, string][],
+  },
+  guestCard: {
+    title: 'Misafir ördeğin', sub: 'Bir isim ve görünüm seç, sonra Ördek Meydanı\'na yürü.', enter: 'Ördek Meydanı\'na gir',
+    note: 'Misafirler Deathmatch oynar. Battle Royale, Av Sezonu ve seviyeler için giriş yap.', signIn: 'Giriş yap',
+  },
   footer: { home: 'qwakk.fun', terms: 'Koşullar', privacy: 'Gizlilik', storage: 'Depolama', note: 'Ödül yok, token yok. Sadece hava atmak var.' },
 } as const;

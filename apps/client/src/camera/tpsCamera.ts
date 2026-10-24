@@ -100,8 +100,16 @@ export class TpsCamera {
 
   /** Longer arm in the air, normal on foot. */
   setAirborne(air: boolean): void {
-    this.armTarget = air ? CAMERA.airArmLength : CAMERA.armLength;
+    this.armTarget = air ? CAMERA.airArmLength : this.armBase;
   }
+
+  /** The arm length on foot (the plaza pulls back a little: a wider, social view). */
+  setArmLength(len: number): void {
+    this.armBase = len;
+    this.armTarget = len;
+  }
+
+  private armBase: number = CAMERA.armLength;
 
   /** Orbit camera around a point (the plane): mouse look turns it, no collision. */
   orbit(dt: number, x: number, y: number, z: number, yaw: number, pitch: number): void {
