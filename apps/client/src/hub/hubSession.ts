@@ -11,7 +11,7 @@ import { Callbacks, Client, Predict, type InputHandle, type Reconciler, type Roo
 import { INTEREST, NET, stepPlayer, type InputFrame, type PlayerSim, type SimWorld } from '@qwakk/shared';
 import { Msg, PlayerInput, type ChatMessage } from '@qwakk/shared/net';
 import { HUB, HubMsg, type PortalId } from '@qwakk/shared/hub';
-import { applyHubFields, createHubSim, HUB_SIM_FIELDS, sanitizeHubInput } from '@qwakk/shared/hub/sim';
+import { applyHubFields, applyHubMovement, createHubSim, HUB_SIM_FIELDS, sanitizeHubInput } from '@qwakk/shared/hub/sim';
 import { HubState, type HubDuck, type HubPose } from '@qwakk/shared/hub/schema';
 import { config } from '../config.ts';
 import { FarInterp } from '../net/farInterp.ts';
@@ -86,6 +86,8 @@ export class HubSession {
   }
 
   start(sim: SimWorld, handlers: HubHandlers, onAdd: (id: string, d: HubDuck, local: boolean) => void, onRemove: (id: string) => void): void {
+    // The plaza's faster ground speeds, exactly as the server's hub world steps them.
+    applyHubMovement(sim);
     const smooth = config.lerpSmoothMs;
     const near = 1000 / NET.patchRateHz;
     const lin = { mode: 'lerp' as const, delay: NEAR_DELAY, smoothMs: smooth, tickInterval: near, snap: 8 };

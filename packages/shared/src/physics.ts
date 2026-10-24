@@ -55,6 +55,12 @@ export interface SimWorld {
   map: MapDef;
   /** Colliders the server switches by name (Hunt Season keep, ShapeDef.toggle; bullets and sight only), with their bits. */
   toggles: Map<string, { collider: RAPIER.Collider; bits: number }[]>;
+  /**
+   * Ground move speed factor of every duck stepped in this world (1 in every
+   * match world). Duck Plaza sets HUB.moveScale on both sides (`applyHubMovement`)
+   * before the first step, so prediction stays exact.
+   */
+  moveScale: number;
   dispose(): void;
 }
 
@@ -145,6 +151,7 @@ export function createSimWorld(map: MapDef): SimWorld {
     standShape,
     map,
     toggles,
+    moveScale: 1,
     dispose() {
       world.removeCharacterController(controller);
       world.free();

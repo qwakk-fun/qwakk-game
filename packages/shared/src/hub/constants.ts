@@ -25,6 +25,14 @@ export const HUB = {
   farEveryTicks: 3,
   /** Re-classify the pairs every this many ticks. */
   interestEveryTicks: 6,
+  /**
+   * Plaza movement: every ground speed of the shared sim (walk 2.6, run 5.2,
+   * sprint 7.0 and crouch 2.3 m/s in MOVE) times this, so getting around the
+   * square is quick: walk 3.5, run 7.0, sprint 9.5 m/s. Part of the hub's
+   * sim world on both sides (`applyHubMovement`), so prediction stays exact;
+   * jumps, gravity and the match modes are unchanged.
+   */
+  moveScale: 1.35,
   /** A duck below this height (fell through) or outside the map goes back to a spawn. */
   minY: -20,
   /** After a portal answer the duck is not sent another for this long (ms). */

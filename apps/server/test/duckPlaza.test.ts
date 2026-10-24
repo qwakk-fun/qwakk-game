@@ -11,7 +11,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildMapDef, createSimWorld, initPhysics, mapDefHash, MOVE_QUERY_GROUPS, simSelfTestHashOn, stepPlayer, terrainHeightAt, type InputFrame, type MapDef } from '@qwakk/shared';
 import { parseHubMap, portalAt, PORTALS, type HubSpawn } from '@qwakk/shared/hub';
-import { createHubSim, sanitizeHubInput } from '@qwakk/shared/hub/sim';
+import { applyHubMovement, createHubSim, sanitizeHubInput } from '@qwakk/shared/hub/sim';
 import { mergedColliders } from '../../../scripts/sync-map.ts';
 
 const ID = 'duck-plaza';
@@ -40,7 +40,8 @@ function inRing(ring: readonly [number, number][], x: number, z: number): boolea
 
 /** Walk a hub duck toward (tx, tz) for at most `ticks` steps (jumping when stuck); returns the path's end and whether a portal fired. */
 function walkTo(def: MapDef, from: HubSpawn, tx: number, tz: number, ticks: number, stop?: (x: number, y: number, z: number) => boolean) {
-  const sim = createSimWorld(def);
+  // The hub room's world: the plaza's faster ground speeds.
+  const sim = applyHubMovement(createSimWorld(def));
   const s = createHubSim(from[0], from[1], from[2], from[3]);
   let stuck = 0;
   let lastD = Infinity;

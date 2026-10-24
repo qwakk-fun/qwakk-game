@@ -8,6 +8,8 @@
  */
 import { Button, sanitizeInputFields, type InputFields } from '../input.ts';
 import { createPlayerSim, type PlayerSim } from '../sim.ts';
+import type { SimWorld } from '../physics.ts';
+import { HUB } from './constants.ts';
 
 /** The only buttons a hub duck sends: no fire, aim, reload, slots, use, heals or grenades. */
 export const HUB_BUTTONS = Button.Jump | Button.Sprint | Button.Crouch | Button.Walk;
@@ -36,4 +38,14 @@ export function createHubSim(x: number, y: number, z: number, yaw = 0): PlayerSi
 export function applyHubFields(from: Readonly<Record<(typeof HUB_SIM_FIELDS)[number], number>>, to: PlayerSim): PlayerSim {
   for (const f of HUB_SIM_FIELDS) to[f] = from[f];
   return to;
+}
+
+/**
+ * Make a world the plaza's: its ducks move HUB.moveScale times faster on the
+ * ground. The server's hub room and the client's prediction both call this
+ * on their world before the first step, so both step the same sim.
+ */
+export function applyHubMovement(sim: SimWorld): SimWorld {
+  sim.moveScale = HUB.moveScale;
+  return sim;
 }

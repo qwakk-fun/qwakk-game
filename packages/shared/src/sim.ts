@@ -290,7 +290,7 @@ function stepMovement(sim: SimWorld, s: PlayerSim, input: InputFrame, dt: number
   const wlen = Math.sqrt(wx * wx + wz * wz);
   let wishSpeed = 0;
   if (wlen > 1e-6 && !rooted) {
-    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1) * stackSpeedFactor(s);
+    wishSpeed = wishSpeedFor(s, input) * Math.min(wlen, 1) * wadeFactor(sim, s) * (s.dmPower === DmPower.Speed && s.dmPowerTicks > 0 ? DM.speedMultiplier : 1) * stackSpeedFactor(s) * sim.moveScale;
     wx /= wlen;
     wz /= wlen;
   }

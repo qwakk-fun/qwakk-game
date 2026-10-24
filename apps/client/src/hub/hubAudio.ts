@@ -1,18 +1,26 @@
 /**
  * The plaza's sounds, all synthesized with WebAudio (no sample files, nothing
  * to license): a soft breeze, birds chirping now and then in the trees, the
- * fountain's splash and a low hum at each portal (both placed in 3D), quacks
- * from ducks, a pop for the UI and a whoosh into a portal.
+ * fountain's water (`fountainSound.ts`: heard only near it) and a low hum at
+ * each portal (both placed in 3D), quacks from ducks, a pop for the UI and a
+ * whoosh into a portal.
  */
 import * as THREE from 'three/webgpu';
+import { FOUNTAIN, FountainSound } from './fountainSound.ts';
+
+/** The breeze bed's gain on the soft noise (it swells by the LFO around `breeze.gain`). */
+const BREEZE_SOFT = 0.35;
 
 export class HubAudio {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private noise: AudioBuffer | null = null;
+  /** Soft brownish noise for the breeze. */
+  private soft: AudioBuffer | null = null;
   private volume = 0.7;
   private nextChirp = 0;
   private loops: AudioNode[] = [];
+  private fountains: { sound: FountainSound; at: THREE.Vector3 }[] = [];
   private readonly fwd = new THREE.Vector3();
   private readonly up = new THREE.Vector3();
   private readonly spots: { at: THREE.Vector3; kind: 'fountain' | 'portal'; pitch: number }[] = [];
@@ -42,6 +50,7 @@ export class HubAudio {
       this.noise = this.ctx.createBuffer(1, len, this.ctx.sampleRate);
       const d = this.noise.getChannelData(0);
       for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+      this.soft = this.softNoise(7.3);
       this.startLoops();
     }
     void this.ctx.resume();
@@ -65,10 +74,36 @@ export class HubAudio {
     return p;
   }
 
-  private noiseLoop(dest: AudioNode, type: BiquadFilterType, freq: number, q: number, gain: number): void {
+  /**
+   * Brownish noise (white through a leaky integrator, so it is soft and
+   * dark, not a hiss), long enough that its loop is not heard.
+   */
+  private softNoise(seconds: number): AudioBuffer {
+    const ctx = this.ctx as AudioContext;
+    const len = Math.round(ctx.sampleRate * seconds);
+    const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    let v = 0;
+    let peak = 1e-6;
+    for (let i = 0; i < len; i++) {
+      v = v * 0.96 + (Math.random() * 2 - 1) * 0.15;
+      d[i] = v;
+      peak = Math.max(peak, Math.abs(v));
+    }
+    // A short crossfade into the start so the loop has no click.
+    const fade = Math.round(ctx.sampleRate * 0.05);
+    for (let i = 0; i < fade; i++) {
+      const k = i / fade;
+      d[len - fade + i] = d[len - fade + i]! * (1 - k) + d[i]! * k;
+    }
+    for (let i = 0; i < len; i++) d[i]! /= peak;
+    return buf;
+  }
+
+  private noiseLoop(dest: AudioNode, type: BiquadFilterType, freq: number, q: number, gain: number, buffer = this.noise): void {
     const ctx = this.ctx as AudioContext;
     const src = ctx.createBufferSource();
-    src.buffer = this.noise;
+    src.buffer = buffer;
     src.loop = true;
     const f = ctx.createBiquadFilter();
     f.type = type;
@@ -94,18 +129,26 @@ export class HubAudio {
     lfo.connect(lfoGain).connect(breeze.gain);
     lfo.start();
     this.loops.push(lfo);
-    this.noiseLoop(breeze, 'lowpass', 420, 0.5, 1);
+    this.noiseLoop(breeze, 'lowpass', 700, 0.5, BREEZE_SOFT, this.soft);
     for (const s of this.spots) {
       if (s.kind === 'fountain') {
-        // Splashing water: bright noise through a band, placed at the fountain.
-        this.noiseLoop(this.panner(s.at, 3, 1.4), 'bandpass', 2400, 0.7, 0.16);
-        this.noiseLoop(this.panner(s.at, 3, 1.4), 'lowpass', 700, 0.6, 0.08);
+        // Water: bubbles, drops and splashes at the fountain, faded out by distance (fountainSound.ts).
+        const sound = new FountainSound(ctx, this.panner(s.at, FOUNTAIN.ref, FOUNTAIN.rolloff), this.noise as AudioBuffer);
+        this.fountains.push({ sound, at: s.at });
       } else {
         // The portal hum: two detuned low tones through a soft filter.
         const out = this.panner(s.at, 2.5, 1.6);
+        // Quiet, and breathing slowly so it never sits as a flat drone.
         const g = ctx.createGain();
-        g.gain.value = 0.05;
+        g.gain.value = 0.04;
         g.connect(out);
+        const swell = ctx.createOscillator();
+        swell.frequency.value = 0.15 + Math.random() * 0.1;
+        const depth = ctx.createGain();
+        depth.gain.value = 0.012;
+        swell.connect(depth).connect(g.gain);
+        swell.start();
+        this.loops.push(swell);
         for (const f of [55 * s.pitch, 55 * s.pitch * 1.503]) {
           const o = ctx.createOscillator();
           o.type = 'triangle';
@@ -123,6 +166,7 @@ export class HubAudio {
     if (!this.ready || !this.ctx) return;
     const l = this.ctx.listener;
     const p = camera.position;
+    for (const f of this.fountains) f.sound.setDistance(p.distanceTo(f.at));
     const f = this.fwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
     const u = this.up.set(0, 1, 0).applyQuaternion(camera.quaternion);
     if (l.positionX) {
@@ -141,6 +185,7 @@ export class HubAudio {
   /** Birds: a short chirp from somewhere around the listener every few seconds. */
   tick(listener: THREE.Vector3): void {
     if (!this.ready || !this.ctx) return;
+    for (const f of this.fountains) f.sound.schedule();
     const now = this.ctx.currentTime;
     if (now < this.nextChirp) return;
     this.nextChirp = now + 2.5 + Math.random() * 5;
@@ -237,6 +282,8 @@ export class HubAudio {
       }
     }
     this.loops = [];
+    for (const f of this.fountains) f.sound.stop();
+    this.fountains = [];
     void this.ctx?.close();
     this.ctx = null;
     this.master = null;

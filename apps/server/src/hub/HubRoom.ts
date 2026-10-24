@@ -21,7 +21,7 @@ import { Button, characterFromOption, clampAngleRate, COMBAT, createSimWorld, DT
 import { Msg, PlayerInput } from '@qwakk/shared/net';
 import { CLOSE_CODE, LOBBY_ERROR } from '@qwakk/shared/lobby';
 import { ACCOUNT_PORTALS, HUB, HubEmote, HubMsg, HubNote, isPortalId, portalAt, PORTALS, type HubSpawn, type PortalId } from '@qwakk/shared/hub';
-import { createHubSim, HUB_SIM_FIELDS, sanitizeHubInput } from '@qwakk/shared/hub/sim';
+import { applyHubMovement, createHubSim, HUB_SIM_FIELDS, sanitizeHubInput } from '@qwakk/shared/hub/sim';
 import { HubDuck, HubPose, HubState } from '@qwakk/shared/hub/schema';
 import { InputPacer } from '../inputPacer.ts';
 import { TickLoop } from '../tickLoop.ts';
@@ -132,7 +132,8 @@ export class HubRoom extends Room<{ state: HubState; input: PlayerInput }> imple
   override async onCreate(options: HubRoomOptions = {}): Promise<void> {
     await initPhysics();
     this.map = loadHubMap(options.mapId ?? HUB.mapId);
-    this.sim = createSimWorld(this.map.def);
+    // The plaza's faster ground speeds (HUB.moveScale); the client's prediction applies the same.
+    this.sim = applyHubMovement(createSimWorld(this.map.def));
     if (options.maxClients) this.maxClients = options.maxClients;
     if (options.createParty) this.createParty = options.createParty;
     const state = new HubState();

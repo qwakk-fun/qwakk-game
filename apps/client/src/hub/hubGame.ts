@@ -138,6 +138,8 @@ export class HubGame {
     this.world = world;
     this.sim = world.sim;
     this.opts = opts;
+    // Plaza ducks move faster (HUB.moveScale): the walk, run and sprint gaits follow.
+    this.local.locoScale = HUB.moveScale;
     const app = document.getElementById('app') as HTMLElement;
     ctx.scene.add(this.local.object);
     this.local.object.visible = false;
@@ -209,6 +211,7 @@ export class HubGame {
           return;
         }
         const avatar = new Avatar();
+        avatar.locoScale = HUB.moveScale;
         this.dress(avatar, duck.character);
         ctx.scene.add(avatar.object);
         avatar.object.visible = false;

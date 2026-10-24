@@ -5,9 +5,9 @@
  * the server stepped. Portal triggers and the hub map parser.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
-import { ALL_BUTTONS, Button, createSimWorld, generateMap, initPhysics, PLAYER_SIM_FIELDS, stepPlayer, type InputFrame, type PlayerSim } from '../src/index.ts';
-import { HUB_BUTTONS, HUB_SIM_FIELDS, applyHubFields, createHubSim, sanitizeHubInput } from '../src/hub/hubSim.ts';
-import { parseHubMap, portalAt, PORTAL_TRIGGER, PORTALS } from '../src/hub/index.ts';
+import { ALL_BUTTONS, Button, createSimWorld, generateMap, initPhysics, MOVE, PLAYER_SIM_FIELDS, stepPlayer, type InputFrame, type PlayerSim } from '../src/index.ts';
+import { HUB_BUTTONS, HUB_SIM_FIELDS, applyHubFields, applyHubMovement, createHubSim, sanitizeHubInput } from '../src/hub/hubSim.ts';
+import { HUB, parseHubMap, portalAt, PORTAL_TRIGGER, PORTALS } from '../src/hub/index.ts';
 
 beforeAll(async () => {
   await initPhysics();
@@ -36,7 +36,7 @@ describe('hub sim', () => {
 
   it('only the hub fields change, and replaying from them gives the server state bit for bit', () => {
     const map = generateMap(1337);
-    const sim = createSimWorld(map);
+    const sim = applyHubMovement(createSimWorld(map));
     const [x, y, z] = map.spawns[0]!;
     const server = createHubSim(x, y, z);
     const start = { ...server };
@@ -55,6 +55,34 @@ describe('hub sim', () => {
     }
     for (const k of others) expect((server as PlayerSim)[k], k).toBe(start[k]);
     sim.dispose();
+  });
+
+  it('the plaza moves faster on the ground (HUB.moveScale) and leaves match worlds alone', () => {
+    const map = generateMap(1337);
+    const [x, y, z] = map.spawns[0]!;
+    // Top ground speed held for two seconds of input on flat open ground at the spawn.
+    const top = (sim: ReturnType<typeof createSimWorld>, buttons: number): number => {
+      const s = createHubSim(x, y, z);
+      let best = 0;
+      for (let t = 0; t < 60; t++) {
+        const f: InputFrame = { seq: t, tick: t, mx: 0, mz: 1, buttons, yaw: 0, pitch: 0 };
+        sanitizeHubInput(f);
+        stepPlayer(sim, s, f, 1 / 30);
+        best = Math.max(best, Math.hypot(s.vx, s.vz));
+      }
+      return best;
+    };
+    const match = createSimWorld(map);
+    const hub = applyHubMovement(createSimWorld(map));
+    expect(match.moveScale).toBe(1);
+    expect(HUB.moveScale).toBeGreaterThanOrEqual(1.3);
+    expect(HUB.moveScale).toBeLessThanOrEqual(1.4);
+    for (const [buttons, speed] of [[Button.Walk, MOVE.walkSpeed], [0, MOVE.runSpeed], [Button.Sprint, MOVE.sprintSpeed]] as const) {
+      expect(top(match, buttons)).toBeCloseTo(speed, 1);
+      expect(top(hub, buttons)).toBeCloseTo(speed * HUB.moveScale, 1);
+    }
+    match.dispose();
+    hub.dispose();
   });
 });
 

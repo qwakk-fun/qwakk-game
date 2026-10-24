@@ -101,6 +101,12 @@ const IK_TAU = 0.06;
 
 export class Avatar {
   readonly object = new THREE.Group();
+  /**
+   * The world's ground speed factor (SimWorld.moveScale; Duck Plaza is faster):
+   * the gait thresholds (walk, run, sprint) scale with it, the clip playback
+   * still follows the real speed.
+   */
+  locoScale = 1;
   private readonly body = new THREE.Group();
   private parts: DuckParts | null;
   private glb: THREE.Object3D | null = null;
@@ -627,14 +633,14 @@ export class Avatar {
       if (this.wasGrounded) rig.full.get('Jump_Start')?.reset().setEffectiveWeight(0.8).play();
       W('Fall_Loop', 1);
     } else if (this.crouchBlend > 0.5) {
-      const t = Math.min(1, speed / 1.5);
+      const t = Math.min(1, speed / (1.5 * this.locoScale));
       W('Crouch_Idle', 1 - t);
       W('Crouch_Walk', t);
       const a = rig.lower.get('Crouch_Walk');
       if (a) a.timeScale = Math.max(0.5, speed / 2.3);
     } else if (speed < 0.3) {
       W('Idle', 1);
-    } else if (vf > 6.2) {
+    } else if (vf > 6.2 * this.locoScale) {
       W('Sprint', 1);
       const a = rig.lower.get('Sprint');
       if (a) a.timeScale = speed / 7;
@@ -646,7 +652,8 @@ export class Avatar {
       const r = Math.max(0, vr) / speed;
       const l = Math.max(0, -vr) / speed;
       const sum = f + bk + r + l || 1;
-      const run = Math.min(1, Math.max(0, (speed - 2.6) / 2.6));
+      const gait = speed / this.locoScale;
+      const run = Math.min(1, Math.max(0, (gait - 2.6) / 2.6));
       const idle = Math.max(0, 1 - speed / 1.2);
       W('Idle', idle);
       const k = 1 - idle;
