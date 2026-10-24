@@ -11,6 +11,7 @@
     "./accounts": "./src/accounts.ts",
     "./raid": "./src/raid/index.ts",
     "./progress": "./src/raid/progress.ts",
+    "./duck": "./src/raid/duck.ts",
     "./maps/*": "./src/maps/*",
     "./hub": "./src/hub/index.ts",
     "./hub/schema": "./src/hub/schema.ts",

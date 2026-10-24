@@ -107,6 +107,9 @@ export interface PlayerRow {
   lastSeen: string;
   banned: boolean;
   hidden: boolean;
+  /** Hunt Season, read only: level and Tüy balance (null: no progression yet). */
+  level?: number;
+  feathers?: number | null;
 }
 
 export interface HiddenPlayer {

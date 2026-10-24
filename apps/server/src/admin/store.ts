@@ -46,6 +46,9 @@ export interface PlayerRow {
   lastSeen: string;
   banned: boolean;
   hidden: boolean;
+  /** Hunt Season (read only, for support): the duck's level and Tüy balance (null before its first progression row). */
+  level: number;
+  feathers: number | null;
 }
 
 const MEMORY_AUDIT = 500;
@@ -217,13 +220,13 @@ export class AdminStore {
     if (!sql) return null;
     const isId = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(q);
     const pattern = `${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-    const rows = await sql<{ id: string; name: string; tag: number; created_at: Date; last_seen: Date; hidden: boolean }[]>`
-      select p.id, p.name, p.tag, p.created_at, p.last_seen, (h.player_id is not null) as hidden
-      from players p left join leaderboard_hidden h on h.player_id = p.id
+    const rows = await sql<{ id: string; name: string; tag: number; created_at: Date; last_seen: Date; hidden: boolean; level: number; feathers: number | null }[]>`
+      select p.id, p.name, p.tag, p.created_at, p.last_seen, (h.player_id is not null) as hidden, p.level, d.feathers
+      from players p left join leaderboard_hidden h on h.player_id = p.id left join duck_progress d on d.player_id = p.id
       where ${isId ? sql`p.id = ${q}::uuid` : sql`lower(p.name) like lower(${pattern})`}
       order by p.last_seen desc limit 50`;
     const banned = new Set(listBans().map((b) => b.playerId));
-    return rows.map((r) => ({ playerId: r.id, name: r.name, tag: String(r.tag), createdAt: r.created_at.toISOString(), lastSeen: r.last_seen.toISOString(), banned: banned.has(r.id), hidden: r.hidden }));
+    return rows.map((r) => ({ playerId: r.id, name: r.name, tag: String(r.tag), createdAt: r.created_at.toISOString(), lastSeen: r.last_seen.toISOString(), banned: banned.has(r.id), hidden: r.hidden, level: r.level, feathers: r.feathers }));
   }
 
   private async namesOf(ids: string[]): Promise<Map<string, { name: string; tag: string }>> {

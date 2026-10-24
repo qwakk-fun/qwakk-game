@@ -63,6 +63,8 @@ export interface EnterHubOptions {
     leaveTeam(): void;
     signIn(): void;
     pause(): void;
+    /** At a market stall (E or a tap): open its shop (the Blacksmith, the Armorer). */
+    shop?(id: 'smith' | 'armorer'): void;
     closed(code: number): void;
   };
 }

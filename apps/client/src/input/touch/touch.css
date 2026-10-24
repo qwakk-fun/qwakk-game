@@ -597,3 +597,8 @@ body.touch-game #overlay button {
 .tc-quack { --s: 56px; right: calc(262px + var(--sr)); bottom: calc(24px + var(--sb)); }
 .tc-storm { --s: 58px; right: calc(266px + var(--sr)); bottom: calc(108px + var(--sb)); border-color: var(--beak); }
 .tc-storm.ready { border-color: var(--beak); background: rgba(255, 138, 61, 0.45); box-shadow: 0 0 18px rgba(255, 138, 61, 0.8); }
+/* Hunt Season: a move the duck's level does not have yet (Lv and a padlock; taps do nothing). */
+.tc-skill.locked { opacity: 0.55; border-color: rgba(255, 255, 255, 0.25); background: rgba(21, 22, 25, 0.55); box-shadow: none; }
+.tc-skill.locked.ready { border-color: rgba(255, 255, 255, 0.25); background: rgba(21, 22, 25, 0.55); box-shadow: none; }
+.tc-skill.locked .tc-label { opacity: 0.5; }
+.tc-skill.locked::after { content: attr(data-lock); position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: 10px; font-weight: 900; color: var(--yellow); }

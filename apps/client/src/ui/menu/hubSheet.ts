@@ -11,7 +11,7 @@ import { h } from './dom.ts';
 import { icon, type IconName } from './icons.ts';
 import type { GameMode } from './types.ts';
 
-export type SheetTab = 'play' | 'team' | 'leaderboard' | 'settings' | 'howto' | 'account';
+export type SheetTab = 'play' | 'team' | 'leaderboard' | 'settings' | 'howto' | 'account' | 'duck';
 
 const S = COPY.sheet;
 const TABS: [SheetTab, IconName, string][] = [
@@ -21,6 +21,8 @@ const TABS: [SheetTab, IconName, string][] = [
   ['settings', 'sliders', S.settings],
   ['howto', 'help', S.howto],
   ['account', 'user', S.account],
+  // Signed-in ducks only (hidden for guests): Hunt Season progression. Last, so the other tabs keep their places.
+  ['duck', 'feather', COPY.duck.tab],
 ];
 
 export interface SheetHooks {
@@ -39,6 +41,8 @@ export interface SheetParts {
   settings: HTMLElement;
   howto: HTMLElement;
   account: HTMLElement;
+  /** My Duck: level, Tüy, gear, the skill tree (duck/myDuckPanel.ts). */
+  duck: HTMLElement;
   language: HTMLElement;
   badge: HTMLElement;
 }
@@ -80,10 +84,12 @@ export class HubSheet {
       settings: h('div', {}, parts.settings, h('div', { class: 'qm-sheet-lang' }, parts.language)),
       howto: h('div', {}, h('section', { class: 'qm-card' }, h('h3', {}, COPY.hub.title), keys), parts.howto),
       account: parts.account,
+      duck: parts.duck,
     };
     for (const [tab, ic, label] of TABS) {
       const b = h('button', { type: 'button', role: 'tab', class: 'qm-sheet-tab', 'aria-selected': 'false' }, icon(ic), h('span', {}, label));
       b.addEventListener('click', () => this.select(tab));
+      b.dataset.tab = tab;
       this.buttons.set(tab, b);
       bar.append(b);
       const panel = h('section', { class: `qm-sheet-panel qm-sheet-${tab}-panel`, role: 'tabpanel', hidden: true }, content[tab]);
@@ -151,6 +157,9 @@ export class HubSheet {
     }
     this.downNote.hidden = !plazaDown;
     this.resumeBtn.hidden = plazaDown;
+    // My Duck is for signed-in ducks (a guest has no progression).
+    this.buttons.get('duck')!.hidden = guest;
+    if (guest && this.current === 'duck') this.select('play');
   }
 
   setBusy(on: boolean): void {

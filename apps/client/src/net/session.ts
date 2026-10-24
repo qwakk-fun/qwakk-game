@@ -98,6 +98,10 @@ export interface SessionHandlers {
   raidEnd?(data: number[]): void;
   /** Hunt Season: what our cuts did this tick (Msg.RaidHits: combo, storm meter, then damage, flags, x, y, z in cm per hit). */
   raidHits?(data: number[]): void;
+  /** Hunt Season: what our duck brought to this run (Msg.RaidKit: level, unlock bits, katana and armor tier, numbers). */
+  raidKit?(data: number[]): void;
+  /** Hunt Season: every duck's gear looks (Msg.RaidLooks: pid, katana tier, armor tier, ...). */
+  raidLooks?(data: number[]): void;
   /** Hunt Season: our katana did something this step (BladeEvent kind, slash step, heavy charge; live steps only). `state` is the post-step state. */
   localBlade?(kind: number, step: number, charge: number, state: PlayerSim): void;
 }
@@ -291,6 +295,8 @@ export class Session {
     this.room.onMessage(Msg.RaidEvent, (d: number[]) => handlers.raidEvent?.(d[0] ?? 0, d[1] ?? 0, d[2] ?? 0));
     this.room.onMessage(Msg.RaidEnd, (d: number[]) => handlers.raidEnd?.(Array.isArray(d) ? d : []));
     this.room.onMessage(Msg.RaidHits, (d: number[]) => handlers.raidHits?.(Array.isArray(d) ? d : []));
+    this.room.onMessage(Msg.RaidKit, (d: number[]) => handlers.raidKit?.(Array.isArray(d) ? d : []));
+    this.room.onMessage(Msg.RaidLooks, (d: number[]) => handlers.raidLooks?.(Array.isArray(d) ? d : []));
   }
 
   sendChat(text: string): void {

@@ -10,7 +10,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { Server } from '@colyseus/core';
 import { WebSocketTransport } from '@colyseus/ws-transport';
 import { Client, type Room } from '@colyseus/sdk';
-import { BridgeState, Button, GateState, initPhysics, RAID, RaidStage, raidXp } from '@qwakk/shared';
+import { ALL_SKILLS, BridgeState, Button, GateState, initPhysics, kitFrom, RAID, raidFeathers, RaidStage, raidXp } from '@qwakk/shared';
 import { IslandState, LeverDenied, Msg, RaidEvent } from '@qwakk/shared/net';
 import { ACCOUNT_ERROR, ACCOUNT_ROOMS } from '@qwakk/shared/accounts';
 
@@ -18,6 +18,8 @@ const ids = { a: '00000000-0000-4000-8000-0000000000a1', b: '00000000-0000-4000-
 const recorded: unknown[] = [];
 /** The next recordRaid fails (the database is down): the room must still close the "saving" line. */
 const db = { fail: false };
+/** Stored kits by player id (the database's duck progression); none: a fresh duck. */
+const kits = new Map<string, unknown>();
 vi.mock('../../src/meta/index.ts', () => ({
   verifySession: async (token: string | undefined) => {
     if (token === 'tok-a') return { playerId: ids.a, name: 'Alpha', tag: '1111', account: true, look: 1 };
@@ -29,12 +31,13 @@ vi.mock('../../src/meta/index.ts', () => ({
     return null;
   },
   allowJoin: () => true,
+  duckKit: async (id: string) => kits.get(id) ?? null,
   joinIp: () => '127.0.0.1',
   recordMatch: async () => undefined,
   recordRaid: async (r: unknown) => {
     recorded.push(r);
     if (db.fail) return null;
-    return new Map([[ids.a, { xpBefore: 50, xpAfter: 50 + (r as { players: { xp: number }[] }).players[0]!.xp, levelBefore: 1, levelAfter: 2, bestWave: 10, bestMs: 1000, newBest: true }]]);
+    return new Map([[ids.a, { xpBefore: 50, xpAfter: 50 + (r as { players: { xp: number }[] }).players[0]!.xp, levelBefore: 1, levelAfter: 2, bestWave: 10, bestMs: 1000, newBest: true, feathersBefore: 10, feathersAfter: 75, daily: 50 }]]);
   },
 }));
 
@@ -125,6 +128,56 @@ describe('hunt season room', () => {
     await a.leave(true);
     await sleep(200);
     expect(recorded).toHaveLength(1);
+  }, 30_000);
+
+  it('each duck gets its own kit from the database (a fresh duck: everything locked), everyone gets the gear looks', async () => {
+    kits.set(ids.b, kitFrom(8, 'katana_steel', 'armor_padded', { edge: 1 }));
+    const a = await join('tok-a');
+    const kitA: number[][] = [];
+    const looksA: number[][] = [];
+    a.onMessage(Msg.RaidKit, (m: number[]) => kitA.push(m));
+    a.onMessage(Msg.RaidLooks, (m: number[]) => looksA.push(m));
+    a.onMessage('*', () => undefined);
+    const b = await new Client(`ws://localhost:${PORT}`).joinById<IslandState>(a.roomId, { token: 'tok-b' }, IslandState);
+    const kitB: number[][] = [];
+    b.onMessage(Msg.RaidKit, (m: number[]) => kitB.push(m));
+    b.onMessage('*', () => undefined);
+    a.send('dev:raid', { op: 'start' });
+    await waitUntil(() => kitA.length > 0 && kitB.length > 0 && looksA.some((l) => l.length === 6), 5000);
+    // [level, unlock bits, katana tier, armor tier, katana damage %, crit chance %, bonus health, damage stopped %].
+    expect(kitA.at(-1)).toEqual([1, 0, 0, 0, 0, 0, 0, 0]);
+    expect(kitB.at(-1)).toEqual([8, ALL_SKILLS, 2, 1, 17, 4, 8, 3]);
+    const looks = looksA.at(-1)!;
+    const pidB = [...b.state.players.values()].find((p) => p.name === 'Bravo')!.pid;
+    const at = looks.indexOf(pidB);
+    expect(looks.slice(at, at + 3)).toEqual([pidB, 2, 1]);
+    // A cheat's unlock request is a test hook only (this room has them on); the kit message follows the server.
+    a.send('dev:raid', { op: 'unlock' });
+    await waitUntil(() => kitA.at(-1)![1] === ALL_SKILLS, 5000);
+    kits.clear();
+    await a.leave(true);
+    await b.leave(true);
+  }, 30_000);
+
+  it('the end message carries the run\'s Tüy (the server\'s count, then the stored grant)', async () => {
+    recorded.length = 0;
+    const a = await join('tok-a');
+    const ends: number[][] = [];
+    a.onMessage(Msg.RaidEnd, (m: number[]) => ends.push(m));
+    a.onMessage('*', () => undefined);
+    a.send('dev:raid', { op: 'start' });
+    await waitUntil(() => a.state.raid.stage === RaidStage.Fight, 5000);
+    a.send('dev:raid', { op: 'skip', wave: RAID.objectives });
+    await waitUntil(() => a.state.raid.wave === RAID.objectives, 5000);
+    a.send('dev:raid', { op: 'clear' });
+    await waitUntil(() => ends.length >= 2, 5000);
+    const run = recorded[0] as { players: { kills: number; minionKills: number; bossKills: number; wavesCleared: number }[] };
+    const p = run.players[0]!;
+    expect(ends[0]!).toHaveLength(19);
+    expect(ends[0]![15]).toBe(raidFeathers({ wavesCleared: p.wavesCleared, kills: p.kills, minionKills: p.minionKills, bossKills: p.bossKills, won: true }));
+    // The mock's stored grant: 10 Tüy before, 75 after, 50 of it the daily bonus.
+    expect(ends[1]!.slice(15)).toEqual([65, 10, 75, 50]);
+    await a.leave(true);
   }, 30_000);
 
   it('a duck that leaves mid-run keeps its XP for what it did, but gets no win', async () => {

@@ -5,12 +5,14 @@
  * shipped copy matches the export (with the plaza colliders merged), the hub
  * section has the three portals, spawns and exits on free ground, a duck
  * walks from the spawn through each portal's opening (the trigger fires) and
- * cannot leave the hedge ring, and the pond is shallow enough to wade.
+ * cannot leave the hedge ring, and the pond is shallow enough to wade. The
+ * gear stalls (the Blacksmith, the Armorer) are the map's market stalls and a
+ * duck from the spawn reaches the spot in front of each counter.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { buildMapDef, createSimWorld, initPhysics, mapDefHash, MOVE_QUERY_GROUPS, simSelfTestHashOn, stepPlayer, terrainHeightAt, type InputFrame, type MapDef } from '@qwakk/shared';
-import { parseHubMap, portalAt, PORTALS, type HubSpawn } from '@qwakk/shared/hub';
+import { HUB_SHOPS, parseHubMap, portalAt, PORTALS, shopAt, shopSpot, type HubSpawn } from '@qwakk/shared/hub';
 import { applyHubMovement, createHubSim, sanitizeHubInput } from '@qwakk/shared/hub/sim';
 import { mergedColliders } from '../../../scripts/sync-map.ts';
 
@@ -143,6 +145,23 @@ describe('Duck Plaza map', () => {
       walkTo(def, [front.x, front.y, front.z, 0], p.x, p.z, 30 * 6, (x, y, z) => (fired = portalAt(hub.portals, x, y, z)?.id === p.id));
       expect(fired, `${p.id}: walked into the opening`).toBe(true);
     }
+  });
+
+  it('the Blacksmith and the Armorer are market stalls of the map; a duck walks up to each counter and may shop there', () => {
+    const def = load().def;
+    const hub = parseHubMap(JSON.parse(read('map_v1.json').toString()));
+    const props = (JSON.parse(read('map_v1.json').toString()) as { props: { prop: string; x: number; z: number; rotY: number }[] }).props.filter((p) => p.prop === 'plaza_stall');
+    for (const s of HUB_SHOPS) {
+      const prop = props.find((p) => Math.hypot(p.x - s.x, p.z - s.z) < 0.2);
+      expect(prop, `${s.id}: a plaza_stall there`).toBeTruthy();
+      expect(prop!.rotY).toBeCloseTo(s.yaw, 3);
+      const spot = shopSpot(s.id);
+      const end = walkTo(def, hub.spawns[2]!, spot.x, spot.z, 30 * 12);
+      expect(Math.hypot(end.x - spot.x, end.z - spot.z), `${s.id}: reached the counter`).toBeLessThan(1.2);
+      expect(shopAt(end.x, end.z)).toBe(s.id);
+    }
+    // Nowhere near: no shop.
+    expect(shopAt(0, 20)).toBeNull();
   });
 
   it('the hedge ring holds: running and jumping outward from the middle never leaves it', () => {

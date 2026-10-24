@@ -237,6 +237,27 @@ body.in-hub #hud { display: none; }
 @keyframes hub-warp { 0% { opacity: 0; } 100% { opacity: 1; background: radial-gradient(circle at 50% 50%, var(--warp, #ffd43b) 0, #151619 75%); } }
 .hu-warp-text { color: var(--dark); background: var(--yellow); padding: 10px 18px; border-radius: 999px; font-size: 16px; font-weight: 800; }
 
+.hu-shop {
+  position: absolute;
+  left: 50%;
+  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: rgba(21, 22, 25, 0.78);
+  box-shadow: 0 0 0 1.5px rgba(255, 212, 59, 0.8);
+  color: #f4f1e8;
+  font-size: 14px;
+  font-weight: 800;
+  pointer-events: auto;
+  animation: hub-fade 0.4s ease;
+}
+.hu-shop .hu-key { display: inline-grid; place-items: center; min-width: 22px; height: 22px; padding: 0 6px; border-radius: 6px; background: var(--yellow); color: var(--dark); font: 800 12px/1 inherit; }
+body.touch-ui .hu-shop { bottom: calc(16px + env(safe-area-inset-bottom, 0px)); padding: 9px 16px; font-size: 14px; background: rgba(255, 212, 59, 0.92); color: var(--dark); }
+
 .hu-touch {
   position: absolute;
   right: calc(150px + env(safe-area-inset-right, 0px));

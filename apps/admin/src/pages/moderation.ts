@@ -54,7 +54,7 @@ export function moderationPage(): Page {
     return h(
       'div',
       { class: 'item' },
-      h('div', { class: 'item-main' }, h('strong', {}, who), p.banned ? h('span', { class: 'badge is-bad' }, M.banned) : null, p.hidden ? h('span', { class: 'badge' }, M.hidden) : null, h('span', { class: 'muted mono small' }, `${p.playerId} · ${M.lastSeen(when(p.lastSeen))}`)),
+      h('div', { class: 'item-main' }, h('strong', {}, who), p.banned ? h('span', { class: 'badge is-bad' }, M.banned) : null, p.hidden ? h('span', { class: 'badge' }, M.hidden) : null, h('span', { class: 'muted mono small' }, `${p.playerId} · ${M.lastSeen(when(p.lastSeen))}${p.level ? ` · Lv ${p.level}` : ''}${p.feathers !== null && p.feathers !== undefined ? ` · ${p.feathers} Tüy` : ''}`)),
       h(
         'div',
         { class: 'item-actions' },

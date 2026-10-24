@@ -8,3 +8,7 @@ export * from './hunters.ts';
 export * from './push.ts';
 export * from './progress.ts';
 export * from './upgrades.ts';
+export * from './unlocks.ts';
+export * from './gear.ts';
+export * from './tree.ts';
+export * from './kit.ts';

@@ -28,6 +28,9 @@ import { characterOfLook, gameId, type Character } from './characters.ts';
 import { characterById, loadCharacter } from './characters.ts';
 import { COPY, LINKS } from './copy.ts';
 import { asset, h } from './dom.ts';
+import { DuckStore } from './duck/duckStore.ts';
+import { MyDuckPanel } from './duck/myDuckPanel.ts';
+import { ShopPanel, type ShopKind } from './duck/shopPanel.ts';
 import { GuestCard } from './guestCard.ts';
 import { howtoPanel } from './howtoPanel.ts';
 import { HubSheet, type SheetTab } from './hubSheet.ts';
@@ -51,6 +54,7 @@ import './styles/panels.css';
 import './styles/account.css';
 import './styles/ducks.css';
 import './styles/hub.css';
+import './styles/duck.css';
 
 export type { ExitReason, GameMode, MatchSummary, MenuHooks, StartOptions } from './types.ts';
 
@@ -96,6 +100,10 @@ export class Menu {
   private readonly activeDuck: ActiveDuck;
   private readonly accountBox: HTMLElement;
   private readonly badgeSlot: HTMLElement;
+  /** Hunt Season progression of the signed-in duck: My Duck (the sheet) and the stalls' shop panel. */
+  private readonly duckStore: DuckStore;
+  private readonly myDuck: MyDuckPanel;
+  private readonly shop: ShopPanel;
   /** The plaza we are in (null: not in it, or it is loading). */
   private hub: HubHandleLike | null = null;
   /** Bumped on every plaza entry and exit, so a late load from an older one is dropped. */
@@ -135,7 +143,10 @@ export class Menu {
         screen: (s) => this.setScreen(s),
         main: (tab) => this.enterMain(true, tab),
         guest: () => this.enterMain(false),
-        identityChanged: () => this.party.leave(),
+        identityChanged: () => {
+          this.party.leave();
+          this.duckStore.reset();
+        },
       },
       hooks.hero?.bind(hooks),
     );
@@ -150,6 +161,9 @@ export class Menu {
       inMatch: () => false,
     });
     this.accountBox = h('div', { class: 'qm-sheet-account' });
+    this.duckStore = new DuckStore(async () => (this.signedIn ? this.sessionToken(true) : null));
+    this.myDuck = new MyDuckPanel(this.duckStore);
+    this.shop = new ShopPanel(this.duckStore, () => this.shopClosed());
 
     this.badgeSlot = h('div', { class: 'qm-badge-slot' });
     const language = (): HTMLSelectElement => {
@@ -174,6 +188,7 @@ export class Menu {
         settings: this.settingsPanel.el,
         howto: howtoPanel(),
         account: this.accountBox,
+        duck: this.myDuck.el,
         language: language(),
         badge: sheetBadge,
       },
@@ -352,6 +367,7 @@ export class Menu {
           leaveTeam: () => this.leaveTeam(),
           signIn: () => this.signIn(),
           pause: () => this.openSheet(),
+          shop: (id) => this.openShop(id),
           closed: (code) => this.plazaClosed(seq, code),
         },
       });
@@ -398,9 +414,25 @@ export class Menu {
   /** Leave the plaza (a match, the entry screens). `bump`: drop any plaza still loading. */
   private leaveHub(bump = true): void {
     if (bump) this.hubSeq++;
-    this.hub?.leave();
+    const hub = this.hub;
     this.hub = null;
+    this.shop.close();
+    hub?.leave();
     this.closeSheet();
+  }
+
+  /** At a market stall (E or a tap): its shop over the paused plaza. */
+  private openShop(kind: ShopKind): void {
+    if (!this.hub || !this.signedIn || this.sheet.isOpen || this.busy) return;
+    this.hub.setPaused(true);
+    this.shop.open(kind);
+  }
+
+  /** The shop closed (a click or a tap: the mouse may be locked again). */
+  private shopClosed(): void {
+    if (!this.hub || this.sheet.isOpen) return;
+    this.hub.setPaused(false);
+    this.hub.resume();
   }
 
   private openSheet(tab?: SheetTab): void {
@@ -451,6 +483,7 @@ export class Menu {
   private onSheetTab(tab: SheetTab): void {
     if (tab === 'leaderboard') void this.leaderboard.load();
     if (tab === 'account') this.renderAccount();
+    if (tab === 'duck' && this.signedIn) this.myDuck.show();
   }
 
   private renderAccount(): void {

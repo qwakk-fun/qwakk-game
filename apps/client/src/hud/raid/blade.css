@@ -39,6 +39,14 @@
 .blade-skill.storm .sweep { background: conic-gradient(#0d0e10cc calc(var(--left) * 360deg), #ff8a3d33 0); }
 @keyframes blade-glow { from { box-shadow: 0 0 6px #ff8a3d66; } to { box-shadow: 0 0 22px #ff8a3dcc; } }
 
+/* A move the duck's level does not have yet: greyed, a padlock and the level it needs. */
+.blade-skill .lock { display: none; }
+.blade-skill.locked { border-color: #ffffff1a; background: #151619b0; }
+.blade-skill.locked .icon { background: #fff8e740; }
+.blade-skill.locked .sweep { display: none; }
+.blade-skill.locked .lock { display: grid; place-items: center; position: absolute; inset: 0; padding-top: 2px; font: 800 12px/1 system-ui, sans-serif; color: #ffd43b; text-shadow: 0 1px 0 #151619; }
+.blade-skill.locked .lock::before { content: ''; position: absolute; top: 8px; right: 6px; width: 12px; height: 12px; background: #ffd43b; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect x='4' y='10' width='16' height='12' rx='2' fill='black'/%3E%3Cpath d='M8 10V7a4 4 0 0 1 8 0v3' fill='none' stroke='black' stroke-width='2.6'/%3E%3C/svg%3E") center / contain no-repeat; }
+
 /* Phones: the touch layer has the skill buttons; keep the combo and the numbers, smaller. */
 body.touch-ui .blade-skills { display: none; }
 body.touch-ui .blade-combo { top: 22%; right: 4%; padding: 4px 10px; min-width: 70px; }

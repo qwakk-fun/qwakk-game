@@ -144,3 +144,37 @@ export const PORTAL_TRIGGER = {
   below: 1.0,
   above: 3.2,
 } as const;
+
+/**
+ * The market stalls of Fountain Square that sell Hunt Season gear (Tüy only,
+ * docs/progression.md): the Blacksmith (katanas) and the Armorer (armor).
+ * Positions are the map's `plaza_stall` props (gen_plaza.py; a test checks
+ * they match); each faces east, its counter on that side. A duck within
+ * `SHOP_RANGE` of the spot `SHOP_FRONT` meters in front of the counter may
+ * open the shop panel (E, or a tap). Opening it is a client affordance only:
+ * every purchase is a checked server request (`/api/duck`).
+ */
+export const HUB_SHOPS = [
+  { id: 'smith', slot: 'katana', x: -12, y: 3, z: 23, yaw: Math.PI / 2 },
+  { id: 'armorer', slot: 'armor', x: -12, y: 3, z: 30, yaw: Math.PI / 2 },
+] as const;
+
+export type ShopId = (typeof HUB_SHOPS)[number]['id'];
+
+export const SHOP_FRONT = 1.9;
+export const SHOP_RANGE = 2.4;
+
+/** Where a duck stands to shop at a stall (in front of its counter). */
+export function shopSpot(id: ShopId): { x: number; z: number } {
+  const s = HUB_SHOPS.find((x) => x.id === id) ?? HUB_SHOPS[0];
+  return { x: s.x + Math.sin(s.yaw) * SHOP_FRONT, z: s.z + Math.cos(s.yaw) * SHOP_FRONT };
+}
+
+/** The stall a duck at (x, z) can shop at, or null. */
+export function shopAt(x: number, z: number): ShopId | null {
+  for (const s of HUB_SHOPS) {
+    const p = shopSpot(s.id);
+    if (Math.hypot(x - p.x, z - p.z) <= SHOP_RANGE) return s.id;
+  }
+  return null;
+}

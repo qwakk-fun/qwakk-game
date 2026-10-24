@@ -12,7 +12,7 @@ import { loadConfig, type MetaConfig } from './config.ts';
 import { ipKey, normalizeIp } from './ip.ts';
 import { currentSeason, MODES, playerStanding, seasonById, SORTS, topPlayers, type ModeFilter, type Season, type SortKey, type Standing } from './leaderboard.ts';
 import { insertMatch, normalizeMatch, type MatchResult } from './matches.ts';
-import { insertRaid, normalizeRaid, type RaidGrant, type RaidRunResult } from './raid.ts';
+import { insertRaid, normalizeRaid, withRetry, type RaidGrant, type RaidRunResult } from './raid.ts';
 import { migrate, readMigrations, MIGRATIONS_DIR } from './migrate.ts';
 import { checkName } from './names.ts';
 import { offlineTag, upsertPlayer } from './players.ts';
@@ -21,6 +21,9 @@ import { SCORE } from './score.ts';
 import { isUuid, mintDeviceToken, signSession, verifyDeviceToken, verifySessionToken } from './token.ts';
 import { verifyTurnstile, type FetchLike } from './turnstile.ts';
 import { isBanned } from '../ops/bans.ts';
+import { ProgressionService } from './progression/service.ts';
+import { loadKit } from './progression/store.ts';
+import type { DuckKit } from '@qwakk/shared/duck';
 import { isIpBlocked } from '../ops/ipBlocks.ts';
 import { publicStatus } from '../ops/notice.ts';
 
@@ -85,6 +88,8 @@ export class MetaService {
   private readonly cache = new Map<string, { at: number; value: Promise<ApiResult> }>();
   /** Accounts: email sign-in, ducks, deletion (accounts/service.ts). */
   readonly accounts: AccountService;
+  /** Hunt Season progression: gear, the skill tree, Tüy spends (progression/service.ts). */
+  readonly progression: ProgressionService;
 
   constructor(opts: MetaServiceOptions = {}) {
     this.config = loadConfig(opts.env ?? process.env);
@@ -96,6 +101,11 @@ export class MetaService {
       db: () => this.db,
       mailer: opts.mailer !== undefined ? opts.mailer : createMailer(this.config),
       fetch: this.fetchImpl,
+      loopbackExempt: (ip) => this.loopbackExempt(ip),
+    });
+    this.progression = new ProgressionService({
+      db: () => this.db,
+      verify: (token) => (token ? this.verifySession(token) : null),
       loopbackExempt: (ip) => this.loopbackExempt(ip),
     });
   }
@@ -158,6 +168,22 @@ export class MetaService {
       return rows[0]?.level ?? null;
     } catch (err) {
       console.error('[meta] playerLevel failed:', err instanceof Error ? err.message : err);
+      return null;
+    }
+  }
+
+  /**
+   * An account duck's Hunt Season kit (level, gear, tree), read when it joins
+   * a Hunt Season room. Null without a database, for a guest or an unknown id,
+   * or on failure; never throws.
+   */
+  async duckKit(playerId: string): Promise<DuckKit | null> {
+    const db = this.db;
+    if (!db || !isUuid(playerId)) return null;
+    try {
+      return await loadKit(db, playerId);
+    } catch (err) {
+      console.error('[meta] duckKit failed:', err instanceof Error ? err.message : err);
       return null;
     }
   }
@@ -270,7 +296,9 @@ export class MetaService {
         console.warn('[meta] raid result rejected by validation:', result?.runId);
         return null;
       }
-      return await insertRaid(this.db, run);
+      // A deadlock or serialization failure rolls the whole run back: try again, so a run's rewards are never lost to one.
+      const db = this.db;
+      return await withRetry(() => insertRaid(db, run));
     } catch (err) {
       console.error('[meta] recordRaid failed:', err instanceof Error ? err.message : err);
       return null;

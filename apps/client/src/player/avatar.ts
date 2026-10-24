@@ -59,6 +59,8 @@ export interface AvatarPose {
   /** Hunt Season: the duck carries a katana (melee clips, the blade in hand or on its back) and holds it now. */
   katana?: boolean;
   holdingKatana?: boolean;
+  /** Hunt Season gear: the katana's tier look (undefined: the art as it is). */
+  bladeTier?: number;
 }
 
 /** Shadows stop at 35 m; character outlines stay to 75 m for readability. */
@@ -436,6 +438,7 @@ export class Avatar {
 
   update(p: AvatarPose, dt: number): void {
     this.lastDt = dt;
+    if (p.bladeTier !== undefined) this.melee?.setTier(p.bladeTier);
     this.object.position.set(p.x, p.y, p.z);
     this.object.rotation.set(0, p.yaw, 0);
 

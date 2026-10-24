@@ -1,11 +1,14 @@
 /**
  * Hunt Season upgrades (v3, melee builds), server side: what each card does
- * to a duck. Every number is server only (RaidRules.upgrade, admin settings)
- * and nothing here changes what the client simulates: damage, reach, crits,
- * health, armor, regen, lifesteal, bleed, the chain, the storm meter and
- * revive speed are applied by the server's hit path (raid/blade.ts).
+ * to a duck, on top of what the duck brings from its progression (its kit:
+ * gear and skill tree, `@qwakk/shared/duck` kitStats, built by the server
+ * from the database at join). Every number is server only (RaidRules.upgrade,
+ * admin settings, the shared kit tables) and nothing here changes what the
+ * client simulates: damage, reach, crits, health, armor, regen, lifesteal,
+ * bleed, the chain, the storm meter, dodges and revive speed are applied by
+ * the server's hit path (raid/blade.ts, raid/raid.ts).
  */
-import { COMBAT, Upgrade, type UpgradeId } from '@qwakk/shared';
+import { BASE_KIT_STATS, COMBAT, Upgrade, type KitStats, type UpgradeId } from '@qwakk/shared';
 import type { RaidRules } from './rules.ts';
 
 /** Most times one duck can take each card in a run. */
@@ -71,24 +74,55 @@ export interface DuckStats {
   bleedDps: number;
   /** Share of a heavy spin's damage that chains to more hunters (0: none). */
   chain: number;
-  /** The third cut's damage multiplier. */
+  /** The third cut's damage multiplier (the kit's finisher also on the heavy spin: `heavy`). */
   finisher: number;
+  heavy: number;
+  /** Kit: katana cuts' damage multiplier, the chance a cut crits, extra crit multiplier. */
+  blade: number;
+  critChance: number;
+  critBonus: number;
+  /** Kit: chance a hunter's hit misses, the dash cut's multiplier, the last stand. */
+  dodge: number;
+  dash: number;
+  lastStand: boolean;
+  /** Kit: the quack's reach, damage and stagger; storm pulse damage; the rallying quack's heal. */
+  quackReach: number;
+  quackDamage: number;
+  quackStagger: number;
+  stormDamage: number;
+  rally: number;
 }
 
-export function duckStats(u: DuckUpgrades, r: RaidRules['upgrade']): DuckStats {
+/** Most max health a duck can reach (cards and kit). */
+export const MAX_HP_CAP = 300;
+
+/** A duck's numbers: its run's cards (`u`) on top of its kit (`k`; the base kit: nothing). */
+export function duckStats(u: DuckUpgrades, r: RaidRules['upgrade'], k: KitStats = BASE_KIT_STATS): DuckStats {
   return {
-    maxHp: Math.min(250, COMBAT.maxHp + r.maxHealth * u.count(Upgrade.MaxHealth)),
+    maxHp: Math.min(MAX_HP_CAP, COMBAT.maxHp + k.hp + r.maxHealth * u.count(Upgrade.MaxHealth)),
     damage: 1 + (r.damagePercent / 100) * u.count(Upgrade.Damage),
-    taken: Math.max(0.3, 1 - (r.armorPercent / 100) * u.count(Upgrade.Armor)),
+    taken: Math.max(0.25, Math.max(0.3, 1 - (r.armorPercent / 100) * u.count(Upgrade.Armor)) * k.taken),
     regenPerSecond: r.regenPerSecond * u.count(Upgrade.Regen),
     reviveTime: Math.max(0.25, 1 - (r.revivePercent / 100) * u.count(Upgrade.Revive)),
-    reach: 1 + (r.reachPercent / 100) * u.count(Upgrade.Reach),
+    reach: (1 + (r.reachPercent / 100) * u.count(Upgrade.Reach)) * k.reach,
     crit: 1 + (r.critPercent / 100) * u.count(Upgrade.Crit),
     lifesteal: r.lifesteal * u.count(Upgrade.Lifesteal),
-    storm: 1 + (r.stormPercent / 100) * u.count(Upgrade.Storm),
+    storm: (1 + (r.stormPercent / 100) * u.count(Upgrade.Storm)) * k.meter,
     bleedDps: r.bleedDps * u.count(Upgrade.Bleed),
     chain: Math.min(1, (r.chainPercent / 100) * u.count(Upgrade.Chain)),
-    finisher: 1 + (r.finisherPercent / 100) * u.count(Upgrade.Finisher),
+    finisher: (1 + (r.finisherPercent / 100) * u.count(Upgrade.Finisher)) * k.finisher,
+    heavy: k.finisher,
+    blade: k.blade,
+    critChance: Math.max(0, Math.min(0.5, k.critChance)),
+    critBonus: k.critBonus,
+    dodge: Math.max(0, Math.min(0.5, k.dodge)),
+    dash: k.dash,
+    lastStand: k.lastStand,
+    quackReach: k.quackReach,
+    quackDamage: k.quackDamage,
+    quackStagger: k.quackStagger,
+    stormDamage: k.storm,
+    rally: k.rally,
   };
 }
 

@@ -31,11 +31,14 @@ interface CharacterRow {
   best_ms?: number | null;
   raid_runs?: number | null;
   raid_wins?: number | null;
+  /** The katana it wears (left join duck_equipped; null: the starter, or no progression yet). */
+  katana?: string | null;
 }
 
 const toCharacter = (r: CharacterRow): CharacterView => ({
   id: r.id, slot: r.slot, name: r.name, tag: String(r.tag), look: r.look, level: r.level, xp: Number(r.xp),
   raidBest: r.best_wave !== null && r.best_wave !== undefined ? { wave: r.best_wave, ms: r.best_ms ?? 0, runs: r.raid_runs ?? 0, wins: r.raid_wins ?? 0 } : null,
+  katana: r.katana ?? null,
 });
 
 export async function accountIdByEmail(db: Db, email: string): Promise<string | null> {
@@ -93,15 +96,15 @@ export async function deleteSession(db: Db, sessionId: string): Promise<void> {
 
 export async function listCharacters(db: Db, accountId: string): Promise<CharacterView[]> {
   const rows = await db<CharacterRow[]>`
-    select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins
-    from players p left join raid_push_bests b on b.player_id = p.id where p.account_id = ${accountId} order by p.slot`;
+    select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins, e.item_id as katana
+    from players p left join raid_push_bests b on b.player_id = p.id left join duck_equipped e on e.player_id = p.id and e.slot = 'katana' where p.account_id = ${accountId} order by p.slot`;
   return rows.map(toCharacter);
 }
 
 export async function characterOf(db: Db, accountId: string, playerId: string): Promise<CharacterView | null> {
   const [r] = await db<CharacterRow[]>`
-    select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins
-    from players p left join raid_push_bests b on b.player_id = p.id where p.id = ${playerId} and p.account_id = ${accountId}`;
+    select p.id, p.slot, p.name, p.tag, p.look, p.level, p.xp, b.best_wave, b.best_ms, b.runs as raid_runs, b.wins as raid_wins, e.item_id as katana
+    from players p left join raid_push_bests b on b.player_id = p.id left join duck_equipped e on e.player_id = p.id and e.slot = 'katana' where p.id = ${playerId} and p.account_id = ${accountId}`;
   return r ? toCharacter(r) : null;
 }
 

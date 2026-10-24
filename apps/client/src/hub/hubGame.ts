@@ -12,7 +12,7 @@
 import * as THREE from 'three/webgpu';
 import { Button, NET, type SimWorld } from '@qwakk/shared';
 import type { ChatMessage } from '@qwakk/shared/net';
-import { ACCOUNT_PORTALS, HUB, HubEmote, HubNote, PORTALS, type HubMapData, type PortalId } from '@qwakk/shared/hub';
+import { ACCOUNT_PORTALS, HUB, HubEmote, HubNote, PORTALS, shopAt, type HubMapData, type PortalId, type ShopId } from '@qwakk/shared/hub';
 import type { HubDuck } from '@qwakk/shared/hub/schema';
 import { TpsCamera } from '../camera/tpsCamera.ts';
 import { config } from '../config.ts';
@@ -54,6 +54,8 @@ export interface HubGameHooks {
   signIn(): void;
   /** Open the menu sheet (Esc, the touch pause button). */
   pause(): void;
+  /** Open a market stall's shop (signed-in ducks; E or a tap at the stall). */
+  shop?(id: ShopId): void;
 }
 
 export interface HubGameOptions {
@@ -117,6 +119,7 @@ export class HubGame {
   private hintUntil = 0;
   private boardAt = 0;
   private lastSprint = false;
+  private lastUse = false;
   private readonly pose: AvatarPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, crouch: 0, grounded: true, alive: true, weapon: 2, act: 0, fly: 0 };
   private readonly labelList: LabelDuck[] = [];
   private readonly abort = new AbortController();
@@ -166,6 +169,7 @@ export class HubGame {
         this.freeing = true;
         document.exitPointerLock();
       },
+      shop: (id) => this.openShop(id),
     });
     this.touch = hasTouch()
       ? new TouchControls(app, this.controls, {
@@ -313,6 +317,7 @@ export class HubGame {
       if (t && ['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName)) return;
       if (e.code === 'KeyQ') this.emote(HubEmote.Quack);
       else if (e.code === 'KeyB') this.emote(HubEmote.Dance);
+      else if (e.code === 'KeyE' && this.ui.shopOpen) this.openShop(this.ui.shopOpen);
       else if (e.code === 'KeyY' && this.ui.invite) this.answer(true);
       else if (e.code === 'KeyN' && this.ui.invite) this.answer(false);
       else if (e.code === 'Escape' && !this.controls.locked) {
@@ -370,6 +375,17 @@ export class HubGame {
     this.audio.pop();
     const inTeam = this.team.length > 1;
     this.ui.openDuck(t, inTeam, this.team.length >= 4);
+  }
+
+  /** At a stall: the menu opens its shop (the plaza pauses like for the sheet). Guests only see a sign-in note. */
+  openShop(id: ShopId): void {
+    if (this.paused || this.leaving) return;
+    this.audio.pop();
+    if (!this.opts.account) {
+      this.ui.toast(COPY.duck.shop.needsAccount, { label: COPY.hub.signInAction, run: () => this.opts.hooks.signIn() });
+      return;
+    }
+    this.opts.hooks.shop?.(id);
   }
 
   private emote(kind: number): void {
@@ -535,6 +551,10 @@ export class HubGame {
       }
     }
     this.lastSprint = (s.buttons & Button.Sprint) !== 0 && s.mz > 0;
+    // At a gear stall: Use (the touch Use button; E on a keyboard opens it on keydown) opens its shop.
+    const use = (s.buttons & Button.Use) !== 0;
+    if (use && !this.lastUse && this.ui.shopOpen) this.openShop(this.ui.shopOpen);
+    this.lastUse = use;
     return { ...s, yaw: this.controls.yaw, pitch: this.controls.pitch };
   };
 
@@ -620,6 +640,8 @@ export class HubGame {
     const touchOn = this.touch?.active ?? false;
     this.ui.setPointer(locked && !this.paused, !locked && !touchOn && !this.paused && !this.leaving && !this.ui.duckOpen && !this.chat.isOpen);
     this.ui.showHint(now < this.hintUntil && !this.paused && (locked || touchOn));
+    // A market stall that sells Hunt Season gear: its prompt while the duck stands at the counter.
+    this.ui.shopPrompt(me && !this.paused && !this.leaving && this.opts.hooks.shop ? shopAt(this.myPos.x, this.myPos.z) : null, touchOn);
     this.updateTouch();
 
     this.decor.update(dt);
@@ -646,6 +668,7 @@ export class HubGame {
     const t = this.touch;
     if (!t?.active) return;
     this.touchFrame.modal = this.chat.isOpen || this.paused || this.leaving;
+    this.touchFrame.promptKey = this.ui.shopOpen ? 'E' : '';
     t.update(this.touchFrame);
   }
 

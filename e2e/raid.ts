@@ -16,10 +16,21 @@
  *   run is won and the duck's XP (stored by the game server, read back over
  *   the account API) has gone up. Prediction corrections 0 through all of it.
  *
+ *   Progression (docs/progression.md), the same duck: it starts at level 1
+ *   with the light combo only (Dash, VAK! and the storm locked on the HUD; a
+ *   pressed Dash does nothing, the server masks it), so the kit checks above
+ *   use the `unlock` test hook for that run only. The win levels it up (the
+ *   end screen says Dash is unlocked) and earns Tüy; back in Duck Plaza it
+ *   walks to the Blacksmith, buys and equips the Bamboo Blade, spends a tree
+ *   point on Sharp Edge (My Duck), and in its next run Dash is unlocked and
+ *   its plain cuts deal the new damage (24 x 1.07 x 1.03 = 26, was 24).
+ *
  *   Party: two ducks in a party, one on an emulated phone in landscape
  *   (touch controls), start a run: the phone fights with its touch skill
  *   buttons (Dash, VAK!, the storm) and the Fire button; screenshots of both;
- *   the end screen on both.
+ *   the end screen on both. The phone's duck is a veteran (level 20, set in
+ *   the throwaway database) that bought the Dragon Fang and the Toony Plate
+ *   over the API: both screens show its gear; the desktop duck is fresh.
  *
  * Screenshots to OUTDIR. Usage: npm run e2e:raid [-- OUTDIR] (npm run build:test first).
  * E2E_SERVER_PORT, E2E_WEB_PORT and E2E_DIST pick other ports and a bundle built for them
@@ -31,7 +42,9 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
-import { Button, Goal, RAID, RaidStage } from '@qwakk/shared';
+import postgres from 'postgres';
+import { Button, Goal, RAID, RaidStage, xpForLevel } from '@qwakk/shared';
+import { shopSpot } from '@qwakk/shared/hub';
 import { accountSeed, e2eDatabase, fetchAccount, openSheet, pickDuck, seedBrowser, signUpApi, waitPlaza } from './lib/accounts.ts';
 import { center, Fingers } from './lib/fingers.ts';
 
@@ -110,6 +123,30 @@ async function burst(p: Page, name: string, count: number, everyMs: number): Pro
   }
 }
 
+/** Walk in the plaza (the hub's test hook) and wait until there. */
+async function plazaWalk(p: Page, x: number, z: number, label: string, near = 1.6): Promise<void> {
+  await hubCall(p, 'walkTo', x, z, 20000);
+  await until(label, () => hub(p), (s) => !!s && Math.hypot(s.pos.x - x, s.pos.z - z) < near, 22000);
+}
+
+/** The game session token of an account's first duck (the /api/duck routes take it). */
+async function duckToken(accountToken: string): Promise<{ id: string; token: string }> {
+  const acc = await fetchAccount(API, accountToken);
+  const id = acc.characters[0]!.id;
+  const res = await fetch(`${API}/api/account/play`, { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${accountToken}` }, body: JSON.stringify({ id }) });
+  const j = (await res.json()) as { token: string };
+  return { id, token: j.token };
+}
+
+async function duckApi(token: string, path: string, body?: unknown): Promise<any> {
+  const res = await fetch(`${API}/api/duck${path}`, body === undefined ? { headers: { authorization: `Bearer ${token}` } } : { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+  const j = (await res.json()) as any;
+  if (!res.ok) throw new Error(`/api/duck${path}: ${res.status} ${j.error}`);
+  return j.duck;
+}
+
+let dbUrl = '';
+
 async function noCorrections(p: Page, label: string): Promise<void> {
   const pred = (await snap(p)).prediction;
   console.log(`${label}: ${pred.reconciles} reconciles, ${pred.corrected} corrected (max ${pred.maxErrM.toFixed(4)} m)`);
@@ -138,6 +175,19 @@ async function solo(browser: Browser): Promise<void> {
   await hideOverlay(a);
   await sleep(1500);
   await a.screenshot({ path: `${out}/02-lobby-katana.png` });
+  // A fresh duck: level 1, the light combo only. The HUD shows Dash, VAK! and the storm locked; a pressed Dash does nothing.
+  const k0 = await until('the kit from the server', () => raid(a), (r) => r?.kit?.known, 15000);
+  if (k0.kit.level !== 1 || k0.kit.unlocks !== 0) throw new Error(`a fresh duck's kit: ${JSON.stringify(k0.kit)}`);
+  await until('locked skill buttons', () => raid(a), (r) => ['dash', 'quack', 'storm'].every((x) => r.skillLocks.includes(x)), 10000);
+  await press(a, Button.Dash, 200);
+  await sleep(400);
+  const k1 = await raid(a);
+  if (k1.blade.dashes !== 0 || (k1.ex & 127) !== 0) throw new Error(`a level 1 duck dashed: ${JSON.stringify(k1.blade)} ex ${k1.ex}`);
+  await a.screenshot({ path: `${out}/02b-locked-skills.png` });
+  await a.screenshot({ path: `${out}/02c-locked-skills-hud.png`, clip: { x: 900, y: 520, width: 380, height: 200 } });
+  // The kit test below needs every move: the test hook unlocks them for this run only (the stored level stays 1).
+  await dev(a, 'unlock');
+  await until('every move unlocked for this run', () => raid(a), (r) => r.kit.unlocks === 31 && r.skillLocks.length === 0, 10000);
   await inStage(a, RaidStage.Fight, 1, 30000);
   const r1 = await until('the trench objective', () => raid(a), (r) => r.goal === Goal.Trench && r.gNeed > 0, 10000);
   console.log(`objective 1: the trench, ${r1.gNeed} hunters to bag`);
@@ -152,12 +202,12 @@ async function solo(browser: Browser): Promise<void> {
   await dev(a, 'tpgoal', 30);
   await sleep(1500);
   await a.evaluate(() => (window as any).__qwakk.resetStats());
-  const k0 = (await raid(a)).blade;
+  const kb = (await raid(a)).blade;
   await dev(a, 'pack', 10);
   // The autopilot meets it: dash in, cut, quack when surrounded.
   await sleep(600);
   await burst(a, '04-pack-fight', 10, 260);
-  const fight = await until('the autopilot cuts the pack down', () => raid(a), (r) => r.blade.mostKilledAtOnce >= 2 && r.blade.dashes > k0.dashes, 30000);
+  const fight = await until('the autopilot cuts the pack down', () => raid(a), (r) => r.blade.mostKilledAtOnce >= 2 && r.blade.dashes > kb.dashes, 30000);
   console.log(`pack: swings ${fight.blade.swings}, predicted hits ${fight.blade.predictedHits} (multi ${fight.blade.multiHits}), most killed by one swing ${fight.blade.mostKilledAtOnce}, dashes ${fight.blade.dashes}, quacks ${fight.blade.quacks}, combo ${fight.blade.bestCombo}, numbers ${fight.blade.numbers}`);
   // Surrounded: the "VAK!" shockwave (the autopilot quacks with 4 around; press it once to be sure).
   await dev(a, 'pack', 8);
@@ -179,21 +229,36 @@ async function solo(browser: Browser): Promise<void> {
   if (after.dashes < 1 || after.quacks < 1 || after.storms < 1 || after.mostKilledAtOnce < 2) throw new Error(`the kit was not used in full: ${JSON.stringify(after)}`);
 
   // The trench at full hunter damage: its count starts over, the packs come again, the autopilot takes the objective.
-  await dev(a, 'resetgoal');
-  await dev(a, 'freeze', 0);
-  await dev(a, 'hold', 2);
-  await dev(a, 'quiet', 0);
-  await dev(a, 'tpgoal', 22);
-  const t0 = Date.now();
-  await sleep(4000);
-  await burst(a, '07-trench-fight', 4, 1200);
-  const took = await until('the trench taken by the autopilot', () => raid(a), (r) => r.cleared >= 1 || r.stage === RaidStage.Lost, 240000);
+  // The autopilot is no expert: alone at full damage it loses about one trench in two (it did before progression too).
+  // A lost run is a real run (stored, XP and Tüy); "Play again" starts the next one and the autopilot tries again, up to 4 runs.
+  let took: Raid = null;
+  let t0 = Date.now();
+  for (let attempt = 1; ; attempt++) {
+    await dev(a, 'resetgoal');
+    await dev(a, 'freeze', 0);
+    await dev(a, 'hold', 2);
+    await dev(a, 'quiet', 0);
+    await dev(a, 'tpgoal', 22);
+    t0 = Date.now();
+    await sleep(4000);
+    await burst(a, '07-trench-fight', 4, 1200);
+    took = await until('the trench taken by the autopilot', () => raid(a), (r) => r.cleared >= 1 || r.stage === RaidStage.Lost, 240000);
+    if (took.stage !== RaidStage.Lost) break;
+    await a.screenshot({ path: `${out}/xx-lost-trench-${attempt}.png` });
+    if (attempt >= 4) throw new Error(`the autopilot lost the run on the trench ${attempt} times: ${JSON.stringify(took).slice(0, 600)}`);
+    console.log(`note: the autopilot lost the trench (run ${attempt}, ${took.teamKills} kills); Play again`);
+    await until('the lost run stored', () => raid(a), (x) => x.endOpen && x.ended >= 2, 20000);
+    await a.locator('.raid-end-buttons .again').click();
+    await until('in the next hunt', () => raid(a), (r) => !!r && r.stage === RaidStage.Fight && r.ended === 0, 60000);
+    await hideOverlay(a);
+    await dev(a, 'unlock');
+    await until('every move again', () => raid(a), (r) => r.kit.unlocks === 31, 10000);
+    await dev(a, 'quiet', 1);
+    await dev(a, 'hold');
+    await sleep(1000);
+  }
   // The rest is for screenshots: the duck is held from here on.
   await dev(a, 'hold');
-  if (took.stage === RaidStage.Lost) {
-    await a.screenshot({ path: `${out}/xx-lost-trench.png` });
-    throw new Error(`the autopilot lost the run on the trench: ${JSON.stringify(took).slice(0, 600)}`);
-  }
   console.log(`trench taken in ${((Date.now() - t0) / 1000).toFixed(0)} s (team kills ${took.teamKills}, hp ${Math.round(took.hp)}, best combo ${took.blade.bestCombo}, streaks ${took.blade.streaks})`);
   await until('cards offered', () => raid(a), (x) => x.offers >= 1, 10000);
   if ((await raid(a)).cardsOpen) {
@@ -220,17 +285,102 @@ async function solo(browser: Browser): Promise<void> {
   }
   const end = await until('end screen', () => raid(a), (x) => x.endOpen && x.ended >= 2, 20000);
   console.log(`run won: ended messages ${end.ended}, team kills ${end.teamKills}`);
+  // The level-up lines name the new moves (Dash first, unless a lost run before this one already gave level 2), the Tüy line the run's feathers.
+  await a.locator('.raid-end-xp .unlock').first().waitFor({ timeout: 8000 });
+  const unlockText = (await a.locator('.raid-end-xp .unlock').allInnerTexts()).join(' / ');
+  const tuyText = await a.locator('.raid-end-xp .gain.tuy').innerText();
+  console.log(`end screen: "${unlockText}", "${tuyText}"`);
+  if (!/New skill unlocked/.test(unlockText)) throw new Error(`no "New skill unlocked" on the end screen: ${unlockText}`);
   await sleep(2000);
   await a.screenshot({ path: `${out}/12-end-screen.png` });
   const afterAcc = (await fetchAccount(API, A.token)).characters[0]!;
   console.log(`XP ${before.xp} -> ${afterAcc.xp}, level ${before.level} -> ${afterAcc.level}, best ${JSON.stringify(afterAcc.raidBest)}`);
   if (!(afterAcc.xp > before.xp)) throw new Error('the duck got no XP');
+  if (!(afterAcc.level >= 2)) throw new Error(`no level-up: ${afterAcc.level}`);
   if (!afterAcc.raidBest || afterAcc.raidBest.wave < RAID.objectives) throw new Error('no personal best stored');
+  // A plain cut of the first run: the bokken's 24.
+  const plain1 = end.blade.plain as Record<string, number>;
+  if (!plain1['24']) throw new Error(`no plain 24 cut in the first run: ${JSON.stringify(plain1)}`);
   await a.locator('.raid-end-buttons .back').click();
   await waitPlaza(a);
   const plazaLevel = await a.evaluate(() => (window as any).__qwakkHub.snapshot().ducks.find((d: { self: boolean }) => d.self)?.level ?? 0);
   if (plazaLevel !== afterAcc.level) throw new Error(`the plaza shows level ${plazaLevel}, the account has ${afterAcc.level}`);
+  await progressionChain(a, A.token, afterAcc.level);
   await A.ctx.close();
+}
+
+/**
+ * After the first run: Tüy earned, the Blacksmith (walk up, E, buy and equip
+ * the Bamboo Blade), My Duck (spend a point on Sharp Edge), then a second run
+ * from the sheet: Dash unlocked, the new damage on plain cuts, 0 corrections.
+ */
+async function progressionChain(a: Page, accountToken: string, level: number): Promise<void> {
+  const { token } = await duckToken(accountToken);
+  const firstRoom = (await snap(a))?.roomId ?? '';
+  const d0 = await duckApi(token, '');
+  console.log(`after the first run: level ${d0.level}, ${d0.feathers} Tüy, owned ${d0.owned.join(', ')}`);
+  if (!(d0.feathers >= 200)) throw new Error(`not enough Tüy for the Bamboo Blade: ${d0.feathers}`);
+  // The Blacksmith: around the fountain square's west side, to the spot in front of its counter.
+  const spot = shopSpot('smith');
+  await plazaWalk(a, -6, 21, 'to the market');
+  await plazaWalk(a, spot.x, spot.z, 'to the Blacksmith', 1.2);
+  await hubCall(a, 'look', Math.PI / 2, -0.08);
+  await a.locator('.hu-shop:not([hidden])').waitFor({ timeout: 10000 });
+  await sleep(500);
+  await a.screenshot({ path: `${out}/13-blacksmith-stall.png` });
+  await a.keyboard.press('KeyE');
+  await a.locator('.qp-shop:not([hidden]) .qp-item[data-item="katana_bamboo"] .qp-buy:not([disabled])').waitFor({ timeout: 10000 });
+  await sleep(300);
+  await a.screenshot({ path: `${out}/14-shop-blacksmith.png` });
+  await a.locator('.qp-item[data-item="katana_bamboo"] .qp-buy').click();
+  await a.locator('.qp-item[data-item="katana_bamboo"] .qp-equip').click({ timeout: 10000 });
+  await a.locator('.qp-item.is-on[data-item="katana_bamboo"]').waitFor({ timeout: 10000 });
+  await sleep(300);
+  await a.screenshot({ path: `${out}/15-shop-equipped.png` });
+  await a.locator('.qp-shop-x').click();
+  await until('the shop closed', () => a.locator('.qp-shop:not([hidden])').count(), (c) => c === 0, 5000);
+  // My Duck: the tree, one point on Sharp Edge.
+  await openSheet(a, 6);
+  await a.locator('.qp-node[data-node="edge"]:not([disabled])').waitFor({ timeout: 10000 });
+  await sleep(300);
+  await a.screenshot({ path: `${out}/16-my-duck.png` });
+  await a.locator('.qp-node[data-node="edge"]').click();
+  await a.locator('.qp-node.has-rank[data-node="edge"]').waitFor({ timeout: 10000 });
+  await sleep(300);
+  await a.screenshot({ path: `${out}/17-my-duck-spent.png` });
+  const d1 = await duckApi(token, '');
+  console.log(`bought and spent: ${d1.feathers} Tüy, katana ${d1.equipped.katana}, tree ${JSON.stringify(d1.tree)}`);
+  if (d1.equipped.katana !== 'katana_bamboo' || d1.tree.edge !== 1 || d1.feathers !== d0.feathers - 200) throw new Error(`the purchase or the spend did not stick: ${JSON.stringify(d1)}`);
+  // The next run, from the sheet's mode list.
+  await openSheet(a, 0);
+  await a.locator('.qm-sheet-mode[data-mode="raid"]').click();
+  // The test hook keeps the last game's view until the next one replaces it: wait for a new room.
+  await until('in the second hunt', () => snap(a), (s) => s?.mode === 2 && s.roomId !== firstRoom, 60000);
+  const k = await until('the new kit', () => raid(a), (r) => r?.kit?.known, 15000);
+  console.log(`second run kit: ${JSON.stringify(k.kit)}`);
+  if (k.kit.level !== level || (k.kit.unlocks & 1) === 0 || k.kit.katana !== 1 || k.kit.bladePct !== 10) throw new Error(`the second run's kit: ${JSON.stringify(k.kit)}`);
+  if (k.skillLocks.includes('dash')) throw new Error('Dash still locked after the level-up');
+  await hideOverlay(a);
+  await inStage(a, RaidStage.Fight, 1, 40000);
+  await dev(a, 'quiet', 1);
+  await dev(a, 'freeze', 1);
+  await dev(a, 'hold');
+  await dev(a, 'tpgoal', 30);
+  await sleep(1500);
+  await a.evaluate(() => (window as any).__qwakk.resetStats());
+  await dev(a, 'pack', 10);
+  await sleep(500);
+  await burst(a, '18-bamboo-katana-fight', 4, 300);
+  const r2 = await until('plain cuts with the new katana', () => raid(a), (r) => Object.keys(r.blade.plain).length > 0 && r.blade.dashes >= 1, 30000);
+  const plain2 = r2.blade.plain as Record<string, number>;
+  console.log(`second run plain cuts: ${JSON.stringify(plain2)}, dashes ${r2.blade.dashes}`);
+  if (!plain2['26'] || plain2['24']) throw new Error(`the new damage does not show: ${JSON.stringify(plain2)}`);
+  await noCorrections(a, 'prediction in the second run (Dash unlocked, the new katana)');
+  await dev(a, 'freeze', 0);
+  await dev(a, 'skip', RAID.objectives);
+  await sleep(800);
+  await dev(a, 'clear');
+  await until('second end', () => raid(a), (x) => x.endOpen && x.ended >= 2, 20000);
 }
 
 async function party(browser: Browser): Promise<void> {
@@ -238,6 +388,20 @@ async function party(browser: Browser): Promise<void> {
   const B = await newDuck(browser, 'Mate', true);
   const a = A.page;
   const b = B.page;
+  // The phone's duck is a veteran: level 20 and Tüy set in the throwaway database (a test shortcut; in the game only
+  // the run's end grants them), then it buys and wears the Dragon Fang and the Toony Plate through the checked API.
+  const vet = await duckToken(B.token);
+  const sql = postgres(dbUrl, { max: 1, onnotice: () => {} });
+  await sql`update players set level = 20, xp = ${xpForLevel(20)} where id = ${vet.id}`;
+  await duckApi(vet.token, '');
+  await sql`update duck_progress set feathers = 9000 where player_id = ${vet.id}`;
+  await sql.end();
+  for (const item of ['katana_dragon', 'armor_plate']) {
+    await duckApi(vet.token, '/buy', { item });
+    await duckApi(vet.token, '/equip', { item });
+  }
+  const geared = await duckApi(vet.token, '');
+  if (geared.equipped.katana !== 'katana_dragon' || geared.equipped.armor !== 'armor_plate' || geared.feathers !== 9000 - 4500 - 3500) throw new Error(`the veteran's gear: ${JSON.stringify(geared)}`);
   await a.goto(menuUrl('&autopilot=raid'));
   await pickDuck(a);
   await openSheet(a, 1);
@@ -266,6 +430,10 @@ async function party(browser: Browser): Promise<void> {
   await dev(a, 'tpgoal', 32);
   await sleep(1500);
   await until('the touch skill buttons', () => b.locator('.tc-dash:not([hidden])').count(), (c) => c === 1, 15000);
+  // The veteran has every move (level 20): no lock on its touch buttons; the fresh desktop duck's are locked.
+  if ((await b.locator('.tc-skill.locked').count()) !== 0) throw new Error('a level 20 duck has locked touch skills');
+  const ka = await raid(a);
+  if (!ka.skillLocks.includes('dash')) throw new Error(`the fresh desktop duck should have Dash locked: ${JSON.stringify(ka.kit)}`);
   // The teleports above were corrections; count from here.
   await b.evaluate(() => (window as any).__qwakk.resetStats());
   await dev(b, 'pack', 8);
@@ -296,6 +464,18 @@ async function party(browser: Browser): Promise<void> {
   await hideOverlay(a);
   await a.screenshot({ path: `${out}/22-party-desktop.png` });
   await noCorrections(b, 'the phone');
+  // The veteran's gear as the desktop duck sees it: both moved close (test-hook teleports: corrections, so after the
+  // check above), the desktop turned to where it draws the phone's duck (its remote pose).
+  await dev(b, 'quiet', 1);
+  await dev(a, 'tpgoal', 30);
+  await dev(b, 'tpgoal', 26);
+  await sleep(1200);
+  const seen = await snap(a);
+  const pb = Object.values(seen.remotes as Record<string, { x: number; z: number }>)[0];
+  await a.evaluate(([x, z]) => (window as any).__qwakk.face(x, z, 1800, -0.12), [pb?.x ?? 0, pb?.z ?? 0] as const);
+  await sleep(1600);
+  await hideOverlay(a);
+  await a.screenshot({ path: `${out}/22b-veteran-gear.png` });
   await dev(a, 'skip', RAID.objectives);
   await sleep(1000);
   await dev(a, 'clear');
@@ -311,6 +491,7 @@ async function main(): Promise<void> {
   const dist = isAbsolute(DIST) ? DIST : `${root}/apps/client/${DIST}`;
   if (!existsSync(`${dist}/index.html`)) throw new Error('Build the test client first: npm run build:test');
   const db = await e2eDatabase('raid');
+  dbUrl = db.url;
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),
     DATABASE_URL: db.url,

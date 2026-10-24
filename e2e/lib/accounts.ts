@@ -126,8 +126,13 @@ export async function guestIntoPlaza(page: import('playwright').Page, name: stri
 /** Open the menu sheet over the plaza (Esc with the mouse free) on a tab (play, team, leaderboard, settings, howto, account). */
 export async function openSheet(page: import('playwright').Page, tab = 0): Promise<void> {
   if (await page.locator('#hub-sheet:not([hidden])').count() === 0) {
-    if (await page.evaluate(() => document.pointerLockElement !== null)) await page.evaluate(() => document.exitPointerLock());
-    await page.keyboard.press('Escape');
+    // Leaving pointer lock opens the sheet by itself (the plaza's Esc): wait for that before pressing Escape,
+    // which would otherwise close the sheet again.
+    if (await page.evaluate(() => document.pointerLockElement !== null)) {
+      await page.evaluate(() => document.exitPointerLock());
+      await page.locator('#hub-sheet:not([hidden])').waitFor({ timeout: 1500 }).catch(() => undefined);
+    }
+    if (await page.locator('#hub-sheet:not([hidden])').count() === 0) await page.keyboard.press('Escape');
     await page.locator('#hub-sheet:not([hidden])').waitFor({ timeout: 10_000 });
   }
   await page.locator('.qm-sheet-tab').nth(tab).click();

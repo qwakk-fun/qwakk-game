@@ -27,7 +27,9 @@
  *   res0 (uint8, the rifle slot's reserve)     ticks into the act (saturates at 255)
  *   ex   bits 0..6   Dash timer: counts down from DASH.cooldown; dashing in its first DASH.ticks
  *        bits 7..14  Quack timer: counts down from QUACK.cooldown; casting in its first QUACK.cast
- *        bits 15..18 free; 19..31 the keep (trap root, cannons: raid/root.ts, raid/man.ts)
+ *        bit  15     the charged heavy is locked (EX_HEAVY_LOCK: the duck's level is under
+ *                    UNLOCK_LEVEL.heavy; set by the server at a spawn, unlocks.ts)
+ *        bits 16..18 free; 19..31 the keep (trap root, cannons: raid/root.ts, raid/man.ts)
  *   dmEnergy (uint8, the deathmatch hero's flight energy; there is no hero in Hunt Season)
  *        0..100: the Blade Storm meter (server written); 128 + n: storming, n ticks left
  *
@@ -161,6 +163,11 @@ function emit(kind: number, step = 0, charge = 0): void {
   lastBlade.n = i + 1;
 }
 
+/** `ex` bit 15: this duck may not charge the heavy spin yet (its level; server written at a spawn, armBlade). */
+export const EX_HEAVY_LOCK = 1 << 15;
+
+export const heavyLocked = (s: { ex: number }): boolean => ((s.ex | 0) & EX_HEAVY_LOCK) !== 0;
+
 const DASH_MASK = 127;
 const QUACK_SHIFT = 7;
 const QUACK_MASK = 255;
@@ -225,10 +232,20 @@ function setAct(s: PlayerSim, act: number, queued = false, charge = 0): void {
   s.res0 = 0;
 }
 
-/** Server: arm a duck with the katana and the pistol, blade in hand, every blade state fresh (the keep's `ex` bits kept). */
-export function armBlade(s: PlayerSim, meter = 0): void {
+/** What a duck's level lets it carry (unlocks.ts): the pistol, the charged heavy. Missing: everything. */
+export interface BladeLocks {
+  pistol: boolean;
+  heavy: boolean;
+}
+
+/**
+ * Server: arm a duck with the katana (and the pistol once its level allows
+ * it), blade in hand, every blade state fresh (the keep's `ex` bits kept);
+ * the heavy-lock bit from its level.
+ */
+export function armBlade(s: PlayerSim, meter = 0, locks?: BladeLocks): void {
   const pistol = weaponStats(WeaponId.Pistol);
-  s.arms = ARMS_KATANA | (1 << WeaponId.Pistol);
+  s.arms = ARMS_KATANA | (locks && !locks.pistol ? 0 : 1 << WeaponId.Pistol);
   s.weapon = WeaponId.Katana;
   s.equip = 0;
   s.cooldown = 0;
@@ -240,7 +257,7 @@ export function armBlade(s: PlayerSim, meter = 0): void {
     s.mag1 = pistol.magSize;
     s.res1 = pistol.reserve;
   }
-  s.ex = ((s.ex | 0) & ~0x7ffff) >>> 0;
+  s.ex = (((s.ex | 0) & ~0x7ffff) | (locks && !locks.heavy ? EX_HEAVY_LOCK : 0)) >>> 0;
   s.dmEnergy = Math.max(0, Math.min(STORM.meterFull, Math.floor(meter)));
 }
 
@@ -457,7 +474,7 @@ export function stepBlade(s: PlayerSim, input: InputFrame, manning: boolean): bo
       startSlash(s, next);
       return true;
     }
-    if (t >= w.recover && fire && !queued && (prev & Button.Fire) !== 0) {
+    if (t >= w.recover && fire && !queued && (prev & Button.Fire) !== 0 && !heavyLocked(s)) {
       setAct(s, BladeAct.Charge);
       return true;
     }

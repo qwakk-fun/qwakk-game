@@ -9,7 +9,7 @@
  * DOM only; everything it shows comes from the room state and the server's
  * messages.
  */
-import { GateState, levelProgress, RAID, Upgrade, type UpgradeId } from '@qwakk/shared';
+import { GateState, levelProgress, newUnlocks, RAID, treePoints, Upgrade, type SkillId, type UpgradeId } from '@qwakk/shared';
 import { t } from '../../i18n/game.ts';
 import './raid.css';
 
@@ -58,7 +58,14 @@ export interface RaidEndView {
   granted: boolean;
   /** The server could not store the XP this time (no database, or the write failed). */
   failed: boolean;
+  /** Tüy the run earned (the daily bonus inside once stored), the balance after (-1 until stored), the daily bonus. */
+  feathers: number;
+  feathersAfter: number;
+  daily: number;
 }
+
+/** A move's name for the end screen's "new skill" line. */
+export const SKILL_NAMES: Record<SkillId, string> = { dash: 'Dash', pistol: 'Pistol', quack: 'VAK!', heavy: 'Charged heavy', storm: 'Blade Storm' };
 
 export class RaidHud {
   readonly root: HTMLElement;
@@ -351,7 +358,14 @@ export class RaidHud {
     stat(t('Revives'), String(v.revives));
     stat(t('Time'), clock(v.runMs / 1000));
     const xp = el('div', 'raid-end-xp', card);
-    el('div', 'gain', xp, t('+{n} XP', { n: v.xp }));
+    const gains = el('div', 'gains', xp);
+    el('div', 'gain', gains, t('+{n} XP', { n: v.xp }));
+    // Tüy (Feathers): earned only here, spent at the Blacksmith and the Armorer in Duck Plaza.
+    const tuy = el('div', 'gain tuy', gains);
+    el('span', 'tuy-icon', tuy);
+    el('span', '', tuy, t('+{n} Tüy', { n: v.feathers }));
+    if (v.daily > 0) el('div', 'daily', xp, t('First hunt of the day: +{n} Tüy', { n: v.daily }));
+    const unlocks = el('div', 'unlocks', xp);
     const lv = el('div', 'level', xp);
     const label = el('span', 'lv', lv);
     const bar = el('div', 'raid-bar xp', lv);
@@ -375,6 +389,7 @@ export class RaidHud {
       lv.classList.toggle('up', p.level > startLevel);
       if (p.level > startLevel) status.textContent = v.failed ? saved : `${t('Level up!')} ${v.granted ? saved : ''}`;
       if (k < 1) this.endAnim = requestAnimationFrame(step);
+      else if (v.granted) this.unlockLines(unlocks, startLevel, p.level);
     };
     step();
     const buttons = el('div', 'raid-end-buttons', card);
@@ -385,6 +400,15 @@ export class RaidHud {
     again.addEventListener('click', () => this.onEnd(true));
     back.addEventListener('click', () => this.onEnd(false));
     el('p', 'closes', card, t('Closes in {n} s', { n: closesIn }));
+  }
+
+  /** After a level-up: the moves it unlocked and the new tree points. */
+  private unlockLines(box: HTMLElement, from: number, to: number): void {
+    box.replaceChildren();
+    if (to <= from) return;
+    for (const id of newUnlocks(from, to)) el('div', 'unlock', box, t('New skill unlocked: {name}', { name: t(SKILL_NAMES[id]) }));
+    const pts = treePoints(to) - treePoints(from);
+    if (pts > 0) el('div', 'unlock points', box, pts === 1 ? t('+1 skill point: spend it in My Duck (Esc)') : t('+{n} skill points: spend them in My Duck (Esc)', { n: pts }));
   }
 
   get endOpen(): boolean {

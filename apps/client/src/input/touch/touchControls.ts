@@ -12,6 +12,7 @@
  * keys emit.
  */
 import { Button, Mode } from '@qwakk/shared';
+import { t as tr } from '../../i18n/game.ts';
 import { COPY } from '../../ui/menu/copy.ts';
 import type { Controls } from '../controls.ts';
 import { TOUCH } from './constants.ts';
@@ -55,7 +56,7 @@ export interface TouchFrame {
    * cooldown left (0: ready; the storm: 1 until its meter is full), and the
    * katana in hand (Fire slashes; Aim and Reload only with the pistol).
    */
-  skills?: { dash: number; quack: number; storm: number; katana: boolean };
+  skills?: { dash: number; quack: number; storm: number; katana: boolean; locks?: { dash: number; quack: number; storm: number } | null };
 }
 
 export interface TouchHooks {
@@ -272,6 +273,8 @@ export class TouchControls {
     const show = new Set<ButtonId>(['pause']);
     if (t.hub) {
       if (!t.modal) show.add('jump');
+      // Duck Plaza: at a gear stall's counter, Use opens its shop.
+      if (!t.modal && t.promptKey === 'E') show.add('use');
     } else if (t.mapOpen) show.add('map');
     else if (!t.modal) {
       show.add('board');
@@ -325,8 +328,16 @@ export class TouchControls {
     for (const [id, bits] of Object.entries(TOGGLE) as [ButtonId, number][]) this.ui.buttons.get(id)!.classList.toggle('on', c.touchHeldHas(bits));
     if (t.skills) {
       for (const id of ['dash', 'quack', 'storm'] as const) {
-        const left = t.skills[id];
         const b = this.ui.buttons.get(id)!;
+        // A move the duck's level does not have yet: a padlock and its level (the input is masked anyway).
+        const lock = t.skills.locks?.[id] ?? 0;
+        const lv = lock > 0 ? tr('Lv {n}', { n: lock }) : '';
+        if ((b.dataset.lock ?? '') !== lv) {
+          if (lv) b.dataset.lock = lv;
+          else delete b.dataset.lock;
+          b.classList.toggle('locked', lock > 0);
+        }
+        const left = lock > 0 ? 0 : t.skills[id];
         const v = left.toFixed(2);
         if (b.style.getPropertyValue('--cd') !== v) b.style.setProperty('--cd', v);
         b.classList.toggle('ready', left <= 0);

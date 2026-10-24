@@ -3,10 +3,12 @@
  * portal arches and their signs (a locked portal is grey with "Sign in to
  * enter"), the leaderboard board's face (the season's top 10, from the
  * public leaderboard API), the pond surface and the rings under teammates
- * and the duck you point at. Cosmetic only: the server decides portals.
+ * and the duck you point at, and the signs over the two market stalls that
+ * sell Hunt Season gear (the Blacksmith and the Armorer). Cosmetic only: the
+ * server decides portals and every purchase.
  */
 import * as THREE from 'three/webgpu';
-import { type HubMapData, type HubPlace, type PortalId } from '@qwakk/shared/hub';
+import { HUB_SHOPS, type HubMapData, type HubPlace, type PortalId, type ShopId } from '@qwakk/shared/hub';
 import { COPY } from '../ui/menu/copy.ts';
 import type { LeaderboardData } from '../ui/menu/api.ts';
 
@@ -127,6 +129,27 @@ function signTexture(id: PortalId, locked: boolean): THREE.CanvasTexture {
   });
 }
 
+/** A stall's hanging sign: the shop's name over the counter (stall space: +Z is the counter side). */
+const STALL_SIGN = { w: 1.9, h: 0.5, y: 1.92, z: 1.04 };
+
+function stallTexture(id: ShopId): THREE.CanvasTexture {
+  const D = COPY.duck.shop;
+  return textCanvas(512, 136, (g) => {
+    g.fillStyle = '#5a3f2d';
+    g.fillRect(0, 0, 512, 136);
+    g.fillStyle = '#f4ecd6';
+    g.fillRect(8, 8, 496, 120);
+    g.fillStyle = id === 'smith' ? '#ff8a3d' : '#ffd43b';
+    g.fillRect(8, 8, 496, 10);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = '#151619';
+    fitText(g, (id === 'smith' ? D.smith : D.armorer).toUpperCase(), 256, 62, 470, 850, 58);
+    g.fillStyle = '#5a3f2d';
+    fitText(g, COPY.duck.shop.signSub, 256, 108, 470, 700, 26);
+  });
+}
+
 interface PortalView {
   id: PortalId;
   group: THREE.Group;
@@ -166,6 +189,26 @@ export class HubDecor {
     }
     if (pond) this.pond(scene, pond);
     this.ringGeo.rotateX(-Math.PI / 2);
+    this.stallSigns();
+  }
+
+  /** The Blacksmith's and the Armorer's signs, both sides, over their counters. */
+  private stallSigns(): void {
+    const geo = new THREE.PlaneGeometry(STALL_SIGN.w, STALL_SIGN.h);
+    for (const s of HUB_SHOPS) {
+      const holder = new THREE.Group();
+      holder.position.set(s.x, s.y, s.z);
+      holder.rotation.y = s.yaw;
+      holder.name = `stall:${s.id}`;
+      const tex = stallTexture(s.id);
+      for (const back of [false, true]) {
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicNodeMaterial({ map: tex }));
+        m.position.set(0, STALL_SIGN.y, back ? STALL_SIGN.z - 0.04 : STALL_SIGN.z);
+        if (back) m.rotation.y = Math.PI;
+        holder.add(m);
+      }
+      this.group.add(holder);
+    }
   }
 
   private portal(id: PortalId, p: HubPlace): PortalView {

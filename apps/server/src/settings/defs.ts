@@ -7,7 +7,7 @@
  * client also simulates for prediction (movement, fire rate, spread, recoil,
  * aim down sights) stays a constant (it needs a client deploy).
  */
-import { BR, DM_BOT, DM_HERO, EXPLOSIVE, KILL_STACKS, MATCH, PUSH, RAID, ROOM, SPAWN_PROTECTION, TICK_RATE, WEAPONS, ZONE } from '@qwakk/shared';
+import { BR, DM_BOT, DM_HERO, EXPLOSIVE, KILL_STACKS, LEVEL_SCALE, MATCH, PUSH, RAID, ROOM, SPAWN_PROTECTION, TICK_RATE, WEAPONS, ZONE } from '@qwakk/shared';
 import { DM_OPEN_ROOMS, DM_ROOM_CATALOG } from '@qwakk/shared/lobby';
 import { BR_SKILL } from '../br/brBot.ts';
 
@@ -273,6 +273,8 @@ function raidDefs(): SettingDef[] {
     n('upgrade.bleedDps', 'Upgrade: bleed', 'Damage per second for 3 s after a cut, per card.', 6, 1, 40, 1, 'hp/s', 'int'),
     n('upgrade.chainPercent', 'Upgrade: chain lightning', 'Share of a heavy spin\'s damage that arcs to up to 3 more hunters nearby, per card.', 40, 5, 100, 5, '%', 'int'),
     n('upgrade.finisherPercent', 'Upgrade: finisher', 'More damage on the combo\'s third cut per card.', 40, 5, 150, 5, '%', 'int'),
+    n('levelHpPercent', 'Strong ducks: hunter health per level', 'Hunter health grows this much per level of the party\'s average above level 10 (at most +25%). 0 turns it off.', LEVEL_SCALE.hpPercent, 0, 3, 0.1, '%'),
+    n('levelDamagePercent', 'Strong ducks: hunter damage per level', 'Hunter damage grows this much per level of the party\'s average above level 10 (at most +12.5%). 0 turns it off.', LEVEL_SCALE.damagePercent, 0, 2, 0.1, '%'),
     n('dropAmmoPercent', 'Ammo drop chance', 'Chance a defeated hunter drops ammo.', 22, 0, 100, 1, '%', 'int'),
     n('dropHealPercent', 'Heal drop chance', 'Chance a defeated hunter drops a small heal.', 12, 0, 100, 1, '%', 'int'),
     n('healAmount', 'Heal drop', 'Health a heal drop gives.', 25, 5, 100, 5, 'hp', 'int'),

@@ -1,6 +1,8 @@
 # Hunt Season (Av Sezonu)
 
-Hunting season opened and the ducks cut their way out. A co-op PvE mode in the spirit of an action MMORPG: 1 to 4 signed-in ducks (parties welcome) start in **Pond Keep**, a duck castle on a pond island (map `pond-keep`, `docs/pond-keep.md`), draw their katanas and push out across the field through hordes of duck hunters, objective by objective: the trench, the supply crates, the watchtowers and finally the Big Hunter's camp. It is the mode that gives a duck XP and levels. Levels are cosmetic progress only: nothing about a level changes the deathmatch or the battle royale, and the katana exists only here (the deathmatch and the battle royale stay guns only).
+Hunting season opened and the ducks cut their way out. A co-op PvE mode in the spirit of an action MMORPG: 1 to 4 signed-in ducks (parties welcome) start in **Pond Keep**, a duck castle on a pond island (map `pond-keep`, `docs/pond-keep.md`), draw their katanas and push out across the field through hordes of duck hunters, objective by objective: the trench, the supply crates, the watchtowers and finally the Big Hunter's camp. It is the mode that gives a duck XP, levels and Tüy (Feathers). Here a duck grows (`docs/progression.md`): its level unlocks the katana's moves and skill points for a small tree, and Tüy buys better katanas and armor at Duck Plaza's Blacksmith and Armorer, a few percent at a time. Nothing about a level, the gear or the tree changes the deathmatch or the battle royale (levels stay cosmetic in PvP), and the katana exists only here (the deathmatch and the battle royale stay guns only).
+
+**Tüy is an in-game soft currency earned only by playing Hunt Season. It is never sold for real money, never tradeable and never a token.** No crypto rewards.
 
 Code: shared `packages/shared/src/raid/` (`blade.ts` the katana in the sim, `arc.ts` the hit shapes and the sweep, `push.ts` the objectives and the horde math, `hunters.ts`, `progress.ts` XP, `upgrades.ts` the cards; the keep: `markup.ts`, `keep.ts`, `cannon.ts`, `man.ts`, `root.ts`); server `apps/server/src/raid/` (`blade.ts` the katana's hits, `push.ts` the director, `hunts.ts`, `brain.ts`, `hunter.ts`, `travel.ts`, `keepWorld.ts`, `raid.ts` the rules) and `apps/server/src/RaidRoom.ts`; results `apps/server/src/meta/raid.ts` and migrations 004 to 006; client `apps/client/src/game/raidClient.ts`, `game/raid/` (`bladeFeel.ts` the feel, `campDecor.ts`, the hunter looks, `keepView.ts`), `player/meleeRig.ts`, `player/meleeArt.ts`, `player/katanaTrail.ts` (the katana on the duck), `hud/raid/` (`raidHud.ts`, `bladeHud.ts`); menu: the Hunt Season portal in Duck Plaza (east) and its row in the sheet's Play list, the XP bar.
 
@@ -11,7 +13,7 @@ Code: shared `packages/shared/src/raid/` (`blade.ts` the katana in the sim, `arc
 | Lobby | Ducks gather in the courtyard, no damage. The first duck starts a 15 s countdown (`raid.lobbySeconds`), each later one adds 5 s, four ducks start in 5 s; at most 30 s after it first started. The room locks when the run starts. |
 | Objective | One of the four objectives is in play (below). Packs of minions with elites come out of the trench exits and dugout doors near it and charge the ducks; its ground is their rally point, so the fight meets the ducks out in the field. |
 | Break | The objective is taken: the hunters still standing flee (no kills, no drops). 8 s (`raid.breakSeconds`): every duck picks one of three cards (keys 1 to 3, or a tap; the timer picks one at random). Fallen ducks come back beside a friend still standing (a spot checked for room for the duck, ground under it within a step of the friend's and no wall between them; in the castle when there is none or no friend is standing), with 60% health; knocked ones get up with 50%, standing ones heal 25%; the pistol's reserve refills. |
-| Won / lost | Won when the Big Hunter falls. Lost when no duck is standing (knocked or out) at once. The end screen shows the run and the XP; the room closes 60 s later. |
+| Won / lost | Won when the Big Hunter falls. Lost when no duck is standing (knocked or out) at once. The end screen shows the run, the XP and the Tüy, and after a level-up the moves it unlocked and the new skill points; the room closes 60 s later. |
 
 | # | Objective | Where (Pond Keep) | Taken when |
 | --- | --- | --- | --- |
@@ -26,7 +28,7 @@ Ducks use the battle royale knock and revive: at 0 health a duck is knocked (it 
 
 ## The katana (Hunt Season only)
 
-Every duck carries a katana (the weapon in hand) and the pistol (the secondary: snipers, a crate out of reach). No rifle, no grenades, no rocket launcher here; the deathmatch and the battle royale never hand out the katana.
+Every duck carries a katana (the weapon in hand) and, from level 3, the pistol (the secondary: snipers, a crate out of reach). No rifle, no grenades, no rocket launcher here; the deathmatch and the battle royale never hand out the katana. A fresh duck has the light combo only; the other moves come with its level: Dash at 2, the pistol at 3, "VAK!" at 4, the charged heavy at 6, the Blade Storm at 8 (`docs/progression.md`; a locked move's button shows a padlock and its level, the server masks it).
 
 | Move | Desktop | Phone | What it does |
 | --- | --- | --- | --- |
@@ -53,7 +55,8 @@ Desktop keys: R stays Reload (the pistol), so the ultimate is F; Q was free; Das
 | `res0` | 0..7 | ticks into the act (saturates at 255) |
 | `ex` | 0..6 | the Dash timer: counts down from 66; dashing while above 60 |
 | `ex` | 7..14 | the Quack timer: counts down from 240; casting while above 229 |
-| `ex` | 15..18 | free |
+| `ex` | 15 | the charged heavy is locked (`EX_HEAVY_LOCK`: the duck's level is under 6; the server sets it at a spawn) |
+| `ex` | 16..18 | free |
 | `ex` | 19..31 | the keep (the trap root, the manned cannon, the cannons taken: unchanged) |
 | `dmEnergy` | 0..7 | the Blade Storm: 0 to 100 its meter (written by the server), 128 + n storming with n ticks left |
 
@@ -162,19 +165,20 @@ Three different cards from twelve, never one at its limit, the revive card only 
 | Chain lightning | a heavy spin's hits arc 40% of its damage to 3 more hunters within 6 m | 2 |
 | Finisher | the combo's third cut hits 40% harder | 3 |
 
-## XP and levels (`raid/progress.ts`, unit tested)
+## XP, levels and Tüy (`raid/progress.ts`, `raid/kit.ts`, unit tested)
 
 Level `n` needs `round(100 n^1.5)` XP to reach `n + 1` (cap 50). A run gives each duck in it: 150 XP for the first objective taken and 50 more for each later one (150, 200, 250, 300), 5 per hunter it bagged that is not a minion, 2 per minion, the combo bonus (kill by kill, 1% of the kill's XP per combo hit, at most +50%; capped at half of the kill XP in all), 200 per Big Hunter down (every duck that hit him), 15 per revive, 500 for the win, at most 5,000 per run. A full solo win (about 200 minions, 40 elites, the boss, a decent combo) is about 2,400 XP, like a v2 win.
 
-XP is granted only by the game server at the end of a run (`RaidRoom.recordResult` to `recordRaid`, `meta/raid.ts`), once per run id, recomputed there from the run numbers with the shared formula (the minions and the combo bonus are stored with the rest, migration 006). Only account ducks get XP; a duck that leaves before the end keeps the XP for what it was there for, without the win. The personal best of the push (most objectives, the fastest time to take them) starts fresh in `raid_push_bests` (006): a v2 best of 10 waves could never be beaten in four objectives. No client message can grant, change or send XP.
+XP is granted only by the game server at the end of a run (`RaidRoom.recordResult` to `recordRaid`, `meta/raid.ts`), once per run id, recomputed there from the run numbers with the shared formula (the minions and the combo bonus are stored with the rest, migration 006). Tüy is granted in the same transaction the same way (`raidFeathers`: 25 to 40 per objective, 1 per 5 minions, 1 per elite, 25 for the Big Hunter, 50 for the win, at most 400, plus 50 for the first run of the day that took an objective; migration 007, `docs/progression.md`). Only account ducks get XP; a duck that leaves before the end keeps the XP for what it was there for, without the win. The personal best of the push (most objectives, the fastest time to take them) starts fresh in `raid_push_bests` (006): a v2 best of 10 waves could never be beaten in four objectives. No client message can grant, change or send XP or Tüy, and no HTTP route may.
 
 ## The room (`RaidRoom.ts`)
 
 - Account only, twice: the matchmaking guard and `checkAdmission` refuse a guest or a party with a guest.
 - Quick Play joins an open lobby; a party leader opens a fresh room and the members follow. At most `raid.maxRooms` rooms (3).
 - State: `IslandState.raid` (stage, the objective's number, `goal`, its marker `gx`, `gz`, its progress `gDone` of `gNeed`, hunters out, the boss bar, the keep), `hunters` (with `fx`: the elite ring), `raidTargets` (the crates, the towers, the camp), `traps`, `raidDrops`. Public to the room (the co-op rule: hunters are AI enemies, every duck is an ally).
-- Messages: `Msg.RaidEvent` (an objective starts, is taken, a marker taken, a streak call-out to one duck, the keep's events), `Msg.RaidKill`, `Msg.RaidHits` to the hitter only (the combo, the storm meter, each hit's damage, flags and spot: the server's numbers), `Msg.RaidSelf`, `Msg.RaidOffer`, `Msg.RaidEnd`.
-- Test hooks (`QWAKK_TEST_HOOKS=1`, never in production): `dev:raid` with `start`, `skip` (to an objective), `clear` (take it), `break`, `hold` (ducks take no damage; `wave` 2 turns it off), `spawn` (a hunter of a kind, 1 to 8), `pack` (a minion pack charging the asking duck), `horde` (hunters around it past the cap, the performance check), `meter` (a full storm meter), `tpgoal` (the duck short of the objective), `quiet` (no packs), `freeze` (the objective cannot be taken), `resetgoal`, and the keep's `gate`, `bridge`, `lever`, `tp`, `gatehunters`.
+- Messages: `Msg.RaidEvent` (an objective starts, is taken, a marker taken, a streak call-out to one duck, the keep's events), `Msg.RaidKill`, `Msg.RaidHits` to the hitter only (the combo, the storm meter, each hit's damage, flags and spot: the server's numbers), `Msg.RaidSelf`, `Msg.RaidOffer`, `Msg.RaidEnd` (with the run's Tüy), `Msg.RaidKit` to each duck (its level, unlocks, gear and their numbers, from the database at join) and `Msg.RaidLooks` to everyone (every duck's katana and armor tier, cosmetic).
+- Progression: at join the room reads the duck's kit (level, gear, tree) from the database by its verified player id and fixes it for the run; its numbers are server only (`raid/blade.ts`, `raid/raid.ts`, `raid/upgrades.ts`), the moves its level lacks are masked off its inputs before the step (`Raid.beforeStep`; the client masks the same bits). The party's average level above 10 makes hunters a little tougher (`levelScale`). `docs/progression.md`.
+- Test hooks (`QWAKK_TEST_HOOKS=1`, never in production): `dev:raid` with `start`, `skip` (to an objective), `clear` (take it), `break`, `hold` (ducks take no damage; `wave` 2 turns it off), `spawn` (a hunter of a kind, 1 to 8), `pack` (a minion pack charging the asking duck), `unlock` (every move for that duck for the rest of the run, in memory only), `horde` (hunters around it past the cap, the performance check), `meter` (a full storm meter), `tpgoal` (the duck short of the objective), `quiet` (no packs), `freeze` (the objective cannot be taken), `resetgoal`, and the keep's `gate`, `bridge`, `lever`, `tp`, `gatehunters`.
 
 ## Client
 

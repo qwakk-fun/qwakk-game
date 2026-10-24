@@ -6,6 +6,7 @@
  * the mouse is locked, a "click to walk" cue, the warp into a portal and two
  * touch buttons (Quack, Dance; chat has the room chat's own button). Text nodes only.
  */
+import type { ShopId } from '@qwakk/shared/hub';
 import { COPY } from '../ui/menu/copy.ts';
 import './hub.css';
 
@@ -29,6 +30,8 @@ export interface HubUiHooks {
   answer(accept: boolean): void;
   /** The bubble needs the cursor (desktop): free it without opening the menu. */
   freeCursor(): void;
+  /** Open a stall's shop (the Blacksmith, the Armorer). */
+  shop(id: ShopId): void;
 }
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
@@ -61,6 +64,10 @@ export class HubUi {
   private readonly dot: HTMLElement;
   private readonly warpEl: HTMLElement;
   private readonly touchEl: HTMLElement;
+  /** At a market stall that sells Hunt Season gear: "E · Blacksmith" (a button on touch). */
+  private readonly shopEl: HTMLButtonElement;
+  private shopId: ShopId | null = null;
+  private shopKey = '';
   private toastTimer: ReturnType<typeof setTimeout> | null = null;
   private inviteTimer: ReturnType<typeof setTimeout> | null = null;
   /** The duck the bubble is open over, and the invite we hold (from pid). */
@@ -92,6 +99,9 @@ export class HubUi {
     this.touchEl = el('div', 'hu-touch');
     this.touchEl.append(button('hu-touch-quack', H().quack, () => hooks.quack()), button('hu-touch-dance', H().dance, () => hooks.dance()));
     this.touchEl.hidden = true;
+    this.shopEl = button('hu-shop', '', () => this.shopId && hooks.shop(this.shopId));
+    this.shopEl.hidden = true;
+    this.root.append(this.shopEl);
     this.root.append(this.cueEl, this.dot, this.teamEl, this.toastEl, this.duckMenu, this.inviteEl, this.hintEl, this.touchEl, this.warpEl);
     parent.append(this.root);
   }
@@ -198,6 +208,23 @@ export class HubUi {
   setPointer(locked: boolean, cue: boolean): void {
     this.dot.hidden = !locked;
     this.cueEl.hidden = !cue;
+  }
+
+  /** The stall the duck stands at (null: none), as a key pill or, on touch, a button. */
+  shopPrompt(id: ShopId | null, touch: boolean): void {
+    this.shopId = id;
+    const key = id ? `${id}|${touch ? 1 : 0}` : '';
+    if (key === this.shopKey) return;
+    this.shopKey = key;
+    this.shopEl.hidden = !id;
+    if (!id) return;
+    const D = COPY.duck.shop;
+    const name = id === 'smith' ? D.smith : D.armorer;
+    this.shopEl.replaceChildren(...(touch ? [] : [el('kbd', 'hu-key', 'E')]), el('span', '', touch ? D.open(name) : name));
+  }
+
+  get shopOpen(): ShopId | null {
+    return this.shopId;
   }
 
   showHint(on: boolean): void {

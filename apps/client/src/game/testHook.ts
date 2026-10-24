@@ -178,6 +178,8 @@ export function exposeTestHook(v: TestView): void {
         goal: st.raid.goal, gDone: st.raid.gDone, gNeed: st.raid.gNeed, gx: st.raid.gx, gz: st.raid.gz,
         targets: [...st.raidTargets.values()].map((t) => ({ kind: t.kind, x: t.x, z: t.z, hp: t.hp, done: t.done })),
         blade: { ...r.feel.stats, combo: r.bladeHud.comboShown },
+        kit: { ...r.kit, lockedButtons: r.lockedButtons },
+        skillLocks: [...document.querySelectorAll('.blade-skill.locked')].map((e) => (e as HTMLElement).dataset.skill ?? ''),
         weapon: v.session.me?.state.weapon ?? -1, ex: v.session.me?.state.ex ?? 0, meter: v.session.me?.state.dmEnergy ?? 0, act: v.session.me ? (v.session.me.state as unknown as { mag0: number }).mag0 & 15 : 0,
       };
     },

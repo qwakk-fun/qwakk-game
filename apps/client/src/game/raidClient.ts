@@ -52,6 +52,10 @@ import {
   type KeepGeometry,
   type PlayerSim,
   type SimWorld,
+  hasSkill,
+  lockedButtonsOf,
+  SKILL_BUTTONS,
+  UNLOCK_LEVEL,
 } from '@qwakk/shared';
 import { LeverDenied, RaidDrop, RaidEvent, RaidKillHow, type Hunter, type RaidTarget } from '@qwakk/shared/net';
 import { BladeHud } from '../hud/raid/bladeHud.ts';
@@ -174,6 +178,16 @@ export class RaidClient {
   private offer: [number, number][] = [];
   private offerDeadline = 0;
   private self: number[] = [];
+  /**
+   * What our duck brought to this run (Msg.RaidKit, the server's database):
+   * until it arrives every skill button is locked, so the inputs we send and
+   * predict never hold a move the server would mask off (the server masks
+   * the same bits, Raid.beforeStep).
+   */
+  lockedButtons: number = SKILL_BUTTONS;
+  kit = { level: 0, unlocks: 0, katana: 0, armor: 0, bladePct: 0, critPct: 0, hp: 0, guardPct: 0, known: false };
+  /** Every duck's gear looks by pid (Msg.RaidLooks): katana tier, armor tier. */
+  private readonly looks = new Map<number, [number, number]>();
   private endView: RaidEndView | null = null;
   private lastStage = -1;
   private lastCoreBanner = 0;
@@ -329,6 +343,30 @@ export class RaidClient {
     this.hud.selfLine([...counts].map(([id, n]) => `${upgradeName(id)}${n > 1 ? ` x${n}` : ''}`).join(' · '));
   }
 
+  /** Msg.RaidKit: [level, unlockBits, katanaTier, armorTier, bladePct, critPct, bonusHp, guardPct]. */
+  setKit(d: number[]): void {
+    const unlocks = d[1] ?? 0;
+    this.kit = { level: d[0] ?? 1, unlocks, katana: d[2] ?? 0, armor: d[3] ?? 0, bladePct: d[4] ?? 0, critPct: d[5] ?? 0, hp: d[6] ?? 0, guardPct: d[7] ?? 0, known: true };
+    this.lockedButtons = lockedButtonsOf(unlocks);
+  }
+
+  /** Msg.RaidLooks: [pid, katanaTier, armorTier, ...]. */
+  setLooks(d: number[]): void {
+    this.looks.clear();
+    for (let i = 0; i + 2 < d.length; i += 3) this.looks.set(d[i]!, [d[i + 1]!, d[i + 2]!]);
+  }
+
+  /** The touch skill buttons' locks: the level each still needs (0: unlocked), null until the kit arrived. */
+  touchLocks(): { dash: number; quack: number; storm: number } | null {
+    const u = this.kit.unlocks;
+    return this.kit.known ? { dash: hasSkill(u, 'dash') ? 0 : UNLOCK_LEVEL.dash, quack: hasSkill(u, 'quack') ? 0 : UNLOCK_LEVEL.quack, storm: hasSkill(u, 'storm') ? 0 : UNLOCK_LEVEL.storm } : null;
+  }
+
+  /** A duck's gear looks (katana tier, armor tier) by pid; 0, 0 until known. */
+  lookOf(pid: number | undefined): [number, number] {
+    return (pid !== undefined && this.looks.get(pid)) || [0, 0];
+  }
+
   /** Health bar size: the max health from our upgrades. */
   get maxHp(): number {
     return this.self[0] ?? 100;
@@ -474,6 +512,7 @@ export class RaidClient {
     const v: RaidEndView = {
       reason: data[0] ?? 0, waves: data[1] ?? 0, kills: data[2] ?? 0, bossKills: data[3] ?? 0, revives: data[4] ?? 0, xp: data[5] ?? 0,
       xpBefore: data[6] ?? -1, xpAfter: data[7] ?? -1, runMs: data[10] ?? 0, bestWave: data[11] ?? 0, newBest: data[13] === 1, granted: data[14] === 1, failed: data[14] === 2,
+      feathers: data[15] ?? 0, feathersAfter: data[17] ?? -1, daily: data[18] ?? 0,
     };
     // The second message (stored, or not saved) replaces the first one, never the other way round.
     if (this.endView && (this.endView.granted || this.endView.failed) && !v.granted && !v.failed) return;
@@ -1050,7 +1089,16 @@ export class RaidClient {
     const mySim = s.me?.state as unknown as PlayerSim | undefined;
     if (mySim && isBladeDuck(mySim) && s.mine?.alive === 1) {
       const storm = stormLeft(mySim);
-      this.bladeHud.skillsFrame({ dash: dashTimer(mySim) / DASH.cooldown, quack: quackTimer(mySim) / QUACK.cooldown, meter: stormMeter(mySim) / STORM.meterFull, storm: storm / STORM.ticks, pistol: mySim.weapon === WeaponId.Pistol });
+      const known = this.kit.known;
+      this.bladeHud.skillsFrame({
+        dash: dashTimer(mySim) / DASH.cooldown,
+        quack: quackTimer(mySim) / QUACK.cooldown,
+        meter: stormMeter(mySim) / STORM.meterFull,
+        storm: storm / STORM.ticks,
+        pistol: mySim.weapon === WeaponId.Pistol,
+        // Locked moves show a lock and the level they need (nothing until the kit arrived: no flash of locks).
+        locks: known ? this.touchLocks() : null,
+      });
     } else this.bladeHud.skillsFrame(null);
     this.bladeHud.frame(1 / 60, this.d.camera, now, 3000);
     const i = this.manning;

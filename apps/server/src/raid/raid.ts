@@ -32,6 +32,14 @@ import {
   createPlayerSim,
   damageAt,
   dashImmune,
+  EX_HEAVY_LOCK,
+  devKit,
+  hasSkill,
+  kitStats,
+  levelScale,
+  lockedButtonsOf,
+  ALL_SKILLS,
+  type DuckKit,
   exMan,
   groundHeightAt,
   hasHeadroom,
@@ -83,6 +91,14 @@ import { DuckUpgrades, duckStats, upgradeValue, type DuckStats } from './upgrade
 export interface RaidDuck {
   seatId: string;
   name: string;
+  /** What the duck brought (level, gear, tree; from the database at join, never from the client). */
+  kit: DuckKit;
+  /** The skill buttons its level does not allow yet: masked off every input before the step (lockedButtonsOf). */
+  locked: number;
+  /** Its level does not allow the Blade Storm yet: the meter stays empty. */
+  noStorm: boolean;
+  /** The tree's Last Stand was used this objective. */
+  lastStandUsed: boolean;
   upgrades: DuckUpgrades;
   stats: DuckStats;
   /** Hunters bagged that are not minions (elites, snipers, dogs). */
@@ -179,6 +195,11 @@ export class Raid extends Arena {
   private lobbyStartTick = -1;
   /** Test servers only (the benchmark's `dev:raid` hold): ducks take no damage. */
   hold = false;
+  /** The rules' hunter health and damage scales before the party's level scales them at the start. */
+  private readonly baseHpScale: number;
+  private readonly baseDamageScale: number;
+  /** The dodge roll (tests replace it). */
+  rand: () => number = Math.random;
   readonly ducks = new Map<string, RaidDuck>();
   readonly hunts: HuntWorld;
   /** The objectives and the packs. */
@@ -203,21 +224,24 @@ export class Raid extends Arena {
     super(sim, options, events);
     this.o = options;
     this.rev = events;
-    this.rules = options.rules;
+    // Our own copy: the start scales hunter health and damage with the party's level.
+    this.rules = { ...options.rules };
+    this.baseHpScale = this.rules.hunterHpScale;
+    this.baseDamageScale = this.rules.hunterDamageScale;
     const g = options.map.def.raid;
     if (!g) throw new Error(`Hunt Season needs a castle map: ${options.map.def.id} has no raid markup`);
     this.geometry = g;
     this.spawnPts = duckSpawns(g);
-    this.keep = new KeepWorld(sim, g, options.rules, this.keepEvents());
+    this.keep = new KeepWorld(sim, g, this.rules, this.keepEvents());
     this.hunts = new HuntWorld(this.huntHost(), g, hunterSpawns(sim, g));
-    this.push = new PushDirector(sim, g, this.hunts, options.rules, options.nav, {
+    this.push = new PushDirector(sim, g, this.hunts, this.rules, options.nav, {
       started: (i, goal) => this.rev.goalStart(i, goal),
       cleared: (i) => this.rev.goalClear(i),
       targetDone: (t) => this.rev.targetDone(t),
     });
     this.blade = new BladeWorld({
       sim,
-      rules: options.rules,
+      rules: this.rules,
       hunts: this.hunts,
       duck: (id) => this.ducks.get(id),
       crates: () => (this.stage === RaidStage.Fight ? this.push.crateTargets() : []),
@@ -253,11 +277,16 @@ export class Raid extends Arena {
     return this.seats.size;
   }
 
-  /** A duck joins the lobby (the room refuses joins once the run started). */
-  addDuck(id: string, name: string, character?: number, bot: BotLike | null = null): Seat | null {
+  /**
+   * A duck joins the lobby (the room refuses joins once the run started).
+   * `kit`: its level, gear and tree from the database (RaidRoom); without one
+   * (bot ducks, tests) every move and no gear (devKit).
+   */
+  addDuck(id: string, name: string, character?: number, bot: BotLike | null = null, kit: DuckKit = devKit()): Seat | null {
     if (this.stage !== RaidStage.Lobby || this.seats.has(id) || this.seats.size >= RAID.maxDucks) return null;
     const seat = this.makeSeat(id, name, bot, createPlayerSim(0, -100, 0), 1, character);
-    const d: RaidDuck = { seatId: id, name, upgrades: new DuckUpgrades(), stats: duckStats(new DuckUpgrades(), this.rules.upgrade), kills: 0, minionKills: 0, comboXp: 0, meter: 0, bossKills: 0, revives: 0, wavesCleared: 0, firstWave: 1, left: false, hurtTick: 0, offer: null, secondWind: 0 };
+    const upgrades = new DuckUpgrades();
+    const d: RaidDuck = { seatId: id, name, kit, locked: lockedButtonsOf(kit.unlocks), noStorm: !hasSkill(kit.unlocks, 'storm'), lastStandUsed: false, upgrades, stats: duckStats(upgrades, this.rules.upgrade, kitStats(kit)), kills: 0, minionKills: 0, comboXp: 0, meter: 0, bossKills: 0, revives: 0, wavesCleared: 0, firstWave: 1, left: false, hurtTick: 0, offer: null, secondWind: 0 };
     this.ducks.set(id, d);
     this.spawnDuck(seat, 1);
     const lobby = Math.max(1, Math.round(this.rules.lobbySeconds * TICK_RATE));
@@ -331,7 +360,9 @@ export class Raid extends Arena {
     setRoot(seat.sim, 0);
     const d = this.ducks.get(seat.id);
     // Hunt Season v3: the katana in hand and the pistol, no rifle or grenades (raid/blade.ts); the storm meter carries on.
-    armBlade(seat.sim, d?.meter ?? 0);
+    // What the duck's level allows (unlocks.ts): no pistol before its level, and the heavy's lock bit.
+    const bits = d?.kit.unlocks ?? ALL_SKILLS;
+    armBlade(seat.sim, d?.meter ?? 0, { pistol: hasSkill(bits, 'pistol'), heavy: hasSkill(bits, 'heavy') });
     seat.sim.hp = Math.max(1, Math.round((d?.stats.maxHp ?? COMBAT.maxHp) * share));
     seat.protect = 0;
     seat.respawnAt = -1;
@@ -428,7 +459,10 @@ export class Raid extends Arena {
     return this.push.hitCrate(id, dmg);
   }
 
-  protected override beforeStep(seat: Seat): void {
+  protected override beforeStep(seat: Seat, f: InputFrame): void {
+    // The skill buttons the duck's level does not allow: off before the step (the client masks the same bits before it predicts).
+    const d = this.ducks.get(seat.id);
+    if (d && d.locked !== 0) f.buttons &= ~d.locked;
     let p = this.stepFrom.get(seat.id);
     if (!p) this.stepFrom.set(seat.id, (p = { x: 0, z: 0 }));
     p.x = seat.sim.x;
@@ -450,6 +484,7 @@ export class Raid extends Arena {
       }
       const from = this.stepFrom.get(seat.id) ?? seat.sim;
       for (let i = 0; i < lastBlade.n; i++) this.blade.afterStep(seat, viewTime, from.x, from.z, lastBlade.kind[i]!, lastBlade.step[i]!, lastBlade.charge[i]!);
+      if (hasBladeEvent(BladeEvent.Quack)) this.rally(seat);
     }
     const prev = this.lastButtons.get(seat.id) ?? 0;
     this.lastButtons.set(seat.id, f.buttons);
@@ -467,6 +502,18 @@ export class Raid extends Arena {
     }
     this.stepRevive(seat, f);
     this.keep.stepRepair(seat, !seat.reviveOf && (f.buttons & Button.Use) !== 0 && (f.buttons & Button.Fire) === 0);
+  }
+
+  /** The tree's Rallying Quack: the quack heals the duck and every friend standing in its ring. */
+  private rally(seat: Seat): void {
+    const d = this.ducks.get(seat.id);
+    if (!d || d.stats.rally <= 0 || this.stage !== RaidStage.Fight) return;
+    const r = 5.5 * d.stats.quackReach;
+    for (const o of this.seats.values()) {
+      const s = o.sim;
+      if (!s.alive || s.down || Math.hypot(s.x - seat.sim.x, s.z - seat.sim.z) > r || Math.abs(s.y - seat.sim.y) > 2.5) continue;
+      s.hp = Math.min(this.maxHpOf(o), s.hp + d.stats.rally);
+    }
   }
 
   /** A duck pulls the drawbridge lever (or the lever says why not). */
@@ -526,7 +573,14 @@ export class Raid extends Arena {
     if (dashImmune(seat.sim)) return;
     const d = this.ducks.get(id);
     const down = seat.sim.down === 1;
-    const dmg = Math.min(seat.sim.hp, Math.max(1, Math.round(amount * (d?.stats.taken ?? 1) * (down ? KNOCK.damageScale : 1))));
+    // The tree's Sidestep: a hit may miss the duck altogether (on its feet only).
+    if (!down && d && d.stats.dodge > 0 && this.rand() < d.stats.dodge) return;
+    let dmg = Math.min(seat.sim.hp, Math.max(1, Math.round(amount * (d?.stats.taken ?? 1) * (down ? KNOCK.damageScale : 1))));
+    // The tree's Last Stand: once an objective, the blow that would knock the duck leaves it at 1 health.
+    if (!down && d && d.stats.lastStand && !d.lastStandUsed && dmg >= seat.sim.hp && seat.sim.hp > 1) {
+      d.lastStandUsed = true;
+      dmg = seat.sim.hp - 1;
+    }
     seat.sim.hp -= dmg;
     if (d) d.hurtTick = this.tick;
     this.keep.duckHurt(seat.id);
@@ -644,6 +698,12 @@ export class Raid extends Arena {
     if (this.stage !== RaidStage.Lobby) return;
     this.rollSecret();
     this.startTick = this.tick;
+    // Strong ducks: hunters a little tougher with the party's average level above 10 (kit.ts levelScale; a fresh party plays as before).
+    const levels = [...this.ducks.values()].map((d) => d.kit.level);
+    const avg = levels.length > 0 ? levels.reduce((a, b) => a + b, 0) / levels.length : 1;
+    const sc = levelScale(avg, this.rules.levelHpPercent, this.rules.levelDamagePercent);
+    this.rules.hunterHpScale = this.baseHpScale * sc.hp;
+    this.rules.hunterDamageScale = this.baseDamageScale * sc.damage;
     for (const s of this.seats.values()) {
       s.kills = 0;
       s.deaths = 0;
@@ -661,7 +721,10 @@ export class Raid extends Arena {
     this.waveStartTick = this.tick;
     for (const s of this.seats.values()) {
       const d = this.ducks.get(s.id);
-      if (d) d.secondWind = this.seats.size === 1 ? 1 : 0;
+      if (d) {
+        d.secondWind = this.seats.size === 1 ? 1 : 0;
+        d.lastStandUsed = false;
+      }
     }
     this.push.start(w, Math.max(1, this.seats.size), this.tick);
   }
@@ -721,7 +784,7 @@ export class Raid extends Arena {
     if (d.offer) d.offer.picked = true;
     const before = d.stats.maxHp;
     d.upgrades.add(id);
-    d.stats = duckStats(d.upgrades, this.rules.upgrade);
+    d.stats = duckStats(d.upgrades, this.rules.upgrade, kitStats(d.kit));
     if (d.stats.maxHp > before && seat.sim.alive) seat.sim.hp = Math.min(d.stats.maxHp, seat.sim.hp + (d.stats.maxHp - before));
     this.rev.offer(seat, null, 0);
     this.rev.self(seat);
@@ -799,7 +862,8 @@ export class Raid extends Arena {
       if (s.hp >= max) return false;
       s.hp = Math.min(max, s.hp + this.rules.healAmount);
     } else {
-      // The pistol's reserve only: a katana duck's rifle slot holds its blade state (raid/blade.ts).
+      // The pistol's reserve only: a katana duck's rifle slot holds its blade state (raid/blade.ts). No pistol yet: nothing to take.
+      if ((s.arms & (1 << WeaponId.Pistol)) === 0) return false;
       const pistol = weaponStats(WeaponId.Pistol);
       if (s.res1 >= pistol.reserve) return false;
       s.res1 = Math.min(pistol.reserve, s.res1 + pistol.magSize * 2);
@@ -957,10 +1021,26 @@ export class Raid extends Arena {
     this.push.completeNow();
   }
 
+  /** Tests and the e2e (test hooks): every move for this duck for the rest of this run (in memory only; its stored level is untouched). */
+  unlockAll(seat: Seat): void {
+    const d = this.ducks.get(seat.id);
+    if (!d) return;
+    d.kit = { ...d.kit, unlocks: ALL_SKILLS };
+    d.locked = 0;
+    d.noStorm = false;
+    const s = seat.sim;
+    s.arms |= 1 << WeaponId.Pistol;
+    if (s.mag1 <= 0 && s.res1 <= 0) {
+      s.mag1 = weaponStats(WeaponId.Pistol).magSize;
+      s.res1 = weaponStats(WeaponId.Pistol).reserve;
+    }
+    s.ex = ((s.ex | 0) & ~EX_HEAVY_LOCK) >>> 0;
+  }
+
   /** Tests and the e2e (test hooks): fill a duck's Blade Storm meter. */
   fillMeter(seat: Seat): void {
     const d = this.ducks.get(seat.id);
-    if (!d) return;
+    if (!d || d.noStorm) return;
     d.meter = 100;
     setStormMeter(seat.sim, 100);
   }

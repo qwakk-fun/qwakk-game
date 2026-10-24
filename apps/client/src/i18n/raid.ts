@@ -71,4 +71,10 @@ export const RAID_TR: Record<string, string> = {
   'Bleed': 'Kanatma', 'Cuts make hunters bleed {n} a second for 3 s': 'Kesikler avcıları 3 sn boyunca saniyede {n} kanatır',
   'Chain lightning': 'Zincir şimşek', 'Heavy spins arc {n}% of their damage to 3 more hunters': 'Ağır dönüş hasarının %{n} kadarını 3 avcıya daha sıçratır',
   'Finisher': 'Bitirici', "The combo's third cut hits {n}% harder": 'Kombonun üçüncü kesiği %{n} daha sert vurur',
+  // Progression (docs/progression.md): locked moves, Tüy and level-ups on the end screen.
+  'Lv {n}': 'Sv {n}', 'Unlocks at level {n}': '{n}. seviyede açılır', '+{n} Tüy': '+{n} Tüy',
+  'First hunt of the day: +{n} Tüy': 'Günün ilk avı: +{n} Tüy', 'New skill unlocked: {name}': 'Yeni yetenek açıldı: {name}',
+  '+1 skill point: spend it in My Duck (Esc)': '+1 yetenek puanı: Ördeğim sayfasında harca (Esc)',
+  '+{n} skill points: spend them in My Duck (Esc)': '+{n} yetenek puanı: Ördeğim sayfasında harca (Esc)',
+  'Charged heavy': 'Yüklü ağır vuruş',
 };

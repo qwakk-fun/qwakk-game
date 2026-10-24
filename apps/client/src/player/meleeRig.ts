@@ -10,7 +10,7 @@
  * arm sweeps the blade across in front of the duck.
  */
 import * as THREE from 'three/webgpu';
-import { Act } from '@qwakk/shared';
+import { Act, gearAt } from '@qwakk/shared';
 import type { MeleeArt } from './meleeArt.ts';
 import { KatanaTrail } from './katanaTrail.ts';
 
@@ -51,6 +51,32 @@ const smooth01 = (x: number): number => {
   return t * t * (3 - 2 * t);
 };
 
+/**
+ * The katana's tier looks (Hunt Season gear, `@qwakk/shared/duck` GEAR): the
+ * Blade mesh alone gets a tinted copy of its material (the art's palette
+ * times the tier's color) and the top tiers a glow. One material per tier and
+ * source, shared by every duck: no new art, no per-frame cost.
+ */
+const tierMats = new WeakMap<THREE.Material, Map<number, THREE.Material>>();
+
+function tierMaterial(base: THREE.Material, tier: number): THREE.Material {
+  let byTier = tierMats.get(base);
+  if (!byTier) tierMats.set(base, (byTier = new Map()));
+  let m = byTier.get(tier);
+  if (m) return m;
+  const item = gearAt('katana', tier);
+  const c = base.clone() as THREE.MeshToonNodeMaterial;
+  if (item) {
+    c.color = new THREE.Color(item.color).multiply((base as THREE.MeshToonNodeMaterial).color ?? new THREE.Color(0xffffff));
+    if (item.glow) {
+      c.emissive = new THREE.Color(item.glow);
+      c.emissiveIntensity = 1;
+    }
+  }
+  byTier.set(tier, (m = c));
+  return m;
+}
+
 /** Acts that cut (the trail shows). */
 const CUTS = new Set<number>([Act.Slash1, Act.Slash2, Act.Slash3, Act.Heavy, Act.Storm, Act.Dash]);
 
@@ -79,11 +105,17 @@ export class MeleeRig {
   /** Procedural swing for the greybox (0..1 through the cut). */
   private swing = 0;
   private inHand = true;
+  private tier = -1;
+  private readonly blade: THREE.Mesh | null;
+  private readonly bladeBase: THREE.Material | null;
 
   constructor(art: MeleeArt, root: THREE.Object3D, bones: { RightHand: THREE.Bone; Spine1?: THREE.Object3D } | null, scene: THREE.Object3D) {
     this.art = art;
     this.katana = art.katana.clone();
     this.katana.traverse((o) => ((o as THREE.Mesh).castShadow = true));
+    const blade = this.katana.getObjectByName('Blade') as THREE.Mesh | undefined;
+    this.blade = blade?.isMesh ? blade : null;
+    this.bladeBase = this.blade && !Array.isArray(this.blade.material) ? this.blade.material : null;
     this.start = this.katana.getObjectByName('TrailStart') ?? null;
     this.end = this.katana.getObjectByName('TrailEnd') ?? null;
     this.hand = bones?.RightHand ?? null;
@@ -125,6 +157,13 @@ export class MeleeRig {
       this.katana.position.set(0.0, 0.9, 0.18);
       this.katana.rotation.set(0.4, 0, 0.6);
     }
+  }
+
+  /** Hunt Season gear: the katana's tier look (0 the bokken ... 4 the dragon fang). */
+  setTier(tier: number): void {
+    if (tier === this.tier || !this.blade || !this.bladeBase) return;
+    this.tier = tier;
+    this.blade.material = tierMaterial(this.bladeBase, tier);
   }
 
   /** The melee clips on the avatar's mixer (made on first use). */

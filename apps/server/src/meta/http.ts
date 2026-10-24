@@ -8,9 +8,11 @@
  *   GET  /api/me            ?season=&mode=  with Authorization: Bearer <session>
  *   GET  /api/status        menu banner, maintenance and the live rules (public)
  *   /api/auth/*, /api/account/*  accounts (accounts/http.ts)
+ *   /api/duck, /api/duck/*        Hunt Season progression (progression/service.ts)
  */
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { ACCOUNT_PATHS, accountRoute } from './accounts/http.ts';
+import { DUCK_PATHS, duckRoute } from './progression/service.ts';
 import { clientIp } from './ip.ts';
 import type { ApiResult, MetaService } from './service.ts';
 
@@ -106,7 +108,9 @@ export function createMetaHandler(meta: MetaService) {
         default: {
           const r = await accountRoute(meta.accounts, route, url.searchParams, req.headers.authorization, ip, () => readJson(req));
           if (r) return r;
-          const known = path === '/health' || ['/api/session', '/api/leaderboard', '/api/me', '/api/status', ...ACCOUNT_PATHS].includes(path);
+          const d = await duckRoute(meta.progression, route, req.headers.authorization, ip, () => readJson(req));
+          if (d) return d;
+          const known = path === '/health' || ['/api/session', '/api/leaderboard', '/api/me', '/api/status', ...ACCOUNT_PATHS, ...DUCK_PATHS].includes(path);
           return { status: known ? 405 : 404, body: { error: 'not_found' } };
         }
       }

@@ -56,6 +56,8 @@ export interface BladeDuck {
   comboXp: number;
   /** The Blade Storm meter as the server counts it (the sim holds its whole part). */
   meter: number;
+  /** The duck's level does not allow the storm yet: its meter stays empty. */
+  noStorm?: boolean;
 }
 
 export interface BladeHost {
@@ -104,6 +106,8 @@ export class BladeWorld {
   private readonly host: BladeHost;
   private readonly state = new Map<string, DuckBlade>();
   private tick = 0;
+  /** The crit chance roll (tests replace it). */
+  rand: () => number = Math.random;
 
   constructor(host: BladeHost) {
     this.host = host;
@@ -145,22 +149,24 @@ export class BladeWorld {
     if (!d) return;
     const r = this.host.rules.blade;
     const st = d.stats;
-    const crit = r.crit * st.crit;
+    // The crit multiplier: the rules' (raid.blade.crit) plus the kit's (Iaido), times the cards'.
+    const crit = (r.crit + st.critBonus) * st.crit;
+    // Katana cuts carry the kit's katana (gear tier, the tree's Sharp Edge); skills their own numbers.
     if (kind === BladeEvent.Slash) {
       const step = Math.max(1, Math.min(3, evStep));
       const shape = step === 1 ? BLADE_SHAPES.slash1 : step === 2 ? BLADE_SHAPES.slash2 : BLADE_SHAPES.slash3;
-      const base = (r.slash[step - 1] ?? 24) * st.damage * (step === 3 ? st.finisher : 1);
+      const base = (r.slash[step - 1] ?? 24) * st.damage * st.blade * (step === 3 ? st.finisher : 1);
       const hit: Impact = step === 3 ? { stagger: r.staggerSeconds * 1.6, knock: 6, launch: true } : { stagger: r.staggerSeconds, knock: 1.6, launch: false };
-      this.cut(seat, d, viewTime, shape, base, crit, false, hit, RaidKillHow.Blade, true);
+      this.cut(seat, d, viewTime, shape, base, crit, false, hit, RaidKillHow.Blade, true, st.reach);
     } else if (kind === BladeEvent.Heavy) {
-      const base = (r.heavy + r.heavyCharge * charge) * st.damage;
+      const base = (r.heavy + r.heavyCharge * charge) * st.damage * st.blade * st.heavy;
       const full = charge >= 0.99;
-      const hits = this.cut(seat, d, viewTime, heavyShape(charge), base, crit, full, { stagger: r.staggerSeconds * 1.5, knock: 7 + 4 * charge, launch: true }, RaidKillHow.Blade, true);
+      const hits = this.cut(seat, d, viewTime, heavyShape(charge), base, crit, full, { stagger: r.staggerSeconds * 1.5, knock: 7 + 4 * charge, launch: true }, RaidKillHow.Blade, true, st.reach);
       if (st.chain > 0 && hits.length > 0) this.chain(seat, d, hits, base * st.chain);
     } else if (kind === BladeEvent.Storm) {
-      this.cut(seat, d, viewTime, BLADE_SHAPES.storm, r.storm * st.damage, 1, false, { stagger: 0.2, knock: 2.5, launch: false }, RaidKillHow.Skill, false);
+      this.cut(seat, d, viewTime, BLADE_SHAPES.storm, r.storm * st.damage * st.blade * st.stormDamage, 1, false, { stagger: 0.2, knock: 2.5, launch: false }, RaidKillHow.Skill, false, 1);
     } else if (kind === BladeEvent.Quack) {
-      this.cut(seat, d, viewTime, BLADE_SHAPES.quack, r.quack * st.damage, 1, false, { stagger: 1.2, knock: 15, launch: true }, RaidKillHow.Skill, false, true);
+      this.cut(seat, d, viewTime, BLADE_SHAPES.quack, r.quack * st.damage * st.quackDamage, 1, false, { stagger: 1.2 * st.quackStagger, knock: 15, launch: true }, RaidKillHow.Skill, false, st.quackReach);
     } else if (kind === BladeEvent.Dash) {
       const b = this.of(seat);
       if (evStep === 1) b.dashCut.clear();
@@ -170,16 +176,16 @@ export class BladeWorld {
         const h = this.host.hunts.hunters.get(id);
         if (!h || h.downTicks > 0) continue;
         if (!this.clear(s.x, s.y, s.z, h.x, h.z)) continue;
-        this.land(seat, d, h, r.dash * st.damage, false, { stagger: 0.4, knock: 3, launch: false }, RaidKillHow.Skill, false, RaidHitFlags.Skill, s.x, s.z);
+        this.land(seat, d, h, r.dash * st.damage * st.blade * st.dash, false, { stagger: 0.4, knock: 3, launch: false }, RaidKillHow.Skill, false, RaidHitFlags.Skill, s.x, s.z);
       }
     }
   }
 
-  /** Sweep a shape and land every hit. Returns the hunters hit. */
-  private cut(seat: Seat, d: BladeDuck, viewTime: number, shape: BladeShape, base: number, crit: number, alwaysCrit: boolean, impact: Impact, how: number, blade: boolean, fromCenter = false): HunterAgent[] {
+  /** Sweep a shape (its reach times `reach`) and land every hit. Returns the hunters hit. */
+  private cut(seat: Seat, d: BladeDuck, viewTime: number, shape: BladeShape, base: number, crit: number, alwaysCrit: boolean, impact: Impact, how: number, blade: boolean, reach: number): HunterAgent[] {
     const s = seat.sim;
     const targets = this.host.hunts.targets(viewTime).concat(this.host.crates());
-    const hits = bladeArcHits(s.x, s.y, s.z, s.yaw, shape, targets, blade ? d.stats.reach : 1);
+    const hits = bladeArcHits(s.x, s.y, s.z, s.yaw, shape, targets, reach);
     const out: HunterAgent[] = [];
     for (const a of hits) {
       if (!this.clear(s.x, s.y, s.z, a.x, a.z)) continue;
@@ -195,9 +201,10 @@ export class BladeWorld {
       }
       const h = this.host.hunts.hunters.get(a.id);
       if (!h || h.downTicks > 0) continue;
-      const isCrit = alwaysCrit || (blade && a.back);
+      // A crit: a fully charged heavy, a back-stab, or the kit's crit chance (the katana's tier, Lucky Edge) on a cut.
+      const isCrit = alwaysCrit || (blade && (a.back || (d.stats.critChance > 0 && this.rand() < d.stats.critChance)));
       const flags = (isCrit ? RaidHitFlags.Crit : 0) | (a.back ? RaidHitFlags.Back : 0) | (blade ? 0 : RaidHitFlags.Skill);
-      this.land(seat, d, h, base * (isCrit ? crit : 1), blade, impact, how, true, flags, fromCenter ? s.x : s.x, fromCenter ? s.z : s.z);
+      this.land(seat, d, h, base * (isCrit ? crit : 1), blade, impact, how, true, flags, s.x, s.z);
       out.push(h);
     }
     return out;
@@ -277,7 +284,7 @@ export class BladeWorld {
   }
 
   private addMeter(seat: Seat, d: BladeDuck, v: number): void {
-    if (stormLeft(seat.sim) > 0) return;
+    if (stormLeft(seat.sim) > 0 || d.noStorm) return;
     d.meter = Math.min(100, d.meter + v * d.stats.storm);
     setStormMeter(seat.sim, d.meter);
   }

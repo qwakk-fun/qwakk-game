@@ -13,17 +13,25 @@
  * seeing them gives no human an edge over another). Each duck's own run
  * numbers (upgrades, cards, XP) go to that duck only, as messages.
  *
- * XP: granted by this server only, at the run end, through recordRaid (the
- * meta layer), never from anything a client says.
+ * XP and Tüy: granted by this server only, at the run end, through
+ * recordRaid (the meta layer), never from anything a client says.
+ *
+ * Progression (docs/progression.md): when a duck joins, its kit (level, gear,
+ * skill tree) is read from the database by its verified player id (never
+ * from the join options) and fixed for the run. The kit's numbers are server
+ * only (raid/blade.ts, raid/raid.ts); the moves its level does not allow are
+ * masked off its inputs (Raid.beforeStep) and sent to it (`Msg.RaidKit`) so
+ * its client masks the same bits before it predicts. Everyone in the run gets
+ * every duck's gear looks (`Msg.RaidLooks`, cosmetic).
  */
-import { ServerError, type Client } from '@colyseus/core';
-import { BridgeState, ExplosiveKind, HunterFx, PARTY, RAID, RaidStage, TICK_RATE, raidXp, type InputFrame } from '@qwakk/shared';
+import { ServerError, type AuthContext, type Client } from '@colyseus/core';
+import { BridgeState, devKit, ExplosiveKind, freshKit, gearTier, HunterFx, kitWire, PARTY, RAID, raidFeathers, RaidStage, TICK_RATE, raidXp, type DuckKit, type InputFrame } from '@qwakk/shared';
 import { DmPickup, GameMode, Hunter, MatchPhase, Msg, RaidCannon, RaidEvent, RaidTarget, RaidTrap, type PlayerState } from '@qwakk/shared/net';
 import { ACCOUNT_ERROR } from '@qwakk/shared/accounts';
 import type { BotLike, Seat } from './arena.ts';
-import { angleMilli, cm, GameRoom, type GameRoomOptions, type JoinAuth } from './gameRoom.ts';
+import { angleMilli, cm, GameRoom, type GameRoomOptions, type JoinAuth, type JoinOptions } from './gameRoom.ts';
 import { loadMapV1, type ServerMap } from './maps.ts';
-import { recordRaid, type RaidRunResult } from './meta/index.ts';
+import { duckKit, recordRaid, type RaidGrant, type RaidRunResult } from './meta/index.ts';
 import type { BotNav } from './nav/botNav.ts';
 import { parties } from './party/registry.ts';
 import { Raid } from './raid/raid.ts';
@@ -63,6 +71,8 @@ export class RaidRoom extends GameRoom<Raid> {
   private lastCoreEvent = 0;
   private lastGateEvent = 0;
   private opts: RaidRoomOptions = {};
+  /** Each joining duck's kit from the database, from onAuth to its seat (by session id). */
+  private readonly kits = new Map<string, DuckKit>();
 
   protected loadMap(): ServerMap {
     return loadMapV1(RAID.mapId);
@@ -169,6 +179,11 @@ export class RaidRoom extends GameRoom<Raid> {
         // the duck moved to 6 m short of the objective's marker; the packs off (screenshots).
         if (m.op === 'pack' && seat && typeof m.wave === 'number') return this.match.packAt(seat, Math.max(1, Math.min(16, Math.floor(m.wave))));
         if (m.op === 'meter' && seat) return this.match.fillMeter(seat);
+        // Every move for this duck for the rest of the run (memory only, the stored level is untouched): the kit tests.
+        if (m.op === 'unlock' && seat) {
+          this.match.unlockAll(seat);
+          return this.sendKit(seat);
+        }
         // The performance check: `wave` minions and elites in a ring 14 to 24 m around the duck, past the live cap (the four-duck peak on one client).
         if (m.op === 'horde' && seat) return this.match.hordeAround(seat, Math.max(1, Math.min(60, Math.floor(typeof m.wave === 'number' ? m.wave : 40))));
         if (m.op === 'tpgoal' && seat) return this.match.moveToGoal(seat, typeof m.wave === 'number' ? m.wave : 6);
@@ -237,13 +252,34 @@ export class RaidRoom extends GameRoom<Raid> {
     if (need > free) throw new ServerError(RAID_ERROR.full, 'no room for your party in this hunt');
   }
 
+  /** Who joins, then its kit from the database (the verified player id, never the join options). */
+  override async onAuth(client: Client, options: JoinOptions = {}, context?: AuthContext): Promise<JoinAuth> {
+    const auth = await super.onAuth(client, options, context);
+    this.kits.set(client.sessionId, await this.kitFor(auth));
+    return auth;
+  }
+
+  /**
+   * An account duck's stored kit; a fresh one when the database cannot say
+   * (its run then is not saved either). A join without a token is a dev
+   * identity (refused in production): every move, like the bot ducks.
+   */
+  private async kitFor(auth: JoinAuth): Promise<DuckKit> {
+    if (!auth.signed) return devKit();
+    const kit = auth.account && auth.playerId ? await duckKit(auth.playerId) : null;
+    return kit ?? freshKit();
+  }
+
   private expireHolds(): void {
     const now = Date.now();
     for (const [id, h] of this.held) if (h.until < now || h.seats <= 0) this.held.delete(id);
   }
 
   protected addHuman(client: Client, name: string, auth: JoinAuth | undefined, character: number): Seat | null {
-    const seat = this.match.addDuck(client.sessionId, name, character);
+    const kit = this.kits.get(client.sessionId);
+    this.kits.delete(client.sessionId);
+    // No kit read for this seat: fail closed (a fresh level 1 duck), never every move.
+    const seat = this.match.addDuck(client.sessionId, name, character, null, kit ?? freshKit());
     if (!seat) return null;
     // Hold seats for this duck's party friends who are still in the menu (they follow the leader in).
     const party = parties.partyOf(auth?.playerId);
@@ -260,11 +296,30 @@ export class RaidRoom extends GameRoom<Raid> {
       this.syncSeats();
     }
     this.sendSelf(seat);
+    this.sendKit(seat);
+    this.sendLooks();
     return seat;
   }
 
   protected removeHuman(id: string): void {
+    this.kits.delete(id);
     this.match.remove(id);
+  }
+
+  /** What a duck brought to this run, to itself (Msg.RaidKit). */
+  private sendKit(seat: Seat): void {
+    const d = this.match.ducks.get(seat.id);
+    if (d) this.clients.getById(seat.id)?.send(Msg.RaidKit, kitWire(d.kit, gearTier(d.kit.katana), gearTier(d.kit.armor)));
+  }
+
+  /** Every duck's gear looks, to everyone (Msg.RaidLooks: pid, katana tier, armor tier). */
+  private sendLooks(): void {
+    const out: number[] = [];
+    for (const seat of this.match.seats.values()) {
+      const d = this.match.ducks.get(seat.id);
+      if (d) out.push(seat.pid, gearTier(d.kit.katana), gearTier(d.kit.armor));
+    }
+    this.broadcast(Msg.RaidLooks, out);
   }
 
   protected override reviveOf(seat: Seat): { progress: number; by: Seat | null } {
@@ -279,6 +334,9 @@ export class RaidRoom extends GameRoom<Raid> {
     void this.lock();
     this.startedAt = Date.now();
     this.held.clear();
+    // Once more at the start: a kit that reached a client before its handlers were up is not lost.
+    for (const s of this.match.seats.values()) this.sendKit(s);
+    this.sendLooks();
   }
 
   private onEnded(): void {
@@ -318,6 +376,8 @@ export class RaidRoom extends GameRoom<Raid> {
     const bestMs = m.lastClearTick > m.startTick ? Math.round(((m.lastClearTick - m.startTick) / TICK_RATE) * 1000) : runMs;
     const players: RaidRunResult['players'] = [];
     const bySeat = new Map<string, RaidRunResult['players'][number]>();
+    /** Each duck's Tüy for the run (shown at once; the stored grant adds the daily bonus). */
+    const feathers = new Map<string, number>();
     for (const d of m.ducks.values()) {
       const playerId = this.seatPlayerIds.get(d.seatId) ?? null;
       if (d.seatId.startsWith('duckbot-')) continue;
@@ -326,6 +386,7 @@ export class RaidRoom extends GameRoom<Raid> {
       const comboXp = Math.round(d.comboXp);
       const xp = raidXp({ wavesCleared: d.wavesCleared, firstWave: d.firstWave, kills: d.kills, minionKills: d.minionKills, comboXp, bossKills: d.bossKills, revives: d.revives, won: stayed });
       const row = { playerId, name: d.name, wavesCleared: d.wavesCleared, kills: d.kills, minionKills: d.minionKills, comboXp, bossKills: d.bossKills, revives: d.revives, xp, won: stayed };
+      feathers.set(d.seatId, raidFeathers({ wavesCleared: d.wavesCleared, firstWave: d.firstWave, kills: d.kills, minionKills: d.minionKills, bossKills: d.bossKills, won: stayed }));
       players.push(row);
       bySeat.set(d.seatId, row);
     }
@@ -333,12 +394,13 @@ export class RaidRoom extends GameRoom<Raid> {
     const reason = m.endReason;
     const waves = Math.max(0, ...players.map((p) => p.wavesCleared));
     /** `granted` null: the first, immediate message (0) or, after the write, "could not be saved" (2). */
-    const sendEnd = (granted: Map<string, { xpBefore: number; xpAfter: number; levelBefore: number; levelAfter: number; bestWave: number; bestMs: number; newBest: boolean }> | null, failed = false): void => {
+    const sendEnd = (granted: Map<string, RaidGrant> | null, failed = false): void => {
       for (const [seatId, row] of bySeat) {
         const client = this.clients.getById(seatId);
         if (!client) continue;
         const g = row.playerId ? granted?.get(row.playerId) : undefined;
-        client.send(Msg.RaidEnd, [reason, row.wavesCleared, row.kills + row.minionKills, row.bossKills, row.revives, row.xp, g?.xpBefore ?? -1, g?.xpAfter ?? -1, g?.levelBefore ?? 0, g?.levelAfter ?? 0, runMs, g?.bestWave ?? 0, g?.bestMs ?? 0, g?.newBest ? 1 : 0, g ? 1 : failed ? 2 : 0]);
+        const tuy = g ? g.feathersAfter - g.feathersBefore : (feathers.get(seatId) ?? 0);
+        client.send(Msg.RaidEnd, [reason, row.wavesCleared, row.kills + row.minionKills, row.bossKills, row.revives, row.xp, g?.xpBefore ?? -1, g?.xpAfter ?? -1, g?.levelBefore ?? 0, g?.levelAfter ?? 0, runMs, g?.bestWave ?? 0, g?.bestMs ?? 0, g?.newBest ? 1 : 0, g ? 1 : failed ? 2 : 0, tuy, g?.feathersBefore ?? -1, g?.feathersAfter ?? -1, g?.daily ?? 0]);
       }
     };
     sendEnd(null);

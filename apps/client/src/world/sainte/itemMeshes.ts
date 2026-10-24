@@ -3,7 +3,7 @@
  * item kind (one material for all of them). Sizes in meters, resting on y = 0.
  */
 import * as THREE from 'three/webgpu';
-import { Item } from '@qwakk/shared';
+import { gearAt, Item } from '@qwakk/shared';
 import { BRAND } from '../../render/palette.ts';
 import { mergeSimple } from './gltf.ts';
 
@@ -141,7 +141,16 @@ export function createHelmetMesh(level: number): THREE.Mesh {
 }
 
 /** Cosmetic vest for a duck's Spine2 bone: a short open shell around the chest, origin at the chest center. */
+/**
+ * Hunt Season armor (the Armorer's tiers, `@qwakk/shared/duck` GEAR) rides the
+ * vest slot as `RAID_VEST + tier`: the same chest band as the battle royale
+ * vest in the tier's tint, with its trim band. Cosmetic only (hitboxes are the
+ * one duck table, never a mesh).
+ */
+export const RAID_VEST = 10;
+
 export function createVestMesh(level: number): THREE.Mesh {
+  if (level > RAID_VEST) return raidArmorMesh(level - RAID_VEST);
   const color = level === 2 ? SLATE : OLIVE;
   const shell = paint(new THREE.CylinderGeometry(0.36, 0.34, 0.36, 16, 1, true), color);
   const parts = [shell];
@@ -151,6 +160,20 @@ export function createVestMesh(level: number): THREE.Mesh {
   const mat = new THREE.MeshToonNodeMaterial({ vertexColors: true, side: THREE.DoubleSide });
   const m = new THREE.Mesh(g, mat);
   m.name = `vest-${level}`;
+  m.castShadow = true;
+  return m;
+}
+
+function raidArmorMesh(tier: number): THREE.Mesh {
+  const item = gearAt('armor', tier);
+  const parts = [paint(new THREE.CylinderGeometry(0.36, 0.34, 0.36, 16, 1, true), item?.color ?? OLIVE)];
+  if (item?.band) parts.push(paint(new THREE.CylinderGeometry(0.367, 0.367, 0.06, 16, 1, true), item.band));
+  // The plate: a second trim band at the hem.
+  if (tier >= 4 && item?.band) parts.push(paint(new THREE.CylinderGeometry(0.352, 0.352, 0.05, 16, 1, true).translate(0, -0.15, 0), item.band));
+  const g = mergeSimple(parts);
+  g.computeVertexNormals();
+  const m = new THREE.Mesh(g, new THREE.MeshToonNodeMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+  m.name = `raid-armor-${tier}`;
   m.castShadow = true;
   return m;
 }

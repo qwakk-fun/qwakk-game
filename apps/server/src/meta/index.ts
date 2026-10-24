@@ -52,6 +52,16 @@ export async function playerLevel(playerId: string): Promise<number | null> {
   return meta().playerLevel(playerId);
 }
 
+/** An account duck's Hunt Season kit (level, gear, tree) for a run. Null without a database, for a guest, or on failure; never throws. */
+export async function duckKit(playerId: string): Promise<import('@qwakk/shared/duck').DuckKit | null> {
+  try {
+    return await meta().duckKit(playerId);
+  } catch (err) {
+    console.error('[meta] duckKit failed:', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 /** A finished Hunt Season run: stored, with the XP of its account ducks granted. Null without a database or on failure; never throws. */
 export async function recordRaid(result: import('./raid.ts').RaidRunResult): Promise<Map<string, import('./raid.ts').RaidGrant> | null> {
   try {

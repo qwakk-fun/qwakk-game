@@ -1,15 +1,17 @@
 /**
  * Hunt Season results into PostgreSQL (004_raid.sql, 005_raid_keep.sql,
- * 006_raid_push.sql): the run, each account duck's part, its XP and level
- * (players.xp, players.level) and its personal best of the v3 push
- * (raid_push_bests: most objectives, the fastest time to take them), in
- * one transaction. Only the game server calls this, at the end of a
+ * 006_raid_push.sql, 007_progression.sql): the run, each account duck's
+ * part, its XP and level (players.xp, players.level), its Tüy (duck_progress
+ * and the ledger, with the first-run-of-the-day bonus) and its personal best
+ * of the v3 push (raid_push_bests: most objectives, the fastest time to take
+ * them), in one transaction. Only the game server calls this, at the end of a
  * run (RaidRoom.recordResult); no HTTP route writes any of it. The run id is
  * unique, so a retried write never grants XP twice. Guests and dev identities
  * (no account row) get nothing.
  */
 import type { Sql } from 'postgres';
-import { LEVEL_CAP, levelOfXp, RAID, RAID_XP, raidXp } from '@qwakk/shared';
+import { LEVEL_CAP, levelOfXp, RAID, RAID_XP, raidFeathers, raidXp } from '@qwakk/shared';
+import { grantRun } from './progression/store.ts';
 import { isUuid } from './token.ts';
 
 export interface RaidRunResult {
@@ -47,6 +49,10 @@ export interface RaidGrant {
   bestWave: number;
   bestMs: number;
   newBest: boolean;
+  /** Tüy: the balance before and after, and the daily bonus inside the gain. */
+  feathersBefore: number;
+  feathersAfter: number;
+  daily: number;
 }
 
 const int = (v: unknown, lo: number, hi: number): number => Math.max(lo, Math.min(hi, Math.round(typeof v === 'number' && Number.isFinite(v) ? v : lo)));
@@ -70,8 +76,29 @@ export function normalizeRaid(r: RaidRunResult, nowMs = Date.now()): RaidRunResu
   };
 }
 
+/** Postgres errors a transaction may hit through no fault of its own (a deadlock, a serialization failure): try again. */
+const RETRYABLE = new Set(['40P01', '40001']);
+
+export function isRetryable(err: unknown): boolean {
+  return RETRYABLE.has(String((err as { code?: unknown })?.code ?? ''));
+}
+
+/** Run `fn` again (a fresh transaction) after a deadlock or a serialization failure, up to `tries` times in all. */
+export async function withRetry<T>(fn: () => Promise<T>, tries = 4, waitMs = 40): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i >= tries || !isRetryable(err)) throw err;
+      await new Promise((r) => setTimeout(r, waitMs * i + Math.floor(Math.random() * waitMs)));
+    }
+  }
+}
+
 /** Write one run and grant its XP. Returns each granted duck's numbers by player id, or null when it was already recorded. */
 export async function insertRaid(sql: Sql, r: RaidRunResult): Promise<Map<string, RaidGrant> | null> {
+  // The day of the run's end (UTC) for the first-run-of-the-day bonus.
+  const today = new Date(r.endedAt).toISOString().slice(0, 10);
   return sql.begin(async (tx) => {
     const ducks = r.players.length;
     const inserted = await tx<{ id: string }[]>`
@@ -83,8 +110,9 @@ export async function insertRaid(sql: Sql, r: RaidRunResult): Promise<Map<string
     if (runId === undefined) return null;
     const out = new Map<string, RaidGrant>();
     const ids = [...new Set(r.players.map((p) => p.playerId).filter((x): x is string => x !== null))];
-    // Account ducks only (guests have no account row), locked for the update.
-    const rows = ids.length > 0 ? await tx<{ id: string; xp: string }[]>`select id, xp from players where id in ${tx(ids)} and account_id is not null for update` : [];
+    // Account ducks only (guests have no account row), locked for the update: the players rows first, in id order
+    // (then each duck's duck_progress in grantRun), the lock order every progression write follows too (progression/store.ts).
+    const rows = ids.length > 0 ? await tx<{ id: string; xp: string }[]>`select id, xp from players where id in ${tx(ids)} and account_id is not null order by id for update` : [];
     const known = new Map(rows.map((x) => [x.id, Number(x.xp)]));
     let slot = 0;
     for (const p of r.players) {
@@ -112,7 +140,9 @@ export async function insertRaid(sql: Sql, r: RaidRunResult): Promise<Map<string
           updated_at = now()
         returning best_wave, best_ms, (select best_wave from old) as was_wave, (select best_ms from old) as was_ms`;
       const newBest = !!best && p.wavesCleared > 0 && (best.was_wave === null || p.wavesCleared > best.was_wave || (p.wavesCleared === best.was_wave && ms < (best.was_ms ?? Infinity)));
-      out.set(id, { xpBefore: before, xpAfter: after, levelBefore: levelOfXp(before), levelAfter: level, bestWave: best?.best_wave ?? p.wavesCleared, bestMs: best?.best_ms ?? ms, newBest });
+      // Tüy: recomputed from the same numbers (never the room's), once per run id like the XP.
+      const fg = await grantRun(tx, id, r.runId, raidFeathers(p), p.wavesCleared, today);
+      out.set(id, { xpBefore: before, xpAfter: after, levelBefore: levelOfXp(before), levelAfter: level, bestWave: best?.best_wave ?? p.wavesCleared, bestMs: best?.best_ms ?? ms, newBest, feathersBefore: fg.before, feathersAfter: fg.after, daily: fg.daily });
     }
     return out;
   });

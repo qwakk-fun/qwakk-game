@@ -71,7 +71,7 @@ export class BladeFeel {
   private storm: THREE.Object3D | null = null;
   private stormT = 0;
   /** Stats for the e2e (predicted hits, swings, quacks, storms, dashes, numbers shown). */
-  readonly stats = { swings: 0, predictedHits: 0, multiHits: 0, quacks: 0, storms: 0, dashes: 0, numbers: 0, crits: 0, feathers: 0, bestCombo: 0, streaks: 0, mostKilledAtOnce: 0, mostHitAtOnce: 0 };
+  readonly stats = { swings: 0, predictedHits: 0, multiHits: 0, quacks: 0, storms: 0, dashes: 0, numbers: 0, crits: 0, feathers: 0, bestCombo: 0, streaks: 0, mostKilledAtOnce: 0, mostHitAtOnce: 0, plain: {} as Record<string, number> };
 
   constructor(deps: BladeFeelDeps) {
     this.d = deps;
@@ -191,6 +191,11 @@ export class BladeFeel {
       this.d.hud.number((data[o + 2] ?? 0) / 100, (data[o + 3] ?? 0) / 100, (data[o + 4] ?? 0) / 100, data[o] ?? 0, c, (flags & RaidHitFlags.Killed) !== 0, (flags & RaidHitFlags.Skill) !== 0, (flags & RaidHitFlags.Crate) !== 0);
       this.stats.numbers++;
       if (c) this.stats.crits++;
+      // Plain cuts (no crit, no skill, no kill, no crate): their damage as the server dealt it (the e2e reads the gear's bonus here).
+      else if ((flags & (RaidHitFlags.Skill | RaidHitFlags.Killed | RaidHitFlags.Crate)) === 0) {
+        const k = String(data[o] ?? 0);
+        this.stats.plain[k] = (this.stats.plain[k] ?? 0) + 1;
+      }
     }
     // One server tick's hits come together: a swing that cut several shows up here.
     this.stats.mostKilledAtOnce = Math.max(this.stats.mostKilledAtOnce, killed);

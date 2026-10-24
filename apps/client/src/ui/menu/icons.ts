@@ -60,6 +60,8 @@ const ICONS = {
     ['path', 'M16 12.5h2M3.5 9h17'],
   ],
   swap: [['path', 'M7 7h12l-3.5-3.5M17 17H5l3.5 3.5']],
+  /** My Duck (Hunt Season progression): a feather. */
+  feather: [['path', 'M20 4c-7.5 0-13 5.2-14 12.5L4.5 20M6 16.5c7 0 12.5-5.4 14-12.5M9 13.5h5M11.5 10.5h4']],
 } satisfies Record<string, Shape[]>;
 
 export type IconName = keyof typeof ICONS;

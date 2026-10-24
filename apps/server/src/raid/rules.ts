@@ -4,7 +4,7 @@
  * them once when it is created (`raidRules()`), never per tick; tests pass
  * their own object.
  */
-import { PUSH, RAID, TICK_RATE } from '@qwakk/shared';
+import { LEVEL_SCALE, PUSH, RAID, TICK_RATE } from '@qwakk/shared';
 import { settings } from '../settings/runtime.ts';
 
 export interface CannonRules {
@@ -108,6 +108,9 @@ export interface RaidRules {
   dropAmmoPercent: number;
   dropHealPercent: number;
   healAmount: number;
+  /** Hunter health and damage per level of the party's average above level 10 (percent; shared kit.ts levelScale caps them). */
+  levelHpPercent: number;
+  levelDamagePercent: number;
 }
 
 export const DEFAULT_CANNON: CannonRules = { damage: 75, radius: 3.5, knockback: 8, reloadSeconds: 1.3, heatPerShot: 30, coolPerSecond: 10, ventBelow: 35 };
@@ -164,6 +167,8 @@ export const DEFAULT_RAID_RULES: RaidRules = {
   dropAmmoPercent: 22,
   dropHealPercent: 12,
   healAmount: 25,
+  levelHpPercent: LEVEL_SCALE.hpPercent,
+  levelDamagePercent: LEVEL_SCALE.damagePercent,
 };
 
 /** The rules from the admin settings now. */
@@ -239,6 +244,8 @@ export function raidRules(): RaidRules {
     dropAmmoPercent: n('dropAmmoPercent'),
     dropHealPercent: n('dropHealPercent'),
     healAmount: n('healAmount'),
+    levelHpPercent: n('levelHpPercent'),
+    levelDamagePercent: n('levelDamagePercent'),
   };
 }
 

@@ -1,0 +1,181 @@
+/*
+ * Hunt Season progression in the menu (duck/): the shop panel of the
+ * plaza's stalls (the Blacksmith, the Armorer) and the sheet's My Duck page
+ * (level, Tüy, gear, katana moves, the skill tree). Brand: yellow #ffd43b,
+ * beak orange #ff8a3d, dark #151619. Prefix qp- (the duck select owns qd-).
+ */
+
+/* Tüy (feathers): the little quill next to every balance. */
+.qp-tuy-icon {
+  display: inline-block;
+  flex: none;
+  width: 1em;
+  height: 1em;
+  background: var(--qm-yellow);
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20.5 3.5C13 3.2 7.2 8.4 6 16l-1.6 4.3 1.4.4L7.2 17c7.4-.6 12.7-5.9 13.3-13.5z' fill='black'/%3E%3C/svg%3E") center / contain no-repeat;
+}
+.qp-balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: var(--qm-wash);
+  box-shadow: inset 0 0 0 1px rgba(255, 212, 59, 0.3);
+  color: var(--qm-text);
+  font: 700 14px/1 var(--qm-mono);
+  white-space: nowrap;
+}
+.qp-status { min-height: 1.2em; margin: 6px 2px 0; font-size: 13px; color: var(--qm-good); }
+.qp-status:empty { display: none; }
+.qp-status.is-bad { color: var(--qm-beak); }
+
+/* ---- the shop panel over the plaza ---- */
+.qm.qp-shop {
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: max(12px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+  background: rgba(10, 11, 13, 0.45);
+  backdrop-filter: blur(2px);
+  overflow: hidden;
+}
+.qm.qp-shop[hidden] { display: none; }
+.qp-shop-card {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  width: min(560px, 100%);
+  max-height: min(640px, calc(100dvh - 24px));
+  padding: 16px 16px 12px;
+  background: var(--qm-card-solid);
+  animation: qm-rise 0.25s var(--qm-ease) both;
+}
+.qp-shop-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
+.qp-shop-titles { flex: 1; min-width: 0; }
+.qp-shop-titles h2 { margin: 0; font-size: 21px; font-weight: 780; letter-spacing: -0.03em; }
+.qp-shop-titles .qm-sub { margin: 2px 0 0; font-size: 13px; color: var(--qm-text-2); }
+.qp-shop-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; overflow-y: auto; overscroll-behavior: contain; }
+.qp-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--qm-line);
+  border-radius: 14px;
+  background: var(--qm-raised);
+}
+.qp-item.is-on { border-color: var(--qm-accent-line); background: linear-gradient(90deg, rgba(255, 212, 59, 0.09), transparent 70%), var(--qm-raised); }
+.qp-item.is-locked .qp-item-text { opacity: 0.6; }
+.qp-item-text { display: grid; gap: 1px; min-width: 0; }
+.qp-item-text b { font-size: 15px; }
+.qp-item-stats { font-size: 13px; color: var(--qm-text); }
+.qp-item-sub { display: flex; flex-wrap: wrap; gap: 4px 10px; font-size: 12px; color: var(--qm-text-3); }
+.qp-vs { color: var(--qm-text-2); }
+.qp-vs.is-up { color: var(--qm-good); font-weight: 650; }
+/* A tier's look: the blade (or vest) tint, its band, a glow for the top tiers. */
+.qp-swatch {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--c) 0 60%, var(--b) 60% 72%, var(--c) 72%);
+  box-shadow: inset 0 0 0 2px rgba(21, 22, 25, 0.5);
+}
+.qp-swatch.is-glow { box-shadow: inset 0 0 0 2px rgba(21, 22, 25, 0.5), 0 0 12px var(--g); }
+.qp-shop-note { margin: 10px 2px 0; font-size: 12px; color: var(--qm-text-3); }
+
+/* ---- My Duck (the sheet's tab) ---- */
+.qp-mine { display: grid; gap: 12px; }
+.qp-mine h3 { margin: 0 0 8px; font-size: 15px; }
+.qp-head { display: flex; align-items: center; gap: 14px; }
+.qp-lv {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  background: var(--qm-yellow);
+  color: var(--qm-ink);
+  font: 800 20px/1 var(--qm-mono);
+  box-shadow: 0 2px 0 var(--qm-yellow-edge);
+}
+.qp-head-main { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.qp-head-main b { font-size: 16px; }
+.qp-head-main .qm-xp { margin-top: 2px; }
+.qp-gear { display: grid; gap: 6px; }
+.qp-gear-row { display: grid; grid-template-columns: 70px auto minmax(0, 1fr); align-items: baseline; gap: 10px; }
+.qp-gear-row small { color: var(--qm-text-3); font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.qp-gear-row span { color: var(--qm-text-2); font-size: 13px; }
+.qp-gear .qm-fine, .qp-tuy-note { margin: 2px 0 0; font-size: 12px; color: var(--qm-text-3); }
+.qp-move-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.qp-move-list li { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 999px; font-size: 13px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--qm-line); }
+.qp-move-list li .qm-icon { width: 14px; height: 14px; }
+.qp-move-list li.is-on { color: var(--qm-text); }
+.qp-move-list li.is-on .qm-icon { color: var(--qm-good); }
+.qp-move-list li.is-locked { color: var(--qm-text-3); }
+.qp-move-list li.is-locked .qm-icon { color: var(--qm-yellow); }
+.qp-at { font: 700 11px var(--qm-mono); color: var(--qm-yellow); }
+
+.qp-tree-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin-bottom: 10px; }
+.qp-tree-head h3 { margin: 0; }
+.qp-points { flex: 1; font-size: 13px; color: var(--qm-text-3); }
+.qp-points.has-points { color: var(--qm-yellow); font-weight: 700; }
+.qp-respec { gap: 8px; }
+.qp-cost { font: 600 11px var(--qm-mono); color: var(--qm-text-3); }
+.qp-branches { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.qp-branch { display: grid; align-content: start; gap: 6px; }
+.qp-branch h4 { display: flex; justify-content: space-between; margin: 0 2px 2px; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--qm-text-2); }
+.qp-branch h4 span { font-family: var(--qm-mono); color: var(--qm-text-3); }
+.qp-node {
+  display: grid;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--qm-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--qm-text-2);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+}
+.qp-node.is-open { border-color: var(--qm-accent-line); color: var(--qm-text); cursor: pointer; background: var(--qm-wash); }
+.qp-node.is-open:hover { background: rgba(255, 212, 59, 0.14); }
+.qp-node.has-rank { color: var(--qm-text); }
+.qp-node.is-max { border-color: rgba(61, 220, 132, 0.45); }
+.qp-node.is-cap { border-style: dashed; }
+.qp-node:disabled { opacity: 1; }
+.qp-node-top { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.qp-node-top b { font-size: 13.5px; }
+.qp-node-line { font-size: 12px; line-height: 1.3; color: var(--qm-text-2); }
+.qp-node-need { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; color: var(--qm-yellow); }
+.qp-node-need .qm-icon { width: 12px; height: 12px; }
+.qp-pips { display: inline-flex; gap: 3px; }
+.qp-pips i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); }
+.qp-pips i.on { background: var(--qm-yellow); }
+.qp-node.is-max .qp-pips i.on { background: var(--qm-good); }
+.qp-empty .qm-sub { margin: 0 0 8px; }
+
+@media (max-width: 719px), (max-height: 480px) {
+  .qp-branches { grid-template-columns: 1fr; }
+  .qp-gear-row { grid-template-columns: 60px minmax(0, 1fr); }
+  .qp-gear-row span { grid-column: 2; }
+  .qp-shop-card { padding: 12px 12px 10px; }
+  .qp-shop-titles h2 { font-size: 18px; }
+  .qp-item { gap: 10px; padding: 8px 10px; }
+  .qp-swatch { width: 28px; height: 28px; }
+}
+/* A phone in landscape: the list gets the height (it scrolls), the rows get compact. */
+@media (max-height: 480px) {
+  .qp-shop-card { max-height: calc(100dvh - 16px); grid-template-rows: auto minmax(0, 1fr) auto; padding: 10px 12px 8px; }
+  .qp-shop-note { display: none; }
+  .qp-shop-titles .qm-sub { display: none; }
+  .qp-shop-head { margin-bottom: 6px; align-items: center; }
+  .qp-shop-list { gap: 6px; }
+  .qp-item { padding: 6px 10px; gap: 10px; border-radius: 12px; }
+  .qp-item-text b { font-size: 14px; }
+  .qp-item-stats { font-size: 12px; }
+  .qp-item-sub { font-size: 11px; }
+  .qp-item .qm-btn-sm { min-height: 34px; padding: 0 12px; }
+}

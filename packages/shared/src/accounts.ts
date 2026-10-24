@@ -55,6 +55,8 @@ export interface CharacterView {
   xp: number;
   /** Hunt Season personal best: most waves cleared and the fastest time to clear them, runs and wins; null before the first run. */
   raidBest?: { wave: number; ms: number; runs: number; wins: number } | null;
+  /** Hunt Season gear: the katana it wears (an item id of `@qwakk/shared/duck` GEAR); null or missing: the starter. */
+  katana?: string | null;
 }
 
 /** The signed-in account, as GET /api/account sends it. */

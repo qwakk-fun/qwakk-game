@@ -38,6 +38,8 @@ export interface SkillView {
   meter: number;
   storm: number;
   pistol: boolean;
+  /** The level each move still needs (0: unlocked); null until the server said (nothing drawn locked yet). */
+  locks: { dash: number; quack: number; storm: number } | null;
 }
 
 const STREAK_TEXT: [number, string][] = [
@@ -83,10 +85,13 @@ export class BladeHud {
     this.skills = el('div', 'blade-skills', this.root);
     const skill = (cls: string, key: string, name: string): HTMLElement => {
       const s = el('div', `blade-skill ${cls}`, this.skills);
+      s.dataset.skill = cls;
       el('div', 'sweep', s);
       el('div', 'icon', s);
       if (!touch) el('div', 'key', s, key);
       el('div', 'name', s, name);
+      // A locked move: a padlock and the level it needs (unlocks.ts).
+      el('div', 'lock', s);
       return s;
     };
     this.dash = skill('dash', 'X', t('Dash'));
@@ -104,8 +109,26 @@ export class BladeHud {
       e.style.setProperty('--left', String(Math.max(0, Math.min(1, left))));
       e.classList.toggle('ready', left <= 0);
     };
+    const lock = (e: HTMLElement, level: number): boolean => {
+      const on = level > 0;
+      if (e.classList.contains('locked') !== on) {
+        e.classList.toggle('locked', on);
+        (e.querySelector('.lock') as HTMLElement).textContent = on ? t('Lv {n}', { n: level }) : '';
+        e.title = on ? t('Unlocks at level {n}', { n: level }) : '';
+      }
+      return on;
+    };
+    const L = v.locks;
+    if (lock(this.dash, L?.dash ?? 0)) v.dash = 0;
+    if (lock(this.quack, L?.quack ?? 0)) v.quack = 0;
     set(this.dash, v.dash);
     set(this.quack, v.quack);
+    if (lock(this.storm, L?.storm ?? 0)) {
+      this.storm.classList.remove('ready', 'spinning');
+      this.storm.style.setProperty('--left', '0');
+      this.skills.classList.toggle('pistol', v.pistol);
+      return;
+    }
     this.storm.style.setProperty('--left', String(v.storm > 0 ? 1 - v.storm : 1 - v.meter));
     this.storm.classList.toggle('ready', v.meter >= 1 && v.storm <= 0);
     this.storm.classList.toggle('spinning', v.storm > 0);

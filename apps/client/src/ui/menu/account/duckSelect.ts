@@ -7,6 +7,7 @@
  * name), bring this device's guest duck in, the account and log out.
  * Arrow keys move the pick, Enter plays.
  */
+import { gearTier } from '@qwakk/shared/duck';
 import { CHARACTER_SLOTS, type CharacterView } from '@qwakk/shared/accounts';
 import { ApiError } from '../api.ts';
 import { characterCopy, characterOfLook } from '../characters.ts';
@@ -196,7 +197,7 @@ export class DuckSelect {
         'span',
         { class: 'qd-plate' },
         h('span', { class: 'qd-name' }, duck.name, h('span', { class: 'qd-tag' }, `#${duck.tag}`)),
-        h('span', { class: 'qd-meta' }, characterCopy(look.id).name, h('span', { class: 'qd-dot', 'aria-hidden': 'true' }, '·'), h('span', { class: 'qd-level' }, D.level(duckLevel(duck)))),
+        h('span', { class: 'qd-meta' }, characterCopy(look.id).name, h('span', { class: 'qd-dot', 'aria-hidden': 'true' }, '·'), h('span', { class: 'qd-level' }, D.level(duckLevel(duck))), duck.katana && gearTier(duck.katana) > 0 ? h('span', { class: 'qd-dot', 'aria-hidden': 'true' }, '·') : null, duck.katana && gearTier(duck.katana) > 0 ? h('span', { class: 'qd-katana' }, COPY.duck.items[duck.katana] ?? '') : null),
         xpBar(duck),
       ),
       h('span', { class: 'qd-check', 'aria-hidden': 'true' }, icon('check')),

@@ -12,7 +12,10 @@
  *   A guest makes its duck on the guest card, finds the Battle Royale portal
  *   locked (a toast with Sign in) and the Deathmatch one open.
  *   A phone (landscape, touch): the plaza with the touch layer, a tap opens a
- *   duck's bubble.
+ *   duck's bubble. Then it walks up to the Armorer's stall (Hunt Season gear),
+ *   taps the stall's button, and in the shop panel buys and equips the Leather
+ *   Jerkin (its level and Tüy set in the throwaway database first: in the game
+ *   only Hunt Season grants them).
  *
  * Screenshots go to OUTDIR (look at them). Usage: npm run e2e:hub [-- OUTDIR]
  * (npm run build:test first, and the local database: npm run db:up).
@@ -22,7 +25,10 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import postgres from 'postgres';
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright';
+import { shopSpot } from '@qwakk/shared/hub';
+import { xpForLevel } from '@qwakk/shared';
 import { accountSeed, e2eDatabase, seedBrowser, signUpApi } from './lib/accounts.ts';
 import { MetaService } from '../apps/server/src/meta/service.ts';
 
@@ -53,6 +59,7 @@ const API = `http://localhost:${SERVER_PORT}`;
 const MENU = `http://localhost:${WEB_PORT}/game/?lang=en&hud=0`;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+let dbUrl = '';
 
 function run(cmd: string, args: string[], cwd: string, env: Record<string, string> = {}): ChildProcess {
   return spawn(cmd, args, { cwd, env: { ...process.env, ...env }, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -327,6 +334,38 @@ async function phone(browser: Browser): Promise<void> {
   await until('phone bubble', () => hub(P.page), (v) => v?.bubble?.pid === o.pid, 8000);
   await sleep(300);
   await shot(P.page, '14-phone-duck-bubble');
+  // Hunt Season gear: level 6 and 800 Tüy (a test shortcut in the throwaway database), then the Armorer's stall.
+  const duckId = acc.ducks[0]!.id;
+  const sql = postgres(dbUrl, { max: 1, onnotice: () => {} });
+  await sql`update players set level = 6, xp = ${xpForLevel(6)} where id = ${duckId}`;
+  await sql`insert into duck_progress (player_id, feathers) values (${duckId}, 800) on conflict (player_id) do update set feathers = 800`;
+  await sql.end();
+  await P.page.touchscreen.tap(420, 330);
+  const spot = shopSpot('armorer');
+  await walk(P.page, -6, 27, 'phone to the market', 1.6);
+  await walk(P.page, spot.x, spot.z, 'phone to the Armorer', 1.2);
+  await call(P.page, 'look', Math.PI / 2, -0.1);
+  await P.page.locator('.hu-shop:not([hidden])').waitFor({ timeout: 10000 });
+  await sleep(500);
+  await shot(P.page, '15-phone-armorer-stall');
+  // The touch layer's Use button opens the stall's shop (the pill above is the label).
+  await P.page.locator('.tc-use:not([hidden])').tap({ timeout: 10000 });
+  await P.page.locator('.qp-shop:not([hidden]) .qp-item[data-item="armor_leather"] .qp-buy:not([disabled])').waitFor({ timeout: 10000 });
+  await sleep(300);
+  await shot(P.page, '16-phone-shop');
+  await P.page.locator('.qp-item[data-item="armor_leather"] .qp-buy').tap();
+  await P.page.locator('.qp-item[data-item="armor_leather"] .qp-equip').tap({ timeout: 10000 });
+  await P.page.locator('.qp-item.is-on[data-item="armor_leather"]').waitFor({ timeout: 10000 });
+  await sleep(300);
+  await shot(P.page, '17-phone-shop-equipped');
+  const fits = await P.page.evaluate(() => {
+    const c = document.querySelector('.qp-shop-card')!.getBoundingClientRect();
+    return c.left >= 0 && c.top >= 0 && c.right <= innerWidth && c.bottom <= innerHeight && document.documentElement.scrollWidth <= innerWidth;
+  });
+  if (!fits) throw new Error('the shop panel does not fit the phone screen');
+  await P.page.locator('.qp-shop-x').tap();
+  await until('phone shop closed', () => P.page.locator('.qp-shop:not([hidden])').count(), (c) => c === 0, 5000);
+  console.log('phone: the Armorer sold and fitted the Leather Jerkin');
   await P.ctx.close();
   await O.ctx.close();
 }
@@ -334,6 +373,7 @@ async function phone(browser: Browser): Promise<void> {
 async function main(): Promise<void> {
   if (!existsSync(`${root}/apps/client/dist-test/index.html`)) throw new Error('Build the test client first: npm run build:test');
   const db = await e2eDatabase('hub');
+  dbUrl = db.url;
   await seedLeaderboard(db.url);
   const server = run(process.execPath, ['--disable-warning=ExperimentalWarning', 'apps/server/src/index.ts'], root, {
     PORT: String(SERVER_PORT),

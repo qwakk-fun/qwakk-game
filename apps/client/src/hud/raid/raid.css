@@ -83,6 +83,15 @@
 .raid-end-stats strong { font-size: 18px; }
 .raid-end-xp { display: grid; gap: 8px; margin: 14px 0; padding: 14px; border-radius: 12px; background: #ffd43b14; border: 1px solid #ffd43b55; }
 .raid-end-xp .gain { font-size: 26px; font-weight: 800; color: #ffd43b; }
+.raid-end-xp .gains { display: flex; justify-content: center; gap: 22px; flex-wrap: wrap; }
+.raid-end-xp .gain.tuy { display: inline-flex; align-items: center; gap: 6px; color: #fff3d6; }
+.tuy-icon { display: inline-block; width: 1em; height: 1em; background: #ffd43b; mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M20.5 3.5C13 3.2 7.2 8.4 6 16l-1.6 4.3 1.4.4L7.2 17c7.4-.6 12.7-5.9 13.3-13.5z' fill='black'/%3E%3Cpath d='M8 16.5l8-8' stroke='white' stroke-width='1.2'/%3E%3C/svg%3E") center / contain no-repeat; }
+.raid-end-xp .daily { font-size: 12px; color: #67e8b0; font-weight: 700; }
+.raid-end-xp .unlocks { display: grid; gap: 4px; }
+.raid-end-xp .unlocks:empty { display: none; }
+.raid-end-xp .unlock { font-weight: 800; color: #151619; background: #ffd43b; border-radius: 8px; padding: 6px 10px; animation: raid-unlock 420ms ease-out both; }
+.raid-end-xp .unlock.points { background: #ffffff14; color: #ffd43b; border: 1px solid #ffd43b66; }
+@keyframes raid-unlock { from { transform: scale(1.2); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 .raid-end-xp .level { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: center; }
 .raid-end-xp .level.up .lv { color: #67e8b0; }
 .raid-end-xp .lv { font-weight: 700; min-width: 76px; text-align: left; }
@@ -129,6 +138,7 @@ body.touch-ui .raid-hud .raid-end-card h2 { font-size: 22px; margin: 2px 0; }
 body.touch-ui .raid-hud .raid-end-card .sub { margin: 0 0 4px; font-size: 12px; }
 body.touch-ui .raid-hud .raid-end-xp { margin: 6px 0; padding: 8px 12px; gap: 4px; }
 body.touch-ui .raid-hud .raid-end-xp .gain { font-size: 18px; }
+body.touch-ui .raid-hud .raid-end-xp .unlock { padding: 3px 8px; font-size: 12px; }
 body.touch-ui .raid-hud .raid-end-xp .xp-note, body.touch-ui .raid-hud .raid-end-xp .best { font-size: 11px; }
 body.touch-ui .raid-hud .raid-end-buttons button { padding: 8px 16px; }
 body.touch-ui .raid-hud .raid-end-card .closes { margin-top: 4px; font-size: 10px; }

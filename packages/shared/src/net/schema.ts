@@ -530,7 +530,8 @@ export const Msg = {
   RaidEvent: 'raid-ev',
   /**
    * To one duck at the run end: [reason (RaidEndReason), wavesCleared, kills, bossKills, revives, xpGained,
-   * xpBefore, xpAfter, levelBefore, levelAfter, runMs, bestWave, bestMs, newBest(0/1), granted (0: the first, unsaved answer; 1: stored; 2: could not be saved)].
+   * xpBefore, xpAfter, levelBefore, levelAfter, runMs, bestWave, bestMs, newBest(0/1), granted (0: the first, unsaved answer; 1: stored; 2: could not be saved),
+   * feathersGained (the run's Tüy, with the daily bonus once stored), feathersBefore, feathersAfter (-1 until stored), dailyBonus].
    */
   RaidEnd: 'raid-end',
   /**
@@ -538,6 +539,18 @@ export const Msg = {
    * [combo, stormMeter, n, then n times: damage, RaidHitFlags, x, y, z (cm)]. The server's numbers; never a duck's.
    */
   RaidHits: 'raid-hits',
+  /**
+   * Hunt Season, to one duck when it joins (and again when a test hook changes it): what it brought to this run,
+   * from the server's database (never from the client): [level, unlockBits (unlocks.ts SKILL_BIT), katanaTier,
+   * armorTier, bladeDamagePct, critChancePct, bonusHp, damageStoppedPct]. The client masks the skill buttons its
+   * unlock bits do not hold before it sends and predicts (everything is locked until this arrives).
+   */
+  RaidKit: 'raid-kit',
+  /**
+   * Hunt Season, to everyone in the run: the looks of every duck's gear [pid, katanaTier, armorTier, ...]
+   * (cosmetic: the blade's tint, the vest band; every duck in a run is an ally).
+   */
+  RaidLooks: 'raid-looks',
 } as const;
 
 /** `Msg.RaidHits` flags per hit. */

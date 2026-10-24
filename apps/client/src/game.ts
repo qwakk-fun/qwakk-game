@@ -41,6 +41,7 @@ import { loadDuckGlb } from './player/duckModel.ts';
 import { hasWeaponArt, loadWeaponLibrary, magTimeline } from './player/weaponModel.ts';
 import type { RenderContext } from './render/renderer.ts';
 import type { WorldHandle } from './world/worldHandle.ts';
+import { RAID_VEST } from './world/sainte/itemMeshes.ts';
 
 const LAG_PRESETS = [0, 60, 120, 150, 250];
 
@@ -267,6 +268,8 @@ export class Game {
           this.raid?.ended(data);
         },
         raidHits: (data) => this.raid?.hits(data),
+        raidKit: (data) => this.raid?.setKit(data),
+        raidLooks: (data) => this.raid?.setLooks(data),
         localBlade: (kind, step, charge, state) => this.raid?.localBlade(kind, step, charge, state),
         shotHint: (weapon, angle, loud) => {
           this.br?.shotHint(weapon, angle, loud, this.myPos);
@@ -428,6 +431,8 @@ export class Game {
     }
     this.lastSprint = (s.buttons & Button.Sprint) !== 0 && s.mz > 0 && !(s.buttons & (Button.Fire | Button.Aim));
     if (this.controls.leftShoulder) s.buttons |= Button.ShoulderLeft;
+    // Hunt Season: the moves our level does not have are never sent nor predicted (the server masks the same bits).
+    if (this.raid) s = { ...s, buttons: s.buttons & ~this.raid.lockedButtons };
     return { ...s, yaw: this.controls.yaw, pitch: this.controls.pitch };
   };
 
@@ -485,6 +490,12 @@ export class Game {
       p.vest = mine.vest;
       p.helmet = mine.helmet;
       p.pack = mine.pack;
+      // Hunt Season gear looks (cosmetic): the katana's tier tint and the armor's vest band.
+      if (this.raid) {
+        const [kt, at] = this.raid.lookOf(mine.pid);
+        p.bladeTier = kt;
+        p.vest = at > 0 ? RAID_VEST + at : 0;
+      }
       p.aim = this.cam.aimBlend;
       this.localAvatar.object.visible = mode !== Mode.Plane && !(mine.protect === 1 && blinkOff);
       this.localAvatar.update(p, dt);
@@ -547,6 +558,11 @@ export class Game {
       a.vest = s.vest;
       a.helmet = s.helmet;
       a.pack = s.pack;
+      if (this.raid) {
+        const [kt, at] = this.raid.lookOf(s.pid);
+        a.bladeTier = kt;
+        a.vest = at > 0 ? RAID_VEST + at : 0;
+      }
       r.avatar.update(a, dt);
       r.avatar.setDetail(camPos.distanceTo(r.avatar.object.position));
       r.motion.sample(p.x, p.z, dt);
@@ -704,8 +720,9 @@ export class Game {
     f.nades = s && !blade ? heldNades(s as never) : 0;
     f.rockets = s && !blade ? heldRockets(s as never) : 0;
     f.rocketOut = s && !blade ? launcherUp(s as never) === 1 : false;
-    f.skills = blade && s ? { dash: dashTimer(s) / DASH.cooldown, quack: quackTimer(s) / QUACK.cooldown, storm: stormLeft(s as never) > 0 ? 0 : 1 - stormMeter(s as never) / STORM.meterFull, katana: s.weapon === WeaponId.Katana } : undefined;
-    if (blade && s) f.otherWeapon = translate(s.weapon === WeaponId.Katana ? 'Pistol' : 'Katana');
+    f.skills = blade && s ? { dash: dashTimer(s) / DASH.cooldown, quack: quackTimer(s) / QUACK.cooldown, storm: stormLeft(s as never) > 0 ? 0 : 1 - stormMeter(s as never) / STORM.meterFull, katana: s.weapon === WeaponId.Katana, locks: this.raid?.touchLocks() ?? null } : undefined;
+    // No pistol before its level (the arms bit): no Swap.
+    if (blade && s) f.otherWeapon = s.weapon === WeaponId.Katana ? (hasWeapon(s as never, WeaponId.Pistol) ? translate('Pistol') : '') : translate('Katana');
     if (this.br) Object.assign(f, this.br.touchState());
     else {
       f.promptKey = this.raid?.touchPrompt() ?? '';
