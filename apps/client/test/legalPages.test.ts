@@ -30,6 +30,7 @@ describe('legal pages', () => {
       expect(html).not.toMatch(/<script/i);
       expect(html).not.toContain('—');
       expect(html).not.toContain('[[LEGAL_VERSION]]');
+      expect(html).not.toContain('/admin');
       expect(html).toContain('href="/terms"');
     }
   });

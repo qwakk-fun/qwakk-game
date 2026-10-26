@@ -26,10 +26,6 @@ The game also keeps things in memory while the page is open, such as the last ch
 
 When we have it switched on, the game uses Cloudflare Turnstile, a check that tells people from bots, for example when you create a guest [[or request a sign-in code]]. Your browser then loads the check from Cloudflare, which processes your IP address and technical details from your browser for that check only. We use it to keep bots and abuse out, which is part of running the game safely. [[VERIFY: whether Turnstile stores anything on your device; Cloudflare states it does not use cookies for this check]]. See section 6 of the Privacy Policy.
 
-## The admin panel
-
-The owner's admin panel at play.qwakk.fun/admin sets one strictly necessary session cookie for the signed-in admin. Players never get it.
-
 ## What we do not use
 
 - No analytics or statistics tools
