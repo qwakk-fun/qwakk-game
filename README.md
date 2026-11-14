@@ -944,3 +944,7 @@ When local dev already occupies 2567/5173, build a separate test endpoint with
 `VITE_GAME_SERVER=ws://localhost:2589 npm run build:test`, then run the game e2es with
 `E2E_SERVER_PORT=2589 E2E_WEB_PORT=5189 npm run e2e`. The normal production build
 uses the hosting origin and needs no endpoint override.
+
+## License
+
+Code is MIT, see [LICENSE](LICENSE). Asset sources and third-party licenses are listed in [LICENSES.md](LICENSES.md).
