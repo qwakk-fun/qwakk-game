@@ -23,7 +23,7 @@ describe('legal pages', () => {
   });
 
   it('fills the facts the code owns and builds every page with no script', () => {
-    expect(fillFacts('v[[LEGAL_VERSION]] [[SESSION_LIFETIME]] [[ACCOUNT_SESSION_KEY]]')).toBe('v2026-10-23 30 days, renewed while you play `qwakk.account`');
+    expect(fillFacts('v[[LEGAL_VERSION]] [[SESSION_LIFETIME]] [[ACCOUNT_SESSION_KEY]]')).toBe('v2026-11-14 30 days, renewed while you play `qwakk.account`');
     for (const page of LEGAL_PAGES) {
       const html = legalPageHtml(page, readLegal(page), '/');
       expect(html.startsWith('<!doctype html>')).toBe(true);

@@ -30,7 +30,7 @@ const fail = (msg: string): never => {
 const guestMenu = async (ctx: import('playwright').BrowserContext): Promise<void> => void await
   ctx.addInitScript(() => {
     localStorage.setItem('qwakk.entry', 'guest');
-    localStorage.setItem('qwakk.storage-notice', '2026-10-23');
+    localStorage.setItem('qwakk.storage-notice', '2026-11-14');
   });
 
 const db = await freshDatabase('shots');

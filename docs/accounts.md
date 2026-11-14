@@ -24,7 +24,7 @@ The migration only adds tables and nullable or defaulted columns, so existing gu
 - Cosmetic unlocks: a new `account_unlocks (account_id, item_id, unlocked_at, source)` table (per account, so every duck can wear them), plus `players.cosmetics` (what a duck wears) checked against it.
 - Daily quests: `account_quests (account_id, day, quest_id, progress, done_at)`, progress written by the game server from match results, never by an HTTP route.
 - Login streaks: `accounts.streak_days`, `accounts.streak_last_day` (a date), updated at sign-in or at the first match of a day.
-- QoreX sign-in: an `account_logins` row with `method = 'qorex'` and `subject` = the qor1 address (the table and its check constraint already allow it).
+- QoreX sign-in: an `account_logins` row with `method = 'qorex'` and `subject` = the qor1 address (the table and its check constraint already allow it). Duck Pass (below) now writes that row when a player links a wallet; signing in with it is not built yet.
 
 ## The flow
 
@@ -61,6 +61,9 @@ All JSON, `Cache-Control: no-store`, the same origin and CORS policy as the rest
 | `POST /api/account/play` | Bearer, `{ id }` | A game session for that duck |
 | `POST /api/account/delete/code` | Bearer, `{ lang? }` | A deletion code to the account's email |
 | `POST /api/account/delete` | Bearer, `{ code, lang? }` | Deletes the account, its logins, sessions and ducks |
+| `POST /api/account/qorex/challenge` | Bearer, `{ address, duckId }` | Duck Pass: the QoreX request (see Duck Pass below) |
+| `POST /api/account/qorex/verify` | Bearer, `{ txHash }` | `{ status: 'linked', duckPass }` or 202 `{ status: 'pending' }` |
+| `POST /api/account/qorex/unlink` | Bearer | The linked wallet is forgotten |
 | `GET /api/test/mail?email=` | none | Test hooks only (`QWAKK_TEST_HOOKS=1`, never production): the dev mail sink's last code |
 
 Limits (memory only): codes 5 per IP then one a minute, and 3 per address then one every 2 minutes; code checks 10 per IP then one every 6 s (and 5 tries per code); at most 15 wrong codes per address in 24 hours (`VERIFY_FAILS`), after which that address gets no new code and no check until the window ends (the answer is the generic `code_rate_limited`, so it reveals nothing; the trade-off: someone who floods wrong codes at an address locks its owner out for up to a day); account calls 60 per IP then 2 a second. Loopback is exempt from the per-IP limits outside production.
@@ -78,3 +81,16 @@ Bans: a ban is set on a duck (its player id, admin panel). While any duck of an 
 - Server: add `POST /api/auth/qorex/challenge` (a nonce, stored like a code) and `POST /api/auth/qorex/verify` (the wallet's signature over the nonce, checked against the qor1 address) in `accounts/http.ts` and `accounts/service.ts`. On success it answers exactly like `verify`: look up `account_logins (method 'qorex', subject address)`; found: `signIn(accountId)` with `touchLogin(..., 'qorex')`; not found: a sign-up ticket for the address (the sign-up step then needs an email for codes and news, or an account without one, `loadAccount` already allows an account with no email login). Linking a wallet to a signed-in account inserts the `qorex` login row.
 - Menu: `loginScreen.ts`, the `.qa-qorex` button in `showEmail()` (now disabled). Enable it, run the wallet proof, call the new route and hand its answer to the same `afterVerify` path as the email code (`signedIn` or `showSignup`).
 - Copy: `COPY.auth.qorex` and `qorexNote` exist; the privacy paragraph for wallet sign-in is drafted in `docs/legal/README.md`.
+
+## Duck Pass: linking a QoreX wallet
+
+Built 2026-11-14 for the QoreChain "Build Before Q-Day" fest (Quantum Pass). A signed-in player links a QoreX wallet to the account with one hybrid-signed (secp256k1 + ML-DSA-87) proof on the QoreChain testnet. Identity only: a linked wallet never touches Tüy, XP, rewards or the leaderboard, and other players never see it. The README (Duck Pass) has the overview and the manual test.
+
+Code: shared rules `packages/shared/src/duckPass.ts` (`@qwakk/shared/duck-pass`: memo, MsgSend bytes, `checkDuckPassTx`); server `apps/server/src/meta/duckPass/` (`service.ts` rules and challenges, `chain.ts` the REST read, `address.ts` signer key to qor1, `store.ts`), migration `008_duck_pass.sql`; menu `apps/client/src/ui/menu/account/duckPassFlow.ts` (QoreX through `@qorechain/qorex-types`) and `duckPassCard.ts` (the Account tab card); the standalone checker `duck-pass/` (create-qorechain-dapp).
+
+1. `POST /api/account/qorex/challenge` (Bearer, `{ address, duckId }`): the address QoreX `getKey('qorechain-diana')` gave the menu and the active duck. Refused before any fee: `qorex_address`, `not_found` (not this account's duck), `qorex_linked` (the account has a wallet), `qorex_taken` (another account has this wallet), `rate_limited` (5 per account, then one every 2 minutes). Answer: `{ chainId: 'qorechain-diana', memo, messages: [{ typeUrl: '/cosmos.bank.v1beta1.MsgSend', value }], gasLimit: '250000', feeUqor: 37500, expiresAt }`. The memo is `qwakk-duck-pass:v1:<season>:<duck tag>:<nonce>` (season `s<id>` of the current leaderboard season, the duck's #tag digits, a 96-bit random base64url nonce). The challenge lives in server memory, one per account, 15 minutes.
+2. The menu hands that to QoreX `signAndBroadcast` (QoreX 0.3.5 or newer). QoreX shows it, sets the fee, adds its ML-DSA-87 layer (registering the wallet's key on its first transaction), signs and broadcasts. The page and the server never see a key or a signature; the server never broadcasts.
+3. `POST /api/account/qorex/verify` (Bearer, `{ txHash }`): the server reads the transaction from Diana (`GET /cosmos/tx/v1beta1/txs/{hash}`) and checks: code 0; exactly one `MsgSend` of `1uqor` from the challenge's wallet to itself; the exact memo of this account's open challenge; exactly one secp256k1 signer whose key derives to the wallet (SHA-256, RIPEMD-160, bech32 `qor`); the body extension `/qorechain.pqc.v1.PQCHybridSignature`; and the chain's own `pqc_hybrid_verify` event for the wallet with `status` `verified`. Then one transaction inserts the `qorex` login and the `duck_passes` row. Answers: `200 { status: 'linked', duckPass }`; `202 { status: 'pending' }` while the node has not indexed the hash (the menu polls every 2.5 s for a minute, then offers Check again); `410 qorex_expired`; `422 qorex_<reason>` (`tx_failed`, `memo_mismatch`, `not_self_send`, `signer_mismatch`, `no_hybrid`, `not_duck_pass`, `hash_mismatch`, `malformed`; each ends the challenge); `409 qorex_taken`, `qorex_linked`, `qorex_proof_used`; `503 chain_unreachable` (the challenge stays). 40 checks per account, then one every 2 s; one chain read in flight per account.
+4. `POST /api/account/qorex/unlink` (Bearer): deletes the login and the proof row. The transaction stays on the testnet.
+
+`GET /api/account` sends `duckPass: { address, txHash, season, linkedAt } | null`. Deleting the account deletes both rows (on delete cascade).

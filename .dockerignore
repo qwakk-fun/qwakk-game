@@ -22,9 +22,11 @@ playwright-report
 **/.env.*
 !**/.env.example
 
-# Not needed by any image (tests, benchmarks, art sources and renders, docs).
+# Not needed by any image (tests, benchmarks, art sources and renders, docs,
+# the standalone Duck Pass checker).
 art
 e2e
+duck-pass
 docs
 # The legal pages are built into the client from these (apps/client/build/legalPages.ts).
 !docs/legal

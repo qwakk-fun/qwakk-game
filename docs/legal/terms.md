@@ -36,7 +36,9 @@ When you create an account you agree to:
 
 You are responsible for what happens on your account. If you think someone else has access to it, tell us at hello@qwakk.fun.
 
-**Wallet sign-in.** If we add sign-in with a QoreX wallet, it will only prove who you are. Linking a wallet never earns rewards, we never ask for your recovery phrase, and signing in never sends a transaction or moves funds.
+**Duck Pass (linking a QoreX wallet).** You can link a QoreX wallet to your account with Duck Pass. It proves the wallet is yours with one transaction on the QoreChain testnet that you approve in QoreX: it sends 1 uqor (one millionth of a test QOR) from your wallet back to the same wallet, and your wallet pays a small testnet network fee. Test QOR has no monetary value. The transaction and its note (the season, your duck's tag and a one-time code) are public on the testnet and cannot be deleted by us or by you. A linked wallet only shows that your account and the wallet belong together: it never earns rewards, never changes the game, and is never shown on the leaderboard. We never ask for your recovery phrase or keys, and we never sign or send anything from your wallet. You can unlink the wallet on the account screen.
+
+**Wallet sign-in.** If we add sign-in with a QoreX wallet, it will only prove who you are. Linking a wallet never earns rewards, we never ask for your recovery phrase, and signing in never moves funds.
 
 ## 4. Nothing in the game has money value
 

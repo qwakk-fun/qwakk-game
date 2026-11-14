@@ -9,6 +9,7 @@
     "./lobby": "./src/lobby.ts",
     "./characters": "./src/characters.ts",
     "./accounts": "./src/accounts.ts",
+    "./duck-pass": "./src/duckPass.ts",
     "./raid": "./src/raid/index.ts",
     "./progress": "./src/raid/progress.ts",
     "./duck": "./src/raid/duck.ts",

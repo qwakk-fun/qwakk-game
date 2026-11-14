@@ -2,7 +2,8 @@
  * The Account tab. Signed in: the email, the news opt-in switch (each change
  * is logged on the server with the wording version), how to get a copy of
  * your data, the legal pages, switch duck, log out and the danger zone
- * (delete the account: a code by email, then type DELETE). A guest sees
+ * (delete the account: a code by email, then type DELETE), and the Duck
+ * Pass card (link a QoreX wallet, duckPassCard.ts). A guest sees
  * why to sign in and the button for it.
  */
 import { CODE_DIGITS } from '@qwakk/shared/accounts';
@@ -15,6 +16,7 @@ import { errorText } from '../nameStep.ts';
 import { deleteAccount, requestDeleteCode, setMarketing } from './accountApi.ts';
 import { CodeInput } from './codeInput.ts';
 import { openDialog } from './dialog.ts';
+import { DuckPassCard } from './duckPassCard.ts';
 import type { AccountSession } from './session.ts';
 
 const AC = COPY.account;
@@ -35,11 +37,14 @@ export class AccountPanel {
   readonly el: HTMLElement;
   private readonly session: AccountSession;
   private readonly hooks: AccountPanelHooks;
+  /** Duck Pass: link a QoreX wallet with one post-quantum proof on the testnet. */
+  private readonly duckPass: DuckPassCard;
 
   constructor(session: AccountSession, hooks: AccountPanelHooks) {
     this.session = session;
     this.hooks = hooks;
     this.el = h('div', { class: 'qm-account' });
+    this.duckPass = new DuckPassCard(session, () => hooks.expired());
   }
 
   /** Draw for the current state (signed in or a guest). */
@@ -60,6 +65,7 @@ export class AccountPanel {
     const switchBtn = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost' }, icon('swap'), COPY.ducks.switch);
     const logout = h('button', { type: 'button', class: 'qm-btn qm-btn-ghost qm-account-logout' }, icon('leave'), AC.logout);
     const del = h('button', { type: 'button', class: 'qm-btn qm-btn-danger-ghost qm-account-delete' }, icon('trash'), X.open);
+    this.duckPass.render();
     switchBtn.addEventListener('click', () => this.hooks.switchDuck());
     logout.addEventListener('click', () => this.hooks.logout());
     del.addEventListener('click', () => this.confirmDelete());
@@ -83,6 +89,7 @@ export class AccountPanel {
         h('p', { class: 'qm-fine qm-account-legal' }, link(COPY.legalUpdate.consent[1] ?? 'Terms', LINKS.terms), ' · ', link(COPY.legalUpdate.consent[3] ?? 'Privacy', LINKS.privacy), ' · ', link(COPY.storage.link, LINKS.cookies)),
         h('div', { class: 'qm-account-actions' }, switchBtn, logout),
       ),
+      this.duckPass.el,
       h('section', { class: 'qm-card qm-account-card qm-danger-zone' }, h('h3', { class: 'qm-danger-title' }, X.heading), h('p', { class: 'qm-fine' }, X.note), h('div', { class: 'qm-account-actions' }, del)),
     );
   }

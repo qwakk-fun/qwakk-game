@@ -5,11 +5,12 @@
  * `apps/client/src/ui/menu/account/`. Pure data, no runtime code beyond tiny
  * helpers.
  */
+import type { DuckPassView } from './duckPass.ts';
 
 /** One version for the Terms of Use, the Privacy Policy and the storage notice (docs/legal/README.md). */
-export const LEGAL_VERSION = '2026-10-23';
+export const LEGAL_VERSION = '2026-11-14';
 /** The readable date of that version, for the legal pages' header. */
-export const LEGAL_UPDATED = 'October 23, 2026';
+export const LEGAL_UPDATED = 'November 14, 2026';
 /** The wording of the news email opt-in shown at sign-up and on the account screen (stored with each choice). */
 export const MARKETING_TEXT_VERSION = '2026-10-23';
 
@@ -70,6 +71,8 @@ export interface AccountView {
   lastCharacterId: string | null;
   characters: CharacterView[];
   slots: number;
+  /** The QoreX wallet linked by a Duck Pass proof (`@qwakk/shared/duck-pass`), or null. Identity only, never rewards. */
+  duckPass?: DuckPassView | null;
 }
 
 /** POST /api/auth/verify: an existing account is signed in; a new address gets a sign-up ticket. */

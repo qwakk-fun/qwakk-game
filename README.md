@@ -95,6 +95,7 @@ qwakk-game/
   scripts/admin-setup.ts npm run admin:setup: the admin password hash and TOTP secret, with a terminal QR code (scripts/qr.ts)
   scripts/sync-map.ts Copies the map workstream's export into packages/shared/src/maps (npm run map:sync)
   art/               Blender scripts and renders for the ducks (separate workstream)
+  duck-pass/         Duck Pass checker: a standalone Vite + React page scaffolded with create-qorechain-dapp (not an npm workspace, its own lockfile)
 ```
 
 Display names use the Qwakk world: **Qwakk** is character `0` (`classic`), **Toski** is `1` (`mallard`), **Yelova** is map `sainte-canard`, and **Kavren** is `canard-quarter`. Technical ids and saved selections remain compatible. Place labels come from `art/map/layout/`, then the canonical exports are copied with `npm run map:sync`.
@@ -339,6 +340,39 @@ node --disable-warning=ExperimentalWarning apps/client/test/menu/browser-check.t
 ```
 
 It seeds a throwaway database, checks render, the name filter message, the leaderboard, settings persistence across a reload, keyboard tabs, that Play calls the game entry with the session and settings, the result card, and the phone layout, and saves screenshots to `DIR`.
+
+## Duck Pass (QoreChain Quantum Pass)
+
+Duck Pass links a QoreX wallet to a Qwakk account with one hybrid-signed, post-quantum proof on the QoreChain testnet (Diana, `qorechain-diana`). It is the game's entry for the QoreChain "Build Before Q-Day" fest, Quantum Pass category. Identity only: no tokens, no prizes, no money flows. A linked wallet never touches Tüy, XP, rewards or the leaderboard, and other players never see it.
+
+### The flow
+
+1. Signed in, open the plaza's sheet (Esc), Account, the Duck Pass card, **Link QoreX**.
+2. QoreX `getKey('qorechain-diana')` gives the wallet address (QoreX connects the site the first time).
+3. The game server answers a challenge for that wallet and the active duck: one `MsgSend` of 1 uqor from the wallet to itself, memo `qwakk-duck-pass:v1:<season>:<duck tag>:<nonce>` (the nonce is random, single use, bound to the account and the wallet, 15 minutes), gas 250,000 (about 0.04 test QOR at QoreX's 0.15 uqor per gas).
+4. QoreX `signAndBroadcast` shows it, adds its ML-DSA-87 layer (the wallet's first transaction also registers its post-quantum key), signs with secp256k1 + ML-DSA-87 and broadcasts. Neither the page nor the server ever sees a key or a signature, and the server never broadcasts.
+5. The menu sends only the hash. The server reads the transaction from Diana's REST and checks: code 0, exactly the 1 uqor self send, the exact memo of this account's open challenge, one secp256k1 signer whose key derives to the wallet, the `/qorechain.pqc.v1.PQCHybridSignature` body extension and the chain's own `pqc_hybrid_verify` event for the wallet with `status` `verified`. Then it stores the wallet as the account's `qorex` login plus the proof (migration 008). The card shows the wallet and the proof on `https://explore.qore.network/tx/<hash>`.
+
+States on the card: no QoreX (an install link), QoreX too old (no `signAndBroadcast`), wrong network, declined, locked, a request already open, waiting for the chain (Check again), verified, unlink. Every message is fixed copy; wallet and chain text never reach the screen. Routes, errors and limits: `docs/accounts.md` (Duck Pass).
+
+### Kits and network features used
+
+- **create-qorechain-dapp 0.14.0**: `duck-pass/` was scaffolded with `npx create-qorechain-dapp@0.14.0 duck-pass --template fullstack-web --network testnet --yes --no-install` and turned into the **Duck Pass checker**: paste a transaction hash (or open `?tx=<hash>`) and it reads the transaction from QoreChain and checks the proof in the browser with the same rules as the server (`packages/shared/src/duckPass.ts`), including the signer key to address derivation, without any Qwakk server.
+- **@qorechain/sdk 0.14.0** (in the checker): `createClient` (testnet), `getTx`, `sha256`, `ripemd160`, `bytesToBech32`.
+- **@qorechain/qorex-types 0.1.0** (in the game menu): `getQorexNative`, `hasCapability(native, 'signAndBroadcast')`, `qorexSignAndBroadcast`, `QOREX_DOWNLOAD_URLS`, `isQorexIntegrationError`.
+- **QoreX wallet** native lane: `getKey`, `signAndBroadcast` (QoreX 0.3.5 or newer).
+- **QoreChain hybrid signatures**: secp256k1 + ML-DSA-87 (FIPS 204) in one transaction, verified by the chain's ante handler (`pqc_hybrid_verify`), and the automatic ML-DSA-87 key registration on a wallet's first transaction.
+- No contract: Duck Pass needs none. The proof is a native bank transaction checked against the chain's own PQC events. (CosmWasm upload is governance only on both networks, per the create-qorechain-dapp templates README.)
+
+### Run it
+
+- The game: `npm run dev` (needs the local PostgreSQL for accounts: `npm run db:up`), sign in, hatch a duck, then the Account sheet. The server reads Diana's public REST at `https://api-testnet.qore.host`; there is nothing to configure.
+- The checker: `cd duck-pass && npm install && cp .env.example .env && npm run dev`, then open http://localhost:5173 (the game's client uses 5173 too, so run one at a time, or `npx vite --port 5175`). The public REST sends no CORS headers, so the page reads it through the Vite proxy (`/lcd`); a hosted copy needs a proxy that forwards `/lcd` the same way. `npm run build` type-checks and builds it.
+- Tests: `npm test` covers the memo, the MsgSend bytes (checked against cosmjs-types), the proof check, the signer address derivation (checked against `@qorechain/sdk`), the server rules with a fake chain, the menu flow with a fake QoreX, and with the local PostgreSQL the routes and rows (`apps/server/test/meta/duckPass.db.test.ts`).
+
+### Privacy
+
+Linking stores the wallet's public qor1 address with the account (`account_logins`, method `qorex`) and the proof's hash and season (`duck_passes`), until the player unlinks it or deletes the account. The proof transaction itself is public on the QoreChain testnet for good: the address, the 1 uqor self send and the memo with the season, the duck's tag and the one-time code. The card says so before the player signs. Details: `docs/privacy-notes.md`, the privacy policy (`docs/legal/privacy.md`, `LEGAL_VERSION` 2026-11-14) and the terms (`docs/legal/terms.md` section 3).
 
 ## Admin panel
 

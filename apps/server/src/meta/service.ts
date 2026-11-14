@@ -5,6 +5,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { AccountService } from './accounts/service.ts';
+import type { ChainFetch } from './duckPass/chain.ts';
 import { createMailer, type Mailer } from './accounts/mail.ts';
 import { isRevoked } from './accounts/revoked.ts';
 import postgres, { type Sql } from 'postgres';
@@ -55,6 +56,8 @@ export interface MetaServiceOptions {
   retryMs?: number;
   /** Replace the mailer (tests); default from the SMTP settings (accounts/mail.ts). */
   mailer?: Mailer | null;
+  /** Replace the QoreChain REST reads of Duck Pass (tests); default: Diana's public REST. */
+  chainFetch?: ChainFetch;
 }
 
 export type DbState = 'off' | 'starting' | 'up' | 'down';
@@ -101,6 +104,7 @@ export class MetaService {
       db: () => this.db,
       mailer: opts.mailer !== undefined ? opts.mailer : createMailer(this.config),
       fetch: this.fetchImpl,
+      ...(opts.chainFetch ? { chainFetch: opts.chainFetch } : {}),
       loopbackExempt: (ip) => this.loopbackExempt(ip),
     });
     this.progression = new ProgressionService({

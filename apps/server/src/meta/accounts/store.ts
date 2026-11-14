@@ -9,6 +9,7 @@ import type { Sql, TransactionSql } from 'postgres';
 import { CHARACTER_SLOTS, LEGAL_VERSION, MARKETING_TEXT_VERSION, type AccountView, type CharacterView } from '@qwakk/shared/accounts';
 import { randomTag } from '../token.ts';
 import { ACCOUNT_SESSION_MS } from './tokens.ts';
+import { duckPassOf } from '../duckPass/store.ts';
 
 type Db = Sql | TransactionSql;
 
@@ -122,6 +123,7 @@ export async function loadAccount(db: Db, accountId: string): Promise<AccountVie
     lastCharacterId: a.last_character_id,
     characters: await listCharacters(db, accountId),
     slots: CHARACTER_SLOTS,
+    duckPass: await duckPassOf(db, accountId),
   };
 }
 

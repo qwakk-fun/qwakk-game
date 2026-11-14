@@ -20,6 +20,8 @@ import { ipKey } from '../ip.ts';
 import { RateLimiter, type BucketOptions } from '../rateLimit.ts';
 import { isUuid, signSession, verifyDeviceToken } from '../token.ts';
 import { verifyTurnstile, type FetchLike } from '../turnstile.ts';
+import type { ChainFetch } from '../duckPass/chain.ts';
+import { DuckPassService } from '../duckPass/service.ts';
 import { isBanned } from '../../ops/bans.ts';
 import { isIpBlocked } from '../../ops/ipBlocks.ts';
 import { parties } from '../../party/registry.ts';
@@ -65,6 +67,8 @@ export interface AccountDeps {
   db(): Sql | null;
   mailer: Mailer | null;
   fetch?: FetchLike;
+  /** Duck Pass: QoreChain REST reads (tests pass a fake). */
+  chainFetch?: ChainFetch;
   /** Loopback is exempt from per-IP limits outside production. */
   loopbackExempt(ip: string): boolean;
 }
@@ -96,6 +100,8 @@ export class AccountService {
     verifyIp: new RateLimiter(ACCOUNT_LIMITS.verifyIp),
     account: new RateLimiter(ACCOUNT_LIMITS.account),
   };
+  /** Duck Pass: a QoreX wallet linked by one hybrid-signed proof on the testnet (../duckPass/). */
+  readonly duckPass: DuckPassService;
   private readonly deps: AccountDeps;
   private readonly key: Buffer;
   /** Wrong code tries per address (hashed key), memory only. */
@@ -104,6 +110,7 @@ export class AccountService {
   constructor(deps: AccountDeps) {
     this.deps = deps;
     this.key = codeKey(deps.config.sessionSecret);
+    this.duckPass = new DuckPassService(deps.chainFetch ? { fetch: deps.chainFetch } : {});
   }
 
   private get secret(): string {
@@ -382,6 +389,23 @@ export class AccountService {
       const s = signSession(this.secret, { playerId: duck.id, name: duck.name, tag: duck.tag, account: true, look: duck.look });
       return ok({ token: s.token, expiresAt: s.expiresAt, playerId: duck.id, name: duck.name, tag: duck.tag, look: duck.look } satisfies CharacterSession);
     });
+  }
+
+  // ---- Duck Pass (QoreX wallet link) -------------------------------------
+
+  /** POST /api/account/qorex/challenge { address, duckId }: the proof request for QoreX `signAndBroadcast`. */
+  qorexChallenge(authorization: string | undefined, body: unknown, ip: string): Promise<ApiResult> {
+    return this.withAuth(authorization, ip, (db, a) => this.duckPass.challenge(db, a.accountId, body));
+  }
+
+  /** POST /api/account/qorex/verify { txHash }: check the proof on chain and link the wallet. */
+  qorexVerify(authorization: string | undefined, body: unknown, ip: string): Promise<ApiResult> {
+    return this.withAuth(authorization, ip, (db, a) => this.duckPass.verify(db, a.accountId, body));
+  }
+
+  /** POST /api/account/qorex/unlink: forget the linked wallet. */
+  qorexUnlink(authorization: string | undefined, ip: string): Promise<ApiResult> {
+    return this.withAuth(authorization, ip, (db, a) => this.duckPass.unlink(db, a.accountId));
   }
 
   // ---- account deletion ---------------------------------------------------

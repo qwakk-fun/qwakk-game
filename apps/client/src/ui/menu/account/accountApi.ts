@@ -4,6 +4,7 @@
  * session token travels as `Authorization: Bearer`.
  */
 import type { AccountView, CharacterSession, CharacterView, SignedIn, VerifyResult } from '@qwakk/shared/accounts';
+import type { DuckPassChallenge, DuckPassVerifyResult } from '@qwakk/shared/duck-pass';
 import { locale } from '../../../i18n/locale.ts';
 import { call } from '../api.ts';
 
@@ -67,4 +68,18 @@ export function requestDeleteCode(token: string): Promise<{ ok: true }> {
 
 export function deleteAccount(token: string, code: string): Promise<{ ok: true }> {
   return call('/api/account/delete', json({ code, lang: locale }, token));
+}
+
+/** Duck Pass: the QoreX request (1 uqor to self, the memo with a one-time code) for this wallet and duck. */
+export function qorexChallenge(token: string, address: string, duckId: string): Promise<DuckPassChallenge> {
+  return call('/api/account/qorex/challenge', json({ address, duckId }, token));
+}
+
+/** Duck Pass: the server checks the transaction on QoreChain; `pending` until the chain shows it. */
+export function qorexVerify(token: string, txHash: string): Promise<DuckPassVerifyResult> {
+  return call('/api/account/qorex/verify', json({ txHash }, token), 15_000);
+}
+
+export function qorexUnlink(token: string): Promise<{ ok: true }> {
+  return call('/api/account/qorex/unlink', json({}, token));
 }

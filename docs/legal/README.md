@@ -13,7 +13,7 @@ The texts follow the tone and structure of the DEX's pages (`qwakk-app/app/terms
 
 ## Versioning
 
-- One version string covers the Terms, the Privacy Policy and the storage notice, like the DEX: `LEGAL_VERSION = "2026-10-23"` (the date of the version, `YYYY-MM-DD`), with a readable `LEGAL_UPDATED = "October 23, 2026"` for the page header. Replace `[[LEGAL_VERSION]]` and `[[LEGAL_UPDATED]]` with them when the pages are built.
+- One version string covers the Terms, the Privacy Policy and the storage notice, like the DEX: `LEGAL_VERSION = "2026-11-14"` (the date of the version, `YYYY-MM-DD`; 2026-11-14 added Duck Pass, the linked QoreX wallet), with a readable `LEGAL_UPDATED = "November 14, 2026"` for the page header. Replace `[[LEGAL_VERSION]]` and `[[LEGAL_UPDATED]]` with them when the pages are built.
 - At sign-up, store with the account: the accepted `LEGAL_VERSION` and the time. On the news box, store yes or no, the time, and `MARKETING_TEXT_VERSION` (a short id for the exact wording shown, for example `2026-10-23`), because the consent proof is the wording the player saw.
 - Bump `LEGAL_VERSION` on any meaningful change (new data, new purpose, new provider, new rules). A signed-in player with an older version sees the "updated terms" step in `ui-copy.md` section 5. Typo fixes do not bump it.
 - Withdrawing news consent writes a new row or field with the time. Do not overwrite the original yes; it is the proof that the earlier emails were allowed.
@@ -71,8 +71,10 @@ These sentences are written from the brief, not from built code. Change the text
 - `../privacy-notes.md` says "chat (there is no chat)". There is a room chat: messages are relayed by the server (`apps/server/src/chat.ts`, `gameRoom.ts`), up to 200 characters, and not stored. It also does not yet list email, accounts, codes, sessions, consent records or characters. The account work should add those rows.
 - `apps/client/src/ui/menu/copy.ts` links the footer to `https://qwakk.fun/terms` and `https://qwakk.fun/privacy`. The landing (`qwakk-landing/app`) has no such pages today, so those links are dead. Decide where the game's legal pages live (for example `play.qwakk.fun/terms`) and point the links there.
 
-## Wallet sign-in (add only when it ships)
+## Duck Pass and wallet sign-in
 
-Draft paragraph for `privacy.md` section 3 once QoreX sign-in works:
+Duck Pass (2026-11-14, `LEGAL_VERSION` 2026-11-14) links a QoreX wallet to an account with one testnet transaction; `terms.md` section 3 and `privacy.md` sections 2, 3, 5, 6 and 8 cover it. Open points for the lawyer: the permanent public memo (season, duck tag, one-time code) on a public chain, and whether linking needs its own consent wording.
+
+Draft paragraph for `privacy.md` section 3 once QoreX sign-in itself works (not built):
 
 > **Wallet sign-in.** If you link a QoreX wallet, we store its public address (qor1...) with your account so you can sign in with it. We use it only to recognise you: it never earns rewards and we never ask for your recovery phrase or a transaction. Wallet addresses and their activity on QoreChain are public by design. Legal basis: contract. Kept until you unlink the wallet or delete your account.

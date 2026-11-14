@@ -16,6 +16,9 @@
  *   POST /api/account/play                (Bearer) { id } -> a game session for that duck
  *   POST /api/account/delete/code         (Bearer) { lang? } -> a confirmation code by email
  *   POST /api/account/delete              (Bearer) { code, lang? }
+ *   POST /api/account/qorex/challenge     (Bearer) { address, duckId } -> the Duck Pass request for QoreX
+ *   POST /api/account/qorex/verify        (Bearer) { txHash } -> 202 pending, or the linked Duck Pass
+ *   POST /api/account/qorex/unlink        (Bearer) the linked wallet is forgotten
  *   GET  /api/test/mail?email=            test hooks only (never production): the dev mail sink
  */
 import type { AccountService, ApiResult } from './service.ts';
@@ -34,6 +37,9 @@ export const ACCOUNT_PATHS = [
   '/api/account/play',
   '/api/account/delete/code',
   '/api/account/delete',
+  '/api/account/qorex/challenge',
+  '/api/account/qorex/verify',
+  '/api/account/qorex/unlink',
   '/api/test/mail',
 ];
 
@@ -73,6 +79,12 @@ export async function accountRoute(
       return accounts.deleteCode(authorization, await body(), ip);
     case 'POST /api/account/delete':
       return accounts.deleteAccount(authorization, await body(), ip);
+    case 'POST /api/account/qorex/challenge':
+      return accounts.qorexChallenge(authorization, await body(), ip);
+    case 'POST /api/account/qorex/verify':
+      return accounts.qorexVerify(authorization, await body(), ip);
+    case 'POST /api/account/qorex/unlink':
+      return accounts.qorexUnlink(authorization, ip);
     case 'GET /api/test/mail':
       return accounts.testMail(params);
     default:

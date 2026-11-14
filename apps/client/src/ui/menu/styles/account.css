@@ -733,3 +733,43 @@
     padding: 8px 8px 8px 14px;
   }
 }
+
+/* Duck Pass (account/duckPassCard.ts): link a QoreX wallet with one post-quantum proof. */
+.qm-duckpass-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 20px;
+  font-weight: 760;
+  letter-spacing: -0.02em;
+}
+.qm-duckpass-title svg {
+  width: 20px;
+  height: 20px;
+  color: var(--qm-yellow);
+}
+.qm-duckpass-tag {
+  padding: 2px 8px;
+  border: 1px solid var(--qm-line);
+  border-radius: 999px;
+  color: var(--qm-text-3);
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+}
+.qm-duckpass-ok {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 650;
+}
+.qm-duckpass-ok svg {
+  width: 18px;
+  height: 18px;
+}
+.qm-duckpass-mono {
+  overflow-wrap: anywhere;
+  font-family: var(--qm-mono);
+  font-size: 13px;
+}

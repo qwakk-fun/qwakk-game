@@ -16,7 +16,8 @@ Contact for anything in this policy: hello@qwakk.fun
 
 - **Guests:** a nickname, a tag and match stats. Your browser keeps a signed token so it stays the same guest.
 - **Accounts:** your email address, your sign-in sessions, which version of our terms you accepted and when, whether you want news emails, up to 4 ducks with their progress and match stats.
-- **Public:** duck names, tags, looks and stats appear in matches and on the leaderboard. Chat messages are seen by everyone in the room.
+- **QoreX wallet (optional, Duck Pass):** if you link one, its public qor1 address and the hash of the testnet transaction that linked it.
+- **Public:** duck names, tags, looks and stats appear in matches and on the leaderboard. Chat messages are seen by everyone in the room. A Duck Pass transaction is public on the QoreChain testnet.
 - **Never collected:** passwords, real names, phone numbers, payment details, device fingerprints, location.
 - **Your IP address** is used only in our server's memory for abuse limits and is not saved in our database.
 - **You can delete your account** and its data yourself from the account screen.
@@ -34,6 +35,9 @@ The "legal basis" column names the GDPR article first and the matching KVKK arti
 | Sign-in sessions: when each session started, was last used and expires | To keep you signed in and let you sign out | Contract | Until you sign out, the session expires ([[SESSION_LIFETIME]]) or you delete your account |
 | The version of the Terms of Use you accepted and when, and confirmation that you are 16 or older | To show which terms apply to you and that you met the age rule | Legitimate interest in being able to prove it (GDPR Art. 6(1)(f); KVKK Art. 5(2)(e)) | Until you delete your account |
 | News email choice: yes or no, and when you chose it | To send game news only if you asked for it, and to prove that you did | Consent (GDPR Art. 6(1)(a); KVKK Art. 5(1) explicit consent, and Turkey's Law No. 6563 on commercial electronic messages) | Your choice: until you delete your account. The record of when you agreed and when you withdrew: [[CONSENT_RECORD_RETENTION]] |
+| QoreX wallet address (qor1...), only if you link one with Duck Pass, with the hash and season of the testnet transaction that linked it | To show that this wallet belongs to your account. It never earns rewards, never changes the game and never appears on the leaderboard | Contract (GDPR Art. 6(1)(b); KVKK Art. 5(2)(c)) | Until you unlink the wallet or delete your account |
+
+**Duck Pass and the blockchain.** The Duck Pass transaction itself is on the QoreChain testnet, a public blockchain. Anyone can see it there: your wallet address, the 1 uqor it sent to itself, and its note (the season, your duck's tag and a one-time code). Nobody, including us, can change or delete a blockchain transaction, so unlinking or deleting your account removes the address from our database but not from the testnet.
 
 ### Ducks (characters) and stats
 
@@ -78,7 +82,7 @@ Emails are sent from noreply@qwakk.fun. Replies to that address are not read: wr
 
 ## 5. What is public
 
-Your ducks' names, tags, looks and match stats are shown to other players in matches and on the public leaderboard. Your email address is never shown to other players. Chat messages are seen by everyone in the room at that moment.
+Your ducks' names, tags, looks and match stats are shown to other players in matches and on the public leaderboard. Your email address is never shown to other players. Chat messages are seen by everyone in the room at that moment. We never show your linked wallet address to other players. If you use Duck Pass, its transaction is public on the QoreChain testnet for good (see section 3).
 
 ## 6. Who helps us run the game
 
@@ -91,6 +95,8 @@ We use a few service providers who process data only on our instructions:
 | Cloudflare, Inc. (Turnstile), only when we have the human check switched on | Checks that you are a person and not a bot, for example when you create a guest [[or request a sign-in code]] | Your IP address and technical details your browser sends to Cloudflare during the check | United States and Cloudflare's global network |
 
 During a Turnstile check your browser loads Cloudflare's check directly and our server confirms the result with Cloudflare, sending your IP address. Cloudflare uses this data for the check under its own privacy terms. Legal basis: our legitimate interest in keeping bots and abuse out.
+
+**Duck Pass:** your browser talks to the QoreX wallet directly; the wallet builds, signs and sends the transaction under QoreX's and QoreChain's own terms. Our server then reads that one public transaction from QoreChain's public testnet API, sending only the transaction hash. QoreChain is a public network, not a provider working for us.
 
 Fonts are part of the game itself, so loading the game makes no request to Google or any other font service. We use no analytics, advertising or social media trackers.
 
@@ -108,7 +114,7 @@ Our servers are in Germany, in the European Union. If you play from outside the 
 The tables above give the period for each kind of data. In short:
 
 - Your account and ducks: until you delete them, or until your account has been inactive for [[ACCOUNT_INACTIVE_PERIOD]] [[and we have emailed you a warning first: only if this is implemented]].
-- **When you delete your account,** we delete your email address, sessions, terms and news records, ducks, names, progress and cosmetics. Match rows stay in the match history without any link to you or your names, so other players' results stay correct. The only things we may keep are the records listed above for bans and the moderation log, for the periods shown there, and anything the law requires us to keep.
+- **When you delete your account,** we delete your email address, sessions, terms and news records, linked wallet address and Duck Pass record, ducks, names, progress and cosmetics. Match rows stay in the match history without any link to you or your names, so other players' results stay correct. The only things we may keep are the records listed above for bans and the moderation log, for the periods shown there, and anything the law requires us to keep.
 - Backups of our database are overwritten within [[BACKUP_RETENTION]].
 
 ## 9. Your rights
