@@ -981,4 +981,4 @@ uses the hosting origin and needs no endpoint override.
 
 ## License
 
-Code is MIT, see [LICENSE](LICENSE). Asset sources and third-party licenses are listed in [LICENSES.md](LICENSES.md).
+The source code is MIT, see [LICENSE](LICENSE). The Qwakk name, logo, characters, art, models and maps are not: all rights reserved, see [NOTICE.md](NOTICE.md). Forks must use their own name and art. Asset sources and third-party licenses are listed in [LICENSES.md](LICENSES.md).
