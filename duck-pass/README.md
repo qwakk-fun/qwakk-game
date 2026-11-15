@@ -35,4 +35,4 @@ The public REST API sends no CORS headers, so the browser reaches it through the
 
 This folder is not an npm workspace of the game: it has its own `package.json` and lockfile so the SDK's dependency tree stays out of the game's images.
 
-MIT, like the rest of the repo.
+This folder started from the `create-qorechain-dapp` 0.14.0 template by QoreChain, licensed under Apache-2.0 (copy in [LICENSE-APACHE-2.0](LICENSE-APACHE-2.0)). The files that came from the template keep that licence; our own changes are MIT, like the rest of the repo.

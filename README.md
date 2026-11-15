@@ -1,10 +1,30 @@
 # Qwakk game
 
-A browser third-person shooter with ducks, planned to live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Yelova**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck (or one team) is left; server bots on a navmesh fill the empty seats. Rooms play Solo, Duo or Squad; friends group up in a party in the menu (a code and a share link) and land together on one team, with name tags, ally markers through walls, knocks and revives. Next to it run always-on deathmatch rooms of 24 ducks each (at launch one, Kavren; Kumra and Tanoba are ready in the catalog) on **Kavren**, a compact village quarter from the same kit; bots fill every seat a human does not take. **Hunt Season** (Av Sezonu) is the co-op PvE mode on **Pond Keep**, a duck castle on a pond island (`docs/pond-keep.md`): 1 to 4 signed-in ducks draw katanas and push out of the castle across the field through hordes of duck hunters (packs of Beaters and Recruits with riflemen, trappers, decoy throwers and dogs as elites, snipers on the watchtowers), taking four objectives in turn (the trench, the supply crates, the watchtowers, the Big Hunter's camp) with light combos, a charged heavy spin, a dash, the "VAK!" quack shockwave and the Blade Storm, a pistol for range, bread cannons on the towers, a drawbridge and a gate to fall back on; they pick upgrade cards between objectives and earn XP, levels and Tüy for their duck: levels unlock the katana's moves and skill points, Tüy buys katanas and armor at Duck Plaza's Blacksmith and Armorer (`docs/hunt-season.md`, `docs/progression.md`; none of it counts in the deathmatch or the battle royale). All modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream. It plays on desktop (keyboard and mouse) and on phones and tablets in landscape with touch controls (see Touch controls); both join the same rooms and parties.
+A browser third-person shooter with ducks, live at `play.qwakk.fun` (one CapRover container serves the page and the game server; the runbook is `docs/deploy.md`). This repo is at **Phase 2**: a 16-duck battle royale on **Yelova**, a Normandy-style coastal village in toon style. Ducks board a plane, jump, glide down, loot guns, armor and heals, and fight inside a shrinking zone until one duck (or one team) is left; server bots on a navmesh fill the empty seats. Rooms play Solo, Duo or Squad; friends group up in a party in the menu (a code and a share link) and land together on one team, with name tags, ally markers through walls, knocks and revives. Next to it run always-on deathmatch rooms of 24 ducks each (at launch one, Kavren; Kumra and Tanoba are ready in the catalog) on **Kavren**, a compact village quarter from the same kit; bots fill every seat a human does not take. **Hunt Season** (Av Sezonu) is the co-op PvE mode on **Pond Keep**, a duck castle on a pond island (`docs/pond-keep.md`): 1 to 4 signed-in ducks draw katanas and push out of the castle across the field through hordes of duck hunters (packs of Beaters and Recruits with riflemen, trappers, decoy throwers and dogs as elites, snipers on the watchtowers), taking four objectives in turn (the trench, the supply crates, the watchtowers, the Big Hunter's camp) with light combos, a charged heavy spin, a dash, the "VAK!" quack shockwave and the Blade Storm, a pistol for range, bread cannons on the towers, a drawbridge and a gate to fall back on; they pick upgrade cards between objectives and earn XP, levels and Tüy for their duck: levels unlock the katana's moves and skill points, Tüy buys katanas and armor at Duck Plaza's Blacksmith and Armorer (`docs/hunt-season.md`, `docs/progression.md`; none of it counts in the deathmatch or the battle royale). All modes share CS-style gunplay, server-authoritative hits with lag compensation, client-side prediction of movement and shooting, and toon ducks from the art workstream. It plays on desktop (keyboard and mouse) and on phones and tablets in landscape with touch controls (see Touch controls); both join the same rooms and parties.
 
 Phase 0 (the foundation: sim, netcode, camera) is described in the netcode section below.
 
 The full plan (stack, netcode rules, roadmap) is in `../GAME_PLAN.md` in the workspace.
+
+## Build Before Q-Day
+
+Qwakk Island (this game) is our entry for QoreChain's "Build Before Q-Day" fest, Quantum Pass category, with **Duck Pass**. The game existed before the fest started on 4 November 2026, so the old and the new work are listed apart here. The commit history shows the same split.
+
+**Before the fest (15 to 26 October 2026, commits `794ca1d` to `ab90dce`).** The game itself, live at play.qwakk.fun since October: the shared TypeScript simulation, the Colyseus server (30 ticks per second, lag-compensated hits, anti-wallhack culling, navmesh bots), the Three.js client with touch controls for phones, deathmatch, battle royale, Hunt Season, Duck Plaza, email accounts, the admin panel, and every model, map and sound, made by our own scripts.
+
+**During the fest (from 4 November 2026):**
+
+- 14 November: the repository went public under the MIT license (`4e20cae`).
+- 14 November: Duck Pass (`2238356`), deployed to play.qwakk.fun the same day. A signed-in player links a QoreX wallet to the account with one hybrid-signed (secp256k1 + ML-DSA-87) transaction on the QoreChain testnet: 1 uqor from the wallet to itself, with a single-use code in the memo. The player's QoreX signs and broadcasts it. The server only prepares the request and reads the committed transaction (memo code, signer key, the chain's `pqc_hybrid_verify` event); it never signs, broadcasts or holds keys. The same commit adds the standalone Duck Pass checker (`duck-pass/`, started from create-qorechain-dapp), the tests and the updated privacy policy and terms. Details: [Duck Pass](#duck-pass-qorechain-quantum-pass) below and `docs/accounts.md`.
+- 15 November: the brand and art notice (`9c00299`, [NOTICE.md](NOTICE.md)).
+
+Identity only: no tokens, no prizes, no money flows. A linked wallet never touches Tüy, XP, rewards or the leaderboard.
+
+- Demo: https://play.qwakk.fun
+- Video: [pending]
+- QoreChain testnet address used for the demo link, and its proof transaction: [pending]
+- How AI was used: [AI_USAGE.md](AI_USAGE.md)
+- Sister project: the Qwakk DEX at https://app.qwakk.fun (its own repo).
 
 ## Layout
 
@@ -978,6 +998,30 @@ When local dev already occupies 2567/5173, build a separate test endpoint with
 `VITE_GAME_SERVER=ws://localhost:2589 npm run build:test`, then run the game e2es with
 `E2E_SERVER_PORT=2589 E2E_WEB_PORT=5189 npm run e2e`. The normal production build
 uses the hosting origin and needs no endpoint override.
+
+## Credits
+
+Qwakk Island is built on these open-source projects and kits. Thank you to their authors. Asset sources (all made for Qwakk) and the font licenses are in [LICENSES.md](LICENSES.md).
+
+| Project | Used for | License |
+| --- | --- | --- |
+| [Three.js](https://threejs.org) 0.186 | Rendering in the client (WebGPU with a WebGL2 fallback) | MIT |
+| [Rapier](https://rapier.rs) (`@dimforge/rapier3d-compat` 0.21) | Physics on the client and the server | Apache-2.0 |
+| [Colyseus](https://colyseus.io) 0.18 (`@colyseus/core`, `ws-transport`, `sdk`, `schema`) | Game rooms, state sync, client prediction helpers | MIT |
+| [recast-navigation](https://github.com/isaac-mason/recast-navigation-js) 0.43 | Bot navmesh on the server | MIT |
+| [postgres](https://github.com/porsager/postgres) 3.4 | Database client | Unlicense |
+| [Nodemailer](https://nodemailer.com) 10 | Sign-in code emails | MIT-0 |
+| [Geist and Geist Mono](https://vercel.com/font) (`@fontsource-variable` 5.3) | Menu and admin fonts | SIL OFL 1.1 |
+| [Vite](https://vite.dev) 8 | Client build and dev server | MIT |
+| [TypeScript](https://www.typescriptlang.org), [Vitest](https://vitest.dev), [Playwright](https://playwright.dev) | Types, unit tests, browser tests | Apache-2.0, MIT, Apache-2.0 |
+| [create-qorechain-dapp](https://github.com/qorechain/qorechain-sdk) 0.14.0 (`fullstack-web` template) | Starting point of the Duck Pass checker (`duck-pass/`) | Apache-2.0 |
+| [@qorechain/sdk](https://github.com/qorechain/qorechain-sdk) 0.14.0 | The checker's chain reads and signer address check | Apache-2.0 |
+| `@qorechain/qorex-types` 0.1.0 | The menu's QoreX calls for Duck Pass | Apache-2.0 |
+| React 18, Vite 5, `@vitejs/plugin-react` | The Duck Pass checker page | MIT |
+
+The files `duck-pass/` kept from the create-qorechain-dapp template (Vite setup, the `/lcd` proxy, the `.env` layout) stay under that template's Apache-2.0 license; `duck-pass/README.md` lists what was kept and what was replaced. Duck Pass also relies on the player's own QoreX wallet, which signs and broadcasts the proof; no QoreX code is included here.
+
+Tools that ship nothing into the game: Blender runs our own Python scripts that build every model, map and texture (`art/`), and Claude Code (Anthropic) agents wrote much of the code, the art scripts and the docs under the builder's direction ([AI_USAGE.md](AI_USAGE.md)). Apart from the create-qorechain-dapp starter above, no templates, asset packs or other games were copied.
 
 ## License
 
