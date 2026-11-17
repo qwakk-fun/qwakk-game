@@ -22,7 +22,7 @@ Identity only: no tokens, no prizes, no money flows. A linked wallet never touch
 
 - Demo: https://play.qwakk.fun
 - Video: [pending]
-- QoreChain testnet address used for the demo link, and its proof transaction: [pending]
+- QoreChain testnet address used for the demo link: `qor1wl5jxt3n5fxez4csxe7t67xcfyvxr69y3mn4dq`, proof transaction [5425E98D…](https://explore.qore.network/tx/5425E98D0D8896956FBF38A3FC65656BEB3E6BEB3CFFA86ADF7396ADF3FEADAA) (15 November 2026: 1 uqor self-send with the Duck Pass memo, hybrid signed, code 0)
 - How AI was used: [AI_USAGE.md](AI_USAGE.md)
 - Sister project: the Qwakk DEX at https://app.qwakk.fun (its own repo).
 
