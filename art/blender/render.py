@@ -195,8 +195,16 @@ def frame_camera(name, target, height, yaw_deg=0.0, pitch_deg=6.0, lens=80):
     return camera(name, loc, t, lens)
 
 
+def no_render_metadata(scene):
+    """Keep the machine's file path, date and host out of the PNG text chunks."""
+    for attr in dir(scene.render):
+        if attr.startswith("use_stamp_"):
+            setattr(scene.render, attr, False)
+
+
 def render(cam, path):
     scene = bpy.context.scene
+    no_render_metadata(scene)
     scene.camera = cam
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)

@@ -192,8 +192,16 @@ def ground_disc(radius, color="#23262d", z=-0.003):
     return disc
 
 
+def no_render_metadata(scene):
+    """Keep the machine's file path, date and host out of the PNG text chunks."""
+    for attr in dir(scene.render):
+        if attr.startswith("use_stamp_"):
+            setattr(scene.render, attr, False)
+
+
 def render(cam, path):
     scene = bpy.context.scene
+    no_render_metadata(scene)
     scene.camera = cam
     scene.render.filepath = path
     bpy.ops.render.render(write_still=True)

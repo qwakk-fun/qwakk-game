@@ -374,9 +374,17 @@ def _height_material(hmax):
     return mat
 
 
+def no_render_metadata(scene):
+    """Keep the machine's file path, date and host out of the PNG text chunks."""
+    for attr in dir(scene.render):
+        if attr.startswith("use_stamp_"):
+            setattr(scene.render, attr, False)
+
+
 def render_tile(obj, albedo_path, height_path, look, samples):
     """Two top-down renders of the tile: albedo (sRGB) and height (linear 0..1 over look['hmax'])."""
     scene = bpy.context.scene
+    no_render_metadata(scene)
     obj.data.materials.append(_albedo_material(look["light"], look["ao"], look["aoMin"]))
     scene.cycles.samples = samples
     scene.view_settings.view_transform = "Standard"
